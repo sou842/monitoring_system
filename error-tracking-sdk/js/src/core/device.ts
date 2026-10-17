@@ -118,8 +118,9 @@ export class DeviceInfo {
       .then(function apply(values) {
         if (values.platform === 'Windows' && typeof values.platformVersion === 'string') {
           const major = parseInt(values.platformVersion.split('.')[0], 10);
+          // Only used to tell 10 from 11: platformVersion is an internal number
+          // (e.g. "8.0.0" on Windows 10 1903), so os_version keeps the NT version from the UA.
           self.parsed.os = major >= WINDOWS_11_MIN_PLATFORM_MAJOR ? 'Windows 11' : 'Windows 10';
-          self.parsed.osVersion = values.platformVersion;
         }
         if (typeof values.model === 'string' && values.model.length > 0) {
           self.parsed.model = values.model;

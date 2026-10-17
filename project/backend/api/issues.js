@@ -1,0 +1,61 @@
+import { requireSession } from '../lib/auth.js';
+import { EVENT_TYPES, ISSUES_PAGE_SIZE, ISSUE_STATUSES } from '../lib/constants.js';
+import { getDb } from '../lib/db.js';
+import { errorResponse, handle, json, parseObjectId } from '../lib/http.js';
+import { issueView } from '../lib/views.js';
+
+const SORTS = { lastSeen: { lastSeen: -1 }, count: { count: -1, lastSeen: -1 }, firstSeen: { firstSeen: -1 } };
+const MAX_SEARCH_LENGTH = 200;
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * GET /api/issues?projectId=…  (required)
+ *   &status=open|resolved|ignored|all   (default open)
+ *   &type=error|message|performance|crash
+ *   &env=production   &q=search text   &sort=lastSeen|count|firstSeen   &page=1
+ *
+ * Returns the page of issues plus per-status counts and the project's environments for filters.
+ */
+export const GET = handle(async (request) => {
+  const denied = requireSession(request);
+  if (denied) return denied;
+
+  const params = new URL(request.url).searchParams;
+  const projectId = parseObjectId(params.get('projectId'));
+  if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
+
+  const status = params.get('status') || 'open';
+  const filter = { projectId };
+  if (status !== 'all') {
+    if (!ISSUE_STATUSES.includes(status)) return errorResponse(400, 'invalid_status', 'Unknown status');
+    filter.status = status;
+  }
+  const type = params.get('type');
+  if (type && EVENT_TYPES.includes(type)) filter.eventType = type;
+  const env = params.get('env');
+  if (env) filter.environments = env;
+  const q = (params.get('q') || '').trim().slice(0, MAX_SEARCH_LENGTH);
+  if (q) {
+    const pattern = new RegExp(escapeRegex(q), 'i');
+    filter.$or = [{ message: pattern }, { errorType: pattern }, { culprit: pattern }];
+  }
+  const sort = SORTS[params.get('sort')] || SORTS.lastSeen;
+  const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
+
+  const db = await getDb();
+  const issues = db.collection('issues');
+  const [rows, total, statusCounts, environments] = await Promise.all([
+    issues.find(filter).sort(sort).skip((page - 1) * ISSUES_PAGE_SIZE).limit(ISSUES_PAGE_SIZE).toArray(),
+    issues.countDocuments(filter),
+    issues.aggregate([{ $match: { projectId } }, { $group: { _id: '$status', n: { $sum: 1 } } }]).toArray(),
+    issues.distinct('environments', { projectId }),
+  ]);
+
+  const counts = Object.fromEntries(ISSUE_STATUSES.map((s) => [s, 0]));
+  for (const row of statusCounts) counts[row._id] = row.n;
+
+  return json({ issues: rows.map(issueView), total, page, pageSize: ISSUES_PAGE_SIZE, counts, environments: environments.sort() });
+});

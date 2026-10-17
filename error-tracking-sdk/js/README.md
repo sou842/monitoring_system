@@ -125,7 +125,7 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | **Performance** | Page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS (via `PerformanceObserver`), plus the last 20 API calls. A page load over 3000 ms or an API call over 2000 ms is flagged and also sent as its own `performance` event. |
 | **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. |
 | **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `performance` event when the heap grows by more than 20% across 3 consecutive rising readings with no navigation in between. |
-| **Screenshots** | The visible viewport as a JPEG (quality 0.6), only when the page is visible. At most one every 10 s, with a 3 s time budget and a ~750 KB size cap. |
+| **Screenshots** | The visible viewport as a compressed JPEG: at most 1280 px wide, quality 0.5, typically around 50 KB, capped at ~370 KB. Only taken when the page is visible, at most one every 10 s, with a 3 s time budget. |
 
 Query strings and fragments are stripped from every recorded URL, because they often carry tokens.
 
@@ -156,7 +156,7 @@ Masking works in two layers. Masked elements are painted black in html2canvas's 
 
 ## Delivery
 
-- Events are batched (up to 10 per request) and sent 2 s after the first event, or immediately once 10 are waiting.
+- Events are batched (up to 10 per request, and at most ~1 MB per request so serverless hosts such as Vercel accept it) and sent 2 s after the first event, or immediately once 10 are waiting.
 - The request is `POST <endpoint>`, with headers `Content-Type: application/json` and `X-API-Key: <apiKey>`, and the body `{ "events": [ ... ] }`.
 - **Retries:** network errors, 5xx, 408 and 429 are retried 3 times, after 1 s, 2 s and 4 s. Other 4xx responses (bad payload, invalid key) are dropped without retrying, since resending can't succeed.
 - **Offline:** when `navigator.onLine === false`, or once retries are exhausted, events are stored in `localStorage["_et_queue"]` (newest 50, with the API key removed). The stored queue is flushed on the `online` event, when the tab becomes visible again, and on the next `init()`. If storage is full, screenshots are dropped first, then the oldest events.

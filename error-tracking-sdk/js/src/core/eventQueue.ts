@@ -1,4 +1,4 @@
-import { BATCH_SIZE, FLUSH_DELAY_MS, MAX_QUEUE_SIZE, RETRY_DELAYS_MS } from '../constants';
+import { BATCH_SIZE, FLUSH_DELAY_MS, MAX_BATCH_BYTES, MAX_QUEUE_SIZE, RETRY_DELAYS_MS } from '../constants';
 import { TrackerEvent } from '../types';
 import { OfflineStore } from '../transport/offlineStore';
 import { Transport } from '../transport/httpTransport';
@@ -11,6 +11,8 @@ export interface EventQueueOptions {
   store: OfflineStore;
   logger: Logger;
   batchSize?: number;
+  /** Max serialized bytes per request; defaults to MAX_BATCH_BYTES. */
+  maxBatchBytes?: number;
   flushDelayMs?: number;
   retryDelaysMs?: readonly number[];
   /** Injectable for tests; defaults to setTimeout. */
@@ -33,6 +35,7 @@ export class EventQueue {
   private readonly store: OfflineStore;
   private readonly logger: Logger;
   private readonly batchSize: number;
+  private readonly maxBatchBytes: number;
   private readonly flushDelayMs: number;
   private readonly retryDelaysMs: readonly number[];
   private readonly schedule: Scheduler | undefined;
@@ -43,6 +46,7 @@ export class EventQueue {
     this.store = options.store;
     this.logger = options.logger;
     this.batchSize = options.batchSize !== undefined ? options.batchSize : BATCH_SIZE;
+    this.maxBatchBytes = options.maxBatchBytes !== undefined ? options.maxBatchBytes : MAX_BATCH_BYTES;
     this.flushDelayMs = options.flushDelayMs !== undefined ? options.flushDelayMs : FLUSH_DELAY_MS;
     this.retryDelaysMs = options.retryDelaysMs !== undefined ? options.retryDelaysMs : RETRY_DELAYS_MS;
     this.schedule = options.schedule;
@@ -136,6 +140,20 @@ export class EventQueue {
     }
   }
 
+  /**
+   * How many queued events fit in the next request: at most batchSize events
+   * and at most maxBatchBytes serialized (always at least one event).
+   */
+  private nextBatchLength(): number {
+    let bytes = 0;
+    const limit = Math.min(this.batchSize, this.queue.length);
+    for (let i = 0; i < limit; i++) {
+      bytes += JSON.stringify(this.queue[i]).length;
+      if (bytes > this.maxBatchBytes) return Math.max(1, i);
+    }
+    return limit;
+  }
+
   /** Sends batch after batch until the queue is empty or delivery has to stop. */
   private drain(): Promise<void> {
     if (this.queue.length === 0) return Promise.resolve();
@@ -145,7 +163,7 @@ export class EventQueue {
       return Promise.resolve();
     }
 
-    const batch = this.queue.splice(0, this.batchSize);
+    const batch = this.queue.splice(0, this.nextBatchLength());
     const self = this;
     return retryWithBackoff(
       function attempt() {

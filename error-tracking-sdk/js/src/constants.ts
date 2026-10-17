@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.1.0';
+export const SDK_VERSION = '0.2.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +23,12 @@ export const DEFAULT_ENVIRONMENT = 'production';
 export const API_KEY_HEADER = 'X-API-Key';
 export const CONTENT_TYPE_JSON = 'application/json';
 export const BATCH_SIZE = 10;
+/**
+ * Max serialized size of one request. Serverless hosts cap request bodies
+ * (Vercel: 4.5 MB); batches are split to stay well below that. A single event
+ * larger than this is still sent on its own.
+ */
+export const MAX_BATCH_BYTES = 1000000;
 /** How long to wait for more events before sending a partial batch. */
 export const FLUSH_DELAY_MS = 2000;
 /** Backoff before each retry; length of this array is the retry count. */
@@ -123,16 +129,19 @@ export const DEFAULT_HTML2CANVAS_URL =
 export const DEFAULT_HTML2CANVAS_INTEGRITY =
   'sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H';
 export const SCREENSHOT_MIME_TYPE = 'image/jpeg';
-export const SCREENSHOT_QUALITY = 0.6;
+export const SCREENSHOT_QUALITY = 0.5;
 /** Fallback quality used when the first encode is over the size budget. */
 export const SCREENSHOT_FALLBACK_QUALITY = 0.3;
 /** Max base64 length of a screenshot data URL (~750 KB). */
-export const MAX_SCREENSHOT_LENGTH = 1000000;
+/** Max base64 length of a screenshot data URL (~370 KB of image; the backend refuses > 400 KB). */
+export const MAX_SCREENSHOT_LENGTH = 500000;
 /** Library load + render must finish within this or the event is sent without it. */
 export const SCREENSHOT_TIMEOUT_MS = 3000;
 /** At most one screenshot per interval to protect the host app's main thread. */
 export const SCREENSHOT_MIN_INTERVAL_MS = 10000;
 export const SCREENSHOT_MAX_SCALE = 1;
+/** Screenshots are downscaled so they are at most this many pixels wide. */
+export const SCREENSHOT_MAX_WIDTH = 1280;
 export const MASK_COLOR = '#000000';
 /** Always masked, in addition to config.maskSelectors. */
 export const DEFAULT_MASK_SELECTORS: readonly string[] = ['input[type="password"]'];

@@ -161,3 +161,28 @@ describe('EventQueue', () => {
     expect(store.takeAll().map((e) => (e.error ? e.error.message : ''))).toEqual(['pending']);
   });
 });
+
+describe('EventQueue batch size limit', () => {
+  it('splits batches so no request exceeds maxBatchBytes, and sends an oversized event on its own', async () => {
+    const LIMIT = 6000;
+    const transport = new ScriptedTransport();
+    const queue = new EventQueue({
+      transport,
+      store: new MemoryStore(),
+      logger: new Logger(false),
+      retryDelaysMs: [0, 0, 0],
+      isOnline: () => true,
+      maxBatchBytes: LIMIT,
+    });
+    const withShot = (name: string, length: number): TrackerEvent => ({ ...event(name), screenshot: 'data:image/jpeg;base64,' + 'A'.repeat(length) });
+    for (let i = 0; i < 5; i++) queue.enqueue(withShot('e' + i, 1000));
+    queue.enqueue(withShot('huge', 10000));
+    await queue.flush();
+
+    const size = (batch: TrackerEvent[]) => batch.reduce((n, e) => n + JSON.stringify(e).length, 0);
+    expect(transport.sent.some((b) => b.length > 1)).toBe(true); // small events are still batched together
+    for (const batch of transport.sent) if (batch.length > 1) expect(size(batch)).toBeLessThanOrEqual(LIMIT);
+    expect(transport.sent.reduce((n, b) => n + b.length, 0)).toBe(6);
+    expect(transport.sent[transport.sent.length - 1].map((e) => e.error && e.error.message)).toEqual(['huge']);
+  });
+});

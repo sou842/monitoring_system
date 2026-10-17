@@ -1,0 +1,58 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+
+/** Loads .env.local (if present) without overriding variables already set. */
+export function loadEnv() {
+  const path = new URL('../.env.local', import.meta.url);
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+    const eq = trimmed.indexOf('=');
+    const key = trimmed.slice(0, eq);
+    if (process.env[key] === undefined) process.env[key] = trimmed.slice(eq + 1);
+  }
+}
+
+/** Points the app at a fresh, uniquely named database so tests never touch real data. */
+export function useTestDatabase() {
+  loadEnv();
+  process.env.MONGODB_DB = `monitor_test_${randomBytes(4).toString('hex')}`;
+  return process.env.MONGODB_DB;
+}
+
+export function hasDatabase() {
+  loadEnv();
+  return Boolean(process.env.MONGODB_URI);
+}
+
+/** A valid shared-schema event, with overrides. */
+export function sampleEvent(overrides = {}) {
+  return {
+    sdk: { name: 'error-tracker-js', version: '0.2.0' },
+    api_key: '',
+    event_type: 'error',
+    level: 'error',
+    timestamp: new Date().toISOString(),
+    environment: 'production',
+    app_version: '2.1.4',
+    user: { id: 'usr_1', email: null, name: null },
+    error: { message: "Cannot read properties of undefined (reading 'price')", type: 'TypeError', handled: false },
+    stacktrace: [{ filename: 'https://shop.test/static/cart-3f9a1b2c4d.js', lineno: 142, colno: 12, function: 'handlePayment' }],
+    breadcrumbs: [{ timestamp: new Date().toISOString(), type: 'click', message: 'Clicked Pay Now', data: {} }],
+    screenshot: null,
+    performance: { page_load_ms: 1200, ttfb_ms: 100, fcp_ms: 300, lcp_ms: 500, startup_ms: null, frame_rate_fps: 60, slow_screen: false, api_calls: [], slow_api_calls: [] },
+    memory: { used_mb: 40, total_mb: 80, leak_suspected: false, oom_kill: null },
+    device: { platform: 'js', os: 'Windows 11', os_version: '15.0', manufacturer: null, model: null, browser: 'Chrome', browser_version: '124.0', screen_width: 1920, screen_height: 1080, url: 'https://shop.test/checkout', locale: 'en-IN' },
+    context: null,
+    ...overrides,
+  };
+}
+
+export function request(path, { method = 'GET', body, headers = {} } = {}) {
+  return new Request(`http://localhost${path}`, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json', ...headers } : headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}

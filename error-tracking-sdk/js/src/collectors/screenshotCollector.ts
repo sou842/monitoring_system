@@ -3,6 +3,7 @@ import {
   MAX_SCREENSHOT_LENGTH,
   SCREENSHOT_FALLBACK_QUALITY,
   SCREENSHOT_MAX_SCALE,
+  SCREENSHOT_MAX_WIDTH,
   SCREENSHOT_MIME_TYPE,
   SCREENSHOT_MIN_INTERVAL_MS,
   SCREENSHOT_QUALITY,
@@ -148,7 +149,8 @@ export class ScreenshotCollector {
     if (!isPageVisible()) return Promise.resolve(null);
 
     const selectors = this.options.maskSelectors;
-    const scale = Math.min(win.devicePixelRatio || 1, SCREENSHOT_MAX_SCALE);
+    // Never wider than SCREENSHOT_MAX_WIDTH pixels: big monitors would otherwise produce large images.
+    const scale = Math.min(win.devicePixelRatio || 1, SCREENSHOT_MAX_SCALE, SCREENSHOT_MAX_WIDTH / Math.max(1, win.innerWidth));
     // Measure masked elements on the live page before rendering.
     const masked = findMaskedElements(doc, selectors);
     const logger = this.logger;

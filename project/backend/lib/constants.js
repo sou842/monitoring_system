@@ -1,0 +1,71 @@
+/**
+ * Every limit, threshold and fixed name used by the backend lives here.
+ */
+
+// ---------------------------------------------------------------------------
+// Ingestion
+// ---------------------------------------------------------------------------
+/** Vercel rejects function bodies over ~4.5 MB; refuse earlier with a clear 413. */
+export const MAX_BODY_BYTES = 4 * 1024 * 1024;
+/** Max events accepted in one request (the SDK sends at most 10). */
+export const MAX_EVENTS_PER_REQUEST = 50;
+/** Events accepted per project per minute; more get HTTP 429 (the SDK retries later). */
+export const RATE_LIMIT_EVENTS_PER_MINUTE = 1000;
+export const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+export const API_KEY_HEADER = 'x-api-key';
+
+// ---------------------------------------------------------------------------
+// Validation limits (longer strings are truncated, longer arrays cut)
+// ---------------------------------------------------------------------------
+export const MAX_STRING_LENGTH = 2000;
+export const MAX_MESSAGE_LENGTH = 4000;
+export const MAX_URL_LENGTH = 2000;
+export const MAX_STACK_FRAMES = 100;
+export const MAX_BREADCRUMBS = 100;
+export const MAX_API_CALLS = 50;
+/** Max size of the free-form `context` / breadcrumb `data` objects once serialized. */
+export const MAX_JSON_FIELD_BYTES = 16 * 1024;
+/** Events whose timestamp is further than this from server time use the server time instead. */
+export const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
+export const EVENT_TYPES = ['error', 'message', 'performance', 'crash'];
+export const LEVELS = ['info', 'warning', 'error'];
+
+// ---------------------------------------------------------------------------
+// Screenshots (Cloudinary)
+// ---------------------------------------------------------------------------
+/**
+ * Decoded size above which a screenshot is NOT uploaded. The SDK compresses
+ * before sending; this guarantees a raw, uncompressed image never reaches Cloudinary.
+ */
+export const MAX_SCREENSHOT_BYTES = 400 * 1024;
+export const SCREENSHOT_MIME_TYPES = ['image/jpeg', 'image/webp', 'image/png'];
+export const CLOUDINARY_FOLDER = 'error-tracker';
+export const CLOUDINARY_TIMEOUT_MS = 10000;
+/** Parallel screenshot uploads per request. */
+export const SCREENSHOT_UPLOAD_CONCURRENCY = 4;
+
+// ---------------------------------------------------------------------------
+// Retention (MongoDB TTL indexes delete old documents automatically)
+// ---------------------------------------------------------------------------
+export const EVENT_RETENTION_DAYS = 30;
+/** Issues not seen for this long are deleted (their events are long gone). */
+export const ISSUE_RETENTION_DAYS = 90;
+export const SECONDS_PER_DAY = 24 * 60 * 60;
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+export const SESSION_COOKIE = 'et_session';
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Delay after a wrong password, to slow down guessing. */
+export const LOGIN_FAILURE_DELAY_MS = 1000;
+export const ISSUES_PAGE_SIZE = 50;
+export const ISSUE_RECENT_EVENTS = 50;
+export const PROJECT_CACHE_TTL_MS = 60 * 1000;
+export const ISSUE_STATUSES = ['open', 'resolved', 'ignored'];
+export const API_KEY_PREFIX = 'et_';
+export const API_KEY_BYTES = 24;
+export const MAX_PROJECT_NAME_LENGTH = 80;
+
+/** MongoDB server error code for a unique-index violation. */
+export const MONGO_DUPLICATE_KEY = 11000;

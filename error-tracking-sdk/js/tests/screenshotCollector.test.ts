@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findMaskedElements, Html2Canvas, Html2CanvasOptions, maskClonedDocument, ScreenshotCollector } from '../src/collectors/screenshotCollector';
+import { SCREENSHOT_MAX_WIDTH, SCREENSHOT_QUALITY } from '../src/constants';
 import { Logger } from '../src/core/logger';
 
 const MASKS = ['input[type="password"]', '.credit-card', '[data-private]'];
@@ -106,8 +107,24 @@ describe('ScreenshotCollector', () => {
     expect(fake.fillRect).toHaveBeenCalledWith(10, 20, 200, 30);
     expect(fake.fillRect).toHaveBeenCalledWith(10, 80, 300, 50);
     expect(fake.fillRect).toHaveBeenCalledTimes(2);
-    expect(fake.canvas.toDataURL).toHaveBeenCalledWith('image/jpeg', 0.6);
+    expect(fake.canvas.toDataURL).toHaveBeenCalledWith('image/jpeg', SCREENSHOT_QUALITY);
     expect(options).toMatchObject({ logging: false, width: window.innerWidth, height: window.innerHeight });
+  });
+
+  it('downscales wide screens to at most the max width, masks included', async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 2560 });
+    const fake = fakeCanvas();
+    let options: Html2CanvasOptions | null = null;
+    win.html2canvas = vi.fn((_el: HTMLElement, opts: Html2CanvasOptions) => {
+      options = opts;
+      return Promise.resolve(fake.canvas);
+    });
+    await collector().capture();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+
+    expect((options as unknown as Html2CanvasOptions).scale).toBe(SCREENSHOT_MAX_WIDTH / 2560);
+    expect(fake.fillRect).toHaveBeenCalledWith(5, 10, 100, 15); // the 10,20,200,30 rect at half scale
   });
 
   it('applies masking to the clone through the onclone hook', async () => {

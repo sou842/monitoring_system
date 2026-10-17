@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Error Tracker</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar" id="topbar" hidden>
+      <a class="brand" href="#/projects">
+        <img src="/favicon.svg" alt="" width="20" height="20" />
+        Error Tracker
+      </a>
+      <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+      <button class="ghost" id="logout" type="button">Log out</button>
+    </header>
+    <main id="app" aria-live="polite"></main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -2,7 +2,7 @@
 
 ## What we're building
 An in-house error tracking SDK, similar to Bugsnag or Sentry but owned entirely by the company. It's original code: never wrap or import Sentry, Bugsnag, Crashlytics, etc. The SDK runs inside client apps, watches for errors, performance problems, memory issues and crashes, and POSTs JSON events to a backend endpoint.
-**Scope: client SDKs only.** No backend, dashboard or grouping engine.
+The original spec scoped this to client SDKs only. On 2026-10-17 the user added a **backend + dashboard** (`project/backend/`, see below).
 
 Three SDKs, all sending the **same shared payload schema**:
 | SDK | Path | Stack | Status |
@@ -46,7 +46,7 @@ Three SDKs, all sending the **same shared payload schema**:
 - JS: TypeScript is **pinned to ~5.9** because TS 7 drops `target: ES5`. Don't upgrade it.
 
 ## JS SDK on npm
-- Package: **`@sourav732/error-tracker-js`**, public, from the user's own npm account. First version **0.1.0** (still early: only tested in Chrome). License stays `UNLICENSED`.
+- Package: **`@sourav732/error-tracker-js`**, public, from the user's own npm account. **0.1.0 is published**; **0.2.0** is prepared locally (compressed screenshots, size-limited batches, Windows OS version fix) and the user still has to publish it. License stays `UNLICENSED`.
 - `prepublishOnly` runs typecheck + tests + build, so `npm publish` can't ship a broken build. The build is minified with `@rollup/plugin-terser` (ES5, ~55 KB per format, with source maps).
 - `SDK_VERSION` in `src/constants.ts` must equal the `package.json` version; a test enforces it. Bump both together.
 - The user runs `npm login` / `npm publish` themselves (needs their account and 2FA).
@@ -56,7 +56,7 @@ Three SDKs, all sending the **same shared payload schema**:
 ```bash
 cd error-tracking-sdk/js
 npm run typecheck   # strict TS over src + tests
-npm test            # Vitest + jsdom (151 tests passing)
+npm test            # Vitest + jsdom (153 tests passing)
 npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 ```
 - `src/core/client.ts` drives the pipeline: sample → dedup → rate-limit → build → screenshot → beforeSend → queue.
@@ -66,8 +66,20 @@ npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 - Vitest: don't use `vi.runAllTimersAsync()` with an initialised client, because the FPS sampler's repeating timer never ends. Use `advanceTimersByTimeAsync(ms)`.
 - Schema shape test helper: `expectSchemaShape()` in `tests/helpers.ts`.
 
+## Backend + dashboard: `project/backend/` (to be deployed on Vercel)
+- **User constraint: the only allowed npm package is `mongodb`.** No Next.js/React, zod, TypeScript, vitest or sharp; ask before adding anything. So the backend is plain Vercel functions in `api/*.js` (exporting `GET`/`POST`/… with Web `Request`/`Response`), plain JS (ES modules + JSDoc), a vanilla-JS dashboard in `public/`, `node:test` tests, and `dev-server.js` (Node `http`) that mimics Vercel routing locally.
+- **Storage:** MongoDB Atlas (database `monitor`), plus Cloudinary for screenshots (unsigned preset, upload via `fetch`, no SDK). Secrets live only in `project/backend/.env.local` (git-ignored). The Atlas password was pasted in chat on 2026-10-17; the user was told to rotate it.
+- **Screenshots must never be uploaded raw** (user requirement). The SDK compresses them (≤1280 px, JPEG 0.5, ~50 KB), and the server refuses anything over 400 KB.
+- **Dashboard login:** one shared password (`DASHBOARD_PASSWORD`), HMAC-signed cookie (`SESSION_SECRET`).
+- **Grouping:** `lib/grouping.js` fingerprint = event type + error type + normalized message + top-frame function and file (build hashes stripped). Resolved issues reopen on regression. TTL: events 30 days, issues 90 days.
+- The Atlas user can't `dropDatabase`, so tests drop collections instead. Integration tests use a `monitor_test_<random>` database.
+- Commands: `npm run dev` (port 4000), `npm test` (27 tests). Deploy steps are in `project/backend/README.md` (Root Directory `project/backend`, preset Other, env vars, Atlas network access `0.0.0.0/0`).
+- Verified 2026-10-17: the demo app sent 69 events, grouped into 27 issues. The dashboard was checked in headless Chrome (login, filters, search, resolve/reopen, screenshots, phone layout).
+- Not yet: Cloudinary image cleanup (needs API secret), per-user accounts, and the iOS/Android SDKs sending here.
+
 ## Demo app: `project/web/`
 A basic Next.js 15 (App Router, plain JS) app that uses the JS SDK through `file:../../error-tracking-sdk/js`. `node_modules` symlinks to the SDK folder, so after an SDK change: run `npm run build` in the SDK, then restart `npm run dev` (delete `.next/` if the change doesn't show up).
+- Sends to the backend: `.env.local` has the "Web demo" project key and `NEXT_PUBLIC_ET_ENDPOINT` / `ET_SERVER_ENDPOINT` = `http://localhost:4000/api/v1/events`. The user edits this app too (blue background, a `/wrong_path` link), so don't overwrite their changes.
 - **Browser:** the SDK is initialized in `instrumentation-client.js`, which runs before React hydrates, so first-render and hydration errors are caught. `app/error.js` reports page render crashes, and `app/global-error.js` reports root-layout crashes.
 - **Server:** `instrumentation.js` → `onRequestError` → `lib/serverErrors.js` sends API-route, server-component and SSR errors through the SDK in Node, with `context.source: "server"`.
 - The home page has a button for every scenario. Other demo pages: `/hydration`, `/csp` (report-only CSP header from `next.config.mjs`, plus a broken `<img>` in the server HTML), `/server-error`.
