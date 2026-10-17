@@ -1,6 +1,7 @@
 import { MAX_MESSAGE_LENGTH, UNKNOWN_FUNCTION } from '../constants';
 import { getWindow, stripQuery } from '../core/env';
 import { Logger } from '../core/logger';
+import { locationSignature, markReported, wasReported, wasSignatureReported } from '../core/reportedErrors';
 import { guard } from '../core/safe';
 import { describeValue, truncate } from '../core/serialize';
 import { parseStackFromError } from '../core/stackParser';
@@ -10,6 +11,13 @@ import { CapturedError, Collector, CollectorSink } from './collector';
 const UNHANDLED_REJECTION_TYPE = 'UnhandledRejection';
 const RESOURCE_ERROR_TYPE = 'ResourceError';
 const DEFAULT_ERROR_TYPE = 'Error';
+const CROSS_ORIGIN_ERROR_TYPE = 'CrossOriginScriptError';
+/** `<link rel>` values that only hint at a future load. */
+const RESOURCE_HINT_RELS = ['preload', 'prefetch', 'modulepreload'];
+const CROSS_ORIGIN_MESSAGE = /^Script error\.?$/;
+const CROSS_ORIGIN_HINT =
+  'Error details are hidden by the browser because the script came from another origin. ' +
+  'Load it with crossorigin="anonymous" and serve it with an Access-Control-Allow-Origin header to get the real message and stack.';
 
 /**
  * Converts any thrown value into an error payload plus parsed stack trace.
@@ -29,6 +37,9 @@ export function captureFromThrown(thrown: unknown, handled: boolean, fallbackTyp
       if (ctor !== undefined && typeof ctor.name === 'string' && ctor.name.length > 0) type = ctor.name;
     }
   }
+
+  // Later sightings of the same object (unhandledrejection, console.error) are then skipped.
+  markReported(thrown);
 
   return {
     error: {
@@ -60,10 +71,18 @@ export class ErrorCollector implements Collector {
   ) {
     const self = this;
     this.handleError = guard(logger, 'error handler', function onError(event: Event) {
+      if (isErrorEvent(event)) {
+        if (wasReported(event.error)) return;
+        // e.g. a Web Worker error already reported by the worker collector, re-dispatched on window.
+        const filename = event.filename ? stripQuery(event.filename) : null;
+        if (wasSignatureReported(locationSignature(event.message, filename, event.lineno || null))) return;
+      }
       const captured = self.fromErrorEvent(event);
       if (captured !== null) self.sink.onError(captured);
     });
     this.handleRejection = guard(logger, 'rejection handler', function onRejection(event: PromiseRejectionEvent) {
+      // e.g. a failed fetch already reported as NetworkError, or invalid JSON already reported.
+      if (wasReported(event.reason)) return;
       self.sink.onError(captureFromThrown(event.reason, false, UNHANDLED_REJECTION_TYPE));
     });
   }
@@ -86,14 +105,23 @@ export class ErrorCollector implements Collector {
 
   private fromErrorEvent(event: Event): CapturedError | null {
     if (isErrorEvent(event)) {
-      const captured =
-        event.error !== null && event.error !== undefined
-          ? captureFromThrown(event.error, false)
-          : {
-              // Cross-origin scripts without CORS report only "Script error." and no error object.
-              error: { message: truncate(event.message || 'Unknown error', MAX_MESSAGE_LENGTH), type: DEFAULT_ERROR_TYPE, handled: false },
-              stacktrace: [] as StackFrame[],
-            };
+      let captured: CapturedError;
+      if (event.error !== null && event.error !== undefined) {
+        captured = captureFromThrown(event.error, false);
+      } else if (CROSS_ORIGIN_MESSAGE.test(event.message || '')) {
+        // The browser hides details of errors thrown by scripts from another
+        // origin unless they are loaded with CORS. Label it so it isn't mistaken for a bug in our code.
+        captured = {
+          error: { message: event.message, type: CROSS_ORIGIN_ERROR_TYPE, handled: false },
+          stacktrace: [] as StackFrame[],
+          context: { hint: CROSS_ORIGIN_HINT },
+        };
+      } else {
+        captured = {
+          error: { message: truncate(event.message || 'Unknown error', MAX_MESSAGE_LENGTH), type: DEFAULT_ERROR_TYPE, handled: false },
+          stacktrace: [] as StackFrame[],
+        };
+      }
       if (captured.stacktrace.length === 0 && event.filename) {
         captured.stacktrace = [
           { filename: event.filename, lineno: event.lineno || null, colno: event.colno || null, function: UNKNOWN_FUNCTION },
@@ -104,6 +132,9 @@ export class ErrorCollector implements Collector {
 
     const target = event.target;
     if (target !== null && target !== getWindow() && isElement(target)) {
+      // A failed preload/prefetch hint is a duplicate: the element that actually
+      // uses the file (e.g. the <img> React preloads) reports its own failure.
+      if (isResourceHint(target)) return null;
       const source = resourceUrl(target);
       return {
         error: {
@@ -124,6 +155,15 @@ function isErrorEvent(event: Event): event is ErrorEvent {
 
 function isElement(target: EventTarget): target is Element {
   return typeof Element !== 'undefined' && target instanceof Element;
+}
+
+function isResourceHint(el: Element): boolean {
+  if (el.tagName !== 'LINK') return false;
+  const rel = (el.getAttribute('rel') || '').toLowerCase().split(/\s+/);
+  for (let i = 0; i < rel.length; i++) {
+    if (RESOURCE_HINT_RELS.indexOf(rel[i]) !== -1) return true;
+  }
+  return false;
 }
 
 function resourceUrl(el: Element): string | null {

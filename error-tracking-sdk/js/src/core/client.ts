@@ -1,12 +1,17 @@
-import { MAX_MESSAGE_LENGTH } from '../constants';
+import { DROPPED_EVENTS_REPORT_DELAY_MS, MAX_MESSAGE_LENGTH } from '../constants';
 import { BreadcrumbCollector } from '../collectors/breadcrumbCollector';
 import { CapturedError, Collector, CollectorSink, PerformanceIssueKind } from '../collectors/collector';
+import { CspCollector } from '../collectors/cspCollector';
 import { captureFromThrown, ErrorCollector } from '../collectors/errorCollector';
 import { HttpErrorCollector } from '../collectors/httpErrorCollector';
+import { JsonResponseCollector } from '../collectors/jsonResponseCollector';
 import { MemoryCollector, MemoryReading } from '../collectors/memoryCollector';
 import { NetworkInterceptor } from '../collectors/networkInterceptor';
 import { PerformanceCollector } from '../collectors/performanceCollector';
+import { ResourceCollector } from '../collectors/resourceCollector';
+import { ResponsivenessCollector } from '../collectors/responsivenessCollector';
 import { ScreenshotCollector } from '../collectors/screenshotCollector';
+import { WorkerCollector } from '../collectors/workerCollector';
 import { HttpTransport, Transport } from '../transport/httpTransport';
 import { LocalStorageStore, OfflineStore } from '../transport/offlineStore';
 import { Breadcrumb, BreadcrumbInput, EventLevel, TrackedUser, TrackerEvent } from '../types';
@@ -50,10 +55,14 @@ export class Client implements CollectorSink {
   private readonly network: NetworkInterceptor;
   private readonly performance: PerformanceCollector;
   private readonly memory: MemoryCollector;
+  private readonly responsiveness: ResponsivenessCollector;
   private readonly screenshot: ScreenshotCollector;
   private readonly collectors: Collector[];
   private user: TrackedUser | null = null;
   private rateLimitWarned = false;
+  /** Events dropped by the rate limiter since the last summary event. */
+  private droppedCount = 0;
+  private droppedTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
   /** Events waiting on a screenshot before they can be queued. */
   private pendingCaptures: Array<Promise<void>> = [];
@@ -83,6 +92,7 @@ export class Client implements CollectorSink {
     this.network = new NetworkInterceptor(config.endpoint, this.logger);
     this.performance = new PerformanceCollector(this, this.network, this.logger);
     this.memory = new MemoryCollector(this, this.logger, deps.readMemory);
+    this.responsiveness = new ResponsivenessCollector(this, this.logger);
     this.screenshot =
       deps.screenshot ||
       new ScreenshotCollector(
@@ -91,11 +101,20 @@ export class Client implements CollectorSink {
       );
     this.collectors = [
       new ErrorCollector(this, this.logger),
-      new BreadcrumbCollector(this, this.network, config.maskSelectors, this.logger),
+      new BreadcrumbCollector(this, this.network, config.maskSelectors, this.logger, config.captureConsoleErrors),
       this.performance,
       this.memory,
+      this.responsiveness,
+      new CspCollector(this, this.logger, [config.html2canvasUrl]),
+      new WorkerCollector(this, this.logger),
+      new ResourceCollector(this, this.logger),
+      new JsonResponseCollector(this, this.logger, (url: string) => this.network.isSdkUrl(url)),
     ];
-    if (config.captureHttpErrors) this.collectors.push(new HttpErrorCollector(this, this.network));
+    if (config.captureHttpErrors || config.captureNetworkErrors) {
+      this.collectors.push(
+        new HttpErrorCollector(this, this.network, { httpErrors: config.captureHttpErrors, networkErrors: config.captureNetworkErrors }),
+      );
+    }
     this.collectors.push(
       // Installed last: subscribers above register before requests start flowing.
       this.network,
@@ -162,6 +181,8 @@ export class Client implements CollectorSink {
         win.removeEventListener('pagehide', self.handlePageHide);
       }
       if (doc !== null) doc.removeEventListener('visibilitychange', self.handleVisibility);
+      if (self.droppedTimer !== null) clearTimeout(self.droppedTimer);
+      self.droppedTimer = null;
       self.queue.close();
       self.started = false;
     });
@@ -224,7 +245,13 @@ export class Client implements CollectorSink {
 
   onError(captured: CapturedError): void {
     this.capture(
-      { eventType: 'error', level: 'error', error: captured.error, stacktrace: captured.stacktrace, context: null },
+      {
+        eventType: 'error',
+        level: 'error',
+        error: captured.error,
+        stacktrace: captured.stacktrace,
+        context: captured.context !== undefined ? captured.context : null,
+      },
       true,
     );
   }
@@ -266,6 +293,7 @@ export class Client implements CollectorSink {
     if (!this.rateLimiter.tryAcquire()) {
       if (!this.rateLimitWarned) this.logger.warn('rate limit reached; dropping events');
       this.rateLimitWarned = true;
+      this.recordDropped();
       return;
     }
     this.rateLimitWarned = false;
@@ -297,6 +325,40 @@ export class Client implements CollectorSink {
     });
   }
 
+  /** Counts a rate-limited event and schedules one summary event, so storms stay visible. */
+  private recordDropped(): void {
+    this.droppedCount++;
+    if (this.droppedTimer !== null) return;
+    const self = this;
+    this.droppedTimer = setTimeout(
+      guard(this.logger, 'dropped events summary', function report() {
+        self.droppedTimer = null;
+        const count = self.droppedCount;
+        self.droppedCount = 0;
+        if (count === 0) return;
+        // Bypasses sampling, dedup and the rate limiter: this is the one event that explains the gap.
+        self.finish(
+          buildEvent(
+            {
+              eventType: 'message',
+              level: 'warning',
+              error: {
+                message: 'Rate limit dropped ' + count + ' event(s) during an error storm',
+                type: 'EventsDropped',
+                handled: true,
+              },
+              stacktrace: [],
+              context: { dropped_count: count },
+            },
+            self.scope(),
+            nowIso(),
+          ),
+        );
+      }),
+      DROPPED_EVENTS_REPORT_DELAY_MS,
+    );
+  }
+
   private finish(event: TrackerEvent): void {
     safelyRun(this.logger, 'enqueue event', () => {
       const beforeSend = this.config.beforeSend;
@@ -316,13 +378,15 @@ export class Client implements CollectorSink {
   }
 
   private scope(): EventScope {
+    const performance = this.performance.snapshot();
+    performance.frame_rate_fps = this.responsiveness.frameRate();
     return {
       apiKey: this.config.apiKey,
       environment: this.config.environment,
       appVersion: this.config.appVersion,
       user: this.user,
       breadcrumbs: this.breadcrumbs.toArray(),
-      performance: this.performance.snapshot(),
+      performance: performance,
       memory: this.memory.snapshot(),
       device: this.device.snapshot(),
       screenshot: null,

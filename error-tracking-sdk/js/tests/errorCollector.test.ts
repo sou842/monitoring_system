@@ -68,9 +68,10 @@ describe('ErrorCollector', () => {
     expect(sink.errors[0].stacktrace.length).toBeGreaterThan(0);
   });
 
-  it('builds a frame from event location when there is no error object (cross-origin "Script error.")', () => {
+  it('labels cross-origin "Script error." and builds a frame from the event location', () => {
     window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.', filename: 'https://cdn.test/lib.js', lineno: 10, colno: 4 }));
-    expect(sink.errors[0].error).toEqual({ message: 'Script error.', type: 'Error', handled: false });
+    expect(sink.errors[0].error).toEqual({ message: 'Script error.', type: 'CrossOriginScriptError', handled: false });
+    expect(sink.errors[0].context).toEqual({ hint: expect.stringContaining('crossorigin="anonymous"') });
     expect(sink.errors[0].stacktrace).toEqual([
       { filename: 'https://cdn.test/lib.js', lineno: 10, colno: 4, function: '<anonymous>' },
     ]);
@@ -95,6 +96,16 @@ describe('ErrorCollector', () => {
 
     expect(sink.errors).toHaveLength(1);
     expect(sink.errors[0].error).toEqual({ message: 'Failed to load <img> /missing.png', type: 'ResourceError', handled: false });
+  });
+
+  it('skips failed <link rel="preload"> hints (the element using the file reports it)', () => {
+    const link = document.createElement('link');
+    link.setAttribute('rel', 'preload');
+    link.setAttribute('href', '/hero.png');
+    document.head.appendChild(link);
+    link.dispatchEvent(new Event('error'));
+    link.remove();
+    expect(sink.errors).toHaveLength(0);
   });
 
   it('stops capturing after uninstall', () => {

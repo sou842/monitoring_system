@@ -6,11 +6,40 @@ import {
 } from '../constants';
 import { getDocument, getWindow, stripQuery } from '../core/env';
 import { LOG_PREFIX, Logger } from '../core/logger';
+import { wasReported } from '../core/reportedErrors';
 import { guard, safelyRun } from '../core/safe';
 import { describeValue, truncate } from '../core/serialize';
+import { parseStack } from '../core/stackParser';
 import { ApiCall } from '../types';
-import { Collector, CollectorSink } from './collector';
-import { NetworkInterceptor } from './networkInterceptor';
+import { CapturedError, Collector, CollectorSink } from './collector';
+import { captureFromThrown } from './errorCollector';
+import { NetworkInterceptor, RequestDetails } from './networkInterceptor';
+
+const CONSOLE_ERROR_TYPE = 'ConsoleError';
+/** The console wrapper's own frame, removed from console-error stacks. */
+const CONSOLE_WRAPPER_FRAMES = 1;
+
+/**
+ * Turns a `console.error(...)` call into an error. If one of the arguments is
+ * an Error, its own type and stack are used. Returns null when that Error was
+ * already reported (frameworks often log errors they have just rethrown).
+ */
+export function consoleErrorFromArgs(args: unknown[], callStack: string | undefined): CapturedError | null {
+  const message = truncate(args.map(describeValue).join(' '), MAX_MESSAGE_LENGTH);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg instanceof Error) {
+      if (wasReported(arg)) return null;
+      const captured = captureFromThrown(arg, true);
+      captured.context = { console_message: message };
+      return captured;
+    }
+  }
+  return {
+    error: { message: message, type: CONSOLE_ERROR_TYPE, handled: true },
+    stacktrace: parseStack(callStack).slice(CONSOLE_WRAPPER_FRAMES),
+  };
+}
 
 type ConsoleLevel = 'warn' | 'error';
 type ConsoleFn = (...args: unknown[]) => void;
@@ -84,6 +113,8 @@ export class BreadcrumbCollector implements Collector {
     private readonly network: NetworkInterceptor,
     private readonly maskSelectors: readonly string[],
     private readonly logger: Logger,
+    /** Also report `console.error` calls as error events (opt-in). */
+    private readonly captureConsoleErrors: boolean = false,
   ) {
     const self = this;
     this.handleClick = guard(logger, 'click breadcrumb', function onClick(event: MouseEvent) {
@@ -112,11 +143,12 @@ export class BreadcrumbCollector implements Collector {
     safelyRun(this.logger, 'console instrumentation', () => this.wrapConsole());
 
     const self = this;
-    this.network.subscribe(function onApiCall(call: ApiCall) {
+    this.network.subscribe(function onApiCall(call: ApiCall, details: RequestDetails) {
+      const outcome = details.failure !== null ? details.failure : String(call.status);
       self.sink.onBreadcrumb({
         type: 'api',
-        message: call.method + ' ' + call.url + ' → ' + (call.status === 0 ? 'network error' : String(call.status)),
-        data: { url: call.url, method: call.method, status: call.status, duration_ms: call.duration_ms },
+        message: call.method + ' ' + call.url + ' → ' + outcome,
+        data: { url: call.url, method: call.method, status: call.status, duration_ms: call.duration_ms, failure: details.failure },
       });
     });
   }
@@ -211,6 +243,13 @@ export class BreadcrumbCollector implements Collector {
               data: { level: level },
             });
           });
+          if (level === 'error' && self.captureConsoleErrors) {
+            const stack = new Error().stack;
+            safelyRun(self.logger, 'console error event', function report() {
+              const captured = consoleErrorFromArgs(args, stack);
+              if (captured !== null) self.sink.onError(captured);
+            });
+          }
           self.inConsoleHook = false;
         }
         original.apply(console, args);

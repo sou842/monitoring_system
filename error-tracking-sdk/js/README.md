@@ -101,6 +101,8 @@ app.config.errorHandler = (err, instance, info) => {
 | `maskSelectors` | `string[]` | `[]` | Elements to black out in screenshots and hide in click breadcrumbs. `input[type="password"]` is always masked. |
 | `debug` | `boolean` | `false` | Log SDK diagnostics to the console. |
 | `captureHttpErrors` | `boolean` | `true` | Report every fetch/XHR response with a 4xx or 5xx status as an `HttpError` event. |
+| `captureNetworkErrors` | `boolean` | `true` | Report fetch/XHR requests that got no response (offline, timeout, refused, DNS/SSL, CORS) as `NetworkError`. Requests the app aborts are never reported. |
+| `captureConsoleErrors` | `boolean` | `false` | Report each `console.error(...)` call as an event. Off by default because libraries log a lot of noise there. |
 | `captureScreenshots` | `boolean` | `true` | Attach a viewport screenshot to error events. |
 | `html2canvasUrl` | `string` | cdnjs html2canvas 1.4.1 | Where the screenshot library is loaded from. |
 | `html2canvasIntegrity` | `string` | SRI hash of the default URL | SRI hash for `html2canvasUrl`. Defaults to `''` (no check) when you set a custom URL. |
@@ -114,17 +116,41 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 
 | Collector | Captures |
 | --- | --- |
-| **Errors** | `error` events (capture phase) and `unhandledrejection`. Stack traces are parsed from V8, Firefox and Safari formats into `{ filename, lineno, colno, function }` (max 50 frames, no source maps applied). Failed `<img>`/`<script>`/`<link>` loads are reported as `ResourceError`. fetch/XHR responses with a 4xx/5xx status are reported as `HttpError` (e.g. `GET https://app.example.com/api/cart → 500`). |
-| **Breadcrumbs** | Clicks (tag, visible text, CSS path; form values are never read), `pushState`/`replaceState`/`popstate` navigation, page visibility changes, `console.warn`/`console.error`, and every `fetch`/XHR call (URL, method, status, duration). |
+| **Errors** | `error` events (capture phase) and `unhandledrejection`. Stack traces are parsed from V8, Firefox and Safari formats into `{ filename, lineno, colno, function }` (max 50 frames, no source maps applied). Errors from other-origin scripts loaded without CORS are labelled `CrossOriginScriptError` (see below). |
+| **Network** | `HttpError` for fetch/XHR responses with a 4xx/5xx status (e.g. `GET https://app.example.com/api/cart → 500`). `NetworkError` for requests that got no response: offline, timeout, connection refused, DNS/SSL failure, CORS (`context.failure` says which, as far as the browser reveals). Requests the app aborts itself are not reported. `InvalidJsonResponse` when `response.json()` fails, even if the app catches it. The stack trace of all three points at the app code that made the request. |
+| **Resources** | `ResourceError` for failed `<img>`/`<script>`/`<link>` loads, web fonts (`document.fonts`), and CSS background images / `@import`s with a 4xx/5xx status. Failures that happened while the HTML was still loading, before the SDK started, are picked up from Resource Timing. Failed `<link rel="preload">` hints are skipped, since the element using the file reports it. CSS-image and pre-start checks are Chromium 109+ only, and same-origin (or `Timing-Allow-Origin`) only. |
+| **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. Violations caused by the SDK's own screenshot library are ignored. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
+| **Console** | Opt-in (`captureConsoleErrors: true`): each `console.error(...)` becomes a `ConsoleError` event, or the passed Error's own type. Errors the SDK has already reported are skipped. |
+| **Breadcrumbs** | Clicks (tag, visible text, CSS path; form values are never read), `pushState`/`replaceState`/`popstate` navigation, page visibility changes, `console.warn`/`console.error`, and every `fetch`/XHR call (URL, method, status or failure, duration). |
 | **Performance** | Page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS (via `PerformanceObserver`), plus the last 20 API calls. A page load over 3000 ms or an API call over 2000 ms is flagged and also sent as its own `performance` event. |
+| **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. |
 | **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `performance` event when the heap grows by more than 20% across 3 consecutive rising readings with no navigation in between. |
 | **Screenshots** | The visible viewport as a JPEG (quality 0.6), only when the page is visible. At most one every 10 s, with a 3 s time budget and a ~750 KB size cap. |
 
 Query strings and fragments are stripped from every recorded URL, because they often carry tokens.
 
+**One failure, one event.** Error objects the SDK has reported are remembered. For example, a failed `fetch` reported as `NetworkError` is not reported again when the app leaves the rejected promise uncaught, or when a framework logs it with `console.error`.
+
+### Start the SDK as early as possible
+
+Errors that happen before `init()` runs are not captured, apart from the resource and CSP failures recovered from browser buffers (see above). In particular, calling `init()` inside a React `useEffect` misses errors during the first render and hydration. In Next.js 15.3+, put `init()` in `instrumentation-client.js`, which runs before React starts. Otherwise, import and initialise the SDK at the very top of your entry file.
+
+### Cross-origin scripts ("Script error.")
+
+Browsers hide the message and stack of errors thrown by scripts from another origin, such as a CDN or third-party widget. All that arrives is `Script error.`, which the SDK reports as `CrossOriginScriptError`, with a hint in `context`. To get the real error, load the script with `crossorigin="anonymous"` and serve it with an `Access-Control-Allow-Origin` header.
+
+### Not covered
+
+- Errors the app catches and swallows (`catch {}` without `captureError`).
+- Service Worker internals, and iframes from other origins.
+- Memory data in Firefox and Safari: they expose no API, so the memory fields are `null` there.
+- Tab crashes and out-of-memory kills: the page dies without any signal, so `oom_kill` is always `null`.
+- A page stuck in an infinite loop: the task never ends, so it can't be reported from inside the page.
+- Layout bugs that never throw.
+
 ### Screenshots and Content Security Policy
 
-html2canvas is **not bundled**. It is loaded on demand the first time a screenshot is needed, with Subresource Integrity checking. If your site uses a CSP, allow the script origin (`script-src https://cdnjs.cloudflare.com`). Alternatively, self-host the file and set `html2canvasUrl` (and `html2canvasIntegrity`). If the library can't load, error events are sent without a screenshot.
+html2canvas is **not bundled**. It is loaded on demand the first time a screenshot is needed, with Subresource Integrity checking. If your site uses a CSP, allow the script origin (`script-src https://cdnjs.cloudflare.com`). Alternatively, self-host the file and set `html2canvasUrl` (and `html2canvasIntegrity`). If the library can't load, error events are sent without a screenshot. html2canvas also draws `data:` images, so a policy that restricts `img-src` needs `data:` for screenshots to render. The SDK does not report the violations its own library causes.
 
 Masking works in two layers. Masked elements are painted black in html2canvas's cloned DOM (form values are blanked and their children hidden). Then, after rendering, black rectangles are drawn over their on-screen bounds. If the canvas can't be drawn on, the screenshot is discarded rather than sent unmasked.
 
@@ -134,7 +160,7 @@ Masking works in two layers. Masked elements are painted black in html2canvas's 
 - The request is `POST <endpoint>`, with headers `Content-Type: application/json` and `X-API-Key: <apiKey>`, and the body `{ "events": [ ... ] }`.
 - **Retries:** network errors, 5xx, 408 and 429 are retried 3 times, after 1 s, 2 s and 4 s. Other 4xx responses (bad payload, invalid key) are dropped without retrying, since resending can't succeed.
 - **Offline:** when `navigator.onLine === false`, or once retries are exhausted, events are stored in `localStorage["_et_queue"]` (newest 50, with the API key removed). The stored queue is flushed on the `online` event, when the tab becomes visible again, and on the next `init()`. If storage is full, screenshots are dropped first, then the oldest events.
-- **Error storms:** identical events (same type, message and top frame) are deduplicated within 5 s. After that, at most 100 events per rolling minute are accepted.
+- **Error storms:** identical events (same type, message and top frame) are deduplicated within 5 s. After that, at most 100 events per rolling minute are accepted. When the limit drops events, one `EventsDropped` summary (`context.dropped_count`) is sent 10 s later, so a storm is never silent.
 
 ## Payload
 
@@ -172,7 +198,13 @@ Every event follows the shared cross-platform schema. Every field is always pres
 
 **JS-specific fields** that are not part of the shared schema: `level` (severity of `captureMessage`), `context` (the second argument to `captureError`), `performance.cls`, and `device.referrer`.
 
-**Event types:** `error` covers uncaught and captured errors. `message` comes from `captureMessage`. `performance` is used for `SlowPageLoad`, `SlowApiCall` and `MemoryLeakSuspected`, with the issue name in `error.type`. `crash` is unused on the web.
+**Event types:**
+- `error` covers uncaught and captured errors, plus `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError` and `CrossOriginScriptError` in `error.type`.
+- `message` comes from `captureMessage`, and also carries the `EventsDropped` summary.
+- `performance` carries `SlowPageLoad`, `SlowApiCall`, `MemoryLeakSuspected`, `MainThreadBlocked` and `LowFrameRate` in `error.type`.
+- `crash` is unused on the web.
+
+**`handled`:** `false` when something broke without app code getting a chance to react (uncaught exceptions and rejections, failed resources, CSP blocks, worker errors). `true` when the problem was handed back to the app: an HTTP error status, a rejected request, a JSON parse error thrown to the caller, `console.error`, performance issues, and `captureError`. Most events built by the SDK put extra detail in `context`.
 
 ## Development
 

@@ -171,7 +171,9 @@ describe('ErrorTracker public API', () => {
     ErrorTracker.init(BASE_CONFIG);
     ErrorTracker.captureMessage('x');
     const flushed = ErrorTracker.flush();
-    await vi.runAllTimersAsync(); // walk through the 1s/2s/4s retry backoff
+    // Walk through the 1s/2s/4s retry backoff. (runAllTimers would never end: the
+    // frame-rate sampler uses a repeating timer.)
+    await vi.advanceTimersByTimeAsync(10000);
     await expect(flushed).resolves.toBeUndefined();
     // Retries exhausted: the event is parked in storage rather than lost.
     expect(JSON.parse(localStorage.getItem(OFFLINE_STORAGE_KEY) as string)).toHaveLength(1);
@@ -280,6 +282,38 @@ describe('ErrorTracker public API', () => {
       await ErrorTracker.flush();
       expect(received).toHaveLength(0);
     });
+  });
+
+  it('sends one summary event for events dropped during an error storm', async () => {
+    vi.useFakeTimers();
+    ErrorTracker.init(BASE_CONFIG);
+    for (let i = 0; i < RATE_LIMIT_MAX_EVENTS + 50; i++) ErrorTracker.captureMessage('storm ' + i, 'error');
+    await vi.advanceTimersByTimeAsync(10000); // summary delay
+    await ErrorTracker.flush();
+    vi.useRealTimers();
+
+    const summary = sentEvents().filter((e) => e.error && e.error.type === 'EventsDropped');
+    expect(summary).toHaveLength(1);
+    expect(summary[0]).toMatchObject({ event_type: 'message', level: 'warning', context: { dropped_count: 50 } });
+    expect(sentEvents()).toHaveLength(RATE_LIMIT_MAX_EVENTS + 1);
+  });
+
+  it('reports a failed request once, even when the app leaves the rejection uncaught', async () => {
+    ErrorTracker.init(BASE_CONFIG);
+    const failure = new TypeError('Failed to fetch');
+    const appFetch = window.fetch; // the SDK-wrapped fetch
+    // Make the underlying network fail for app requests only.
+    vi.stubGlobal('fetch', fetchMock.fn);
+    const wrapped = appFetch as unknown as (url: string) => Promise<Response>;
+    fetchMock.fn.mockImplementationOnce(() => Promise.reject(failure));
+    await expect(wrapped('https://api.test/down')).rejects.toBe(failure);
+    const unhandled = new Event('unhandledrejection');
+    Object.defineProperty(unhandled, 'reason', { value: failure });
+    window.dispatchEvent(unhandled);
+    await ErrorTracker.flush();
+
+    expect(sentEvents().map((e) => e.error && e.error.type)).toEqual(['NetworkError']);
+    expectSchemaShape(sentEvents()[0]);
   });
 
   it('removes its hooks on close()', async () => {

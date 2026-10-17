@@ -50,6 +50,10 @@ export const DEDUP_WINDOW_MS = 5000;
 export const DEDUP_MAX_ENTRIES = 200;
 /** Calls made to the public API before init() are buffered up to this count. */
 export const MAX_PRE_INIT_CALLS = 100;
+/** How long a reported error's text signature suppresses a second copy of the same failure. */
+export const REPORTED_SIGNATURE_TTL_MS = 2000;
+/** After the rate limiter starts dropping, a summary event is sent this long after the first drop. */
+export const DROPPED_EVENTS_REPORT_DELAY_MS = 10000;
 
 // ---------------------------------------------------------------------------
 // Stack traces & serialization
@@ -82,6 +86,23 @@ export const PAGE_LOAD_SETTLE_MS = 0;
 /** CLS session window rules (per the web-vitals definition). */
 export const CLS_SESSION_GAP_MS = 1000;
 export const CLS_SESSION_MAX_MS = 5000;
+
+// ---------------------------------------------------------------------------
+// Responsiveness (main-thread blocking and frame rate)
+// ---------------------------------------------------------------------------
+/** A single main-thread task longer than this is reported as a page freeze. */
+export const LONG_TASK_FREEZE_MS = 1000;
+/** Minimum gap between two freeze reports, so a sluggish page cannot flood events. */
+export const FREEZE_REPORT_INTERVAL_MS = 30000;
+/** Delay before the first frame-rate sample, so page-load work doesn't skew it. */
+export const FPS_FIRST_SAMPLE_DELAY_MS = 5000;
+/** How often the frame rate is sampled while the page is visible. */
+export const FPS_SAMPLE_INTERVAL_MS = 30000;
+/** How long each frame-rate sample runs. */
+export const FPS_SAMPLE_DURATION_MS = 1000;
+/** Sampled frame rates below this are reported as LowFrameRate. Kept well under 30 fps because low-power modes cap at 30. */
+export const LOW_FPS_THRESHOLD = 20;
+export const MS_PER_SECOND = 1000;
 
 // ---------------------------------------------------------------------------
 // Memory

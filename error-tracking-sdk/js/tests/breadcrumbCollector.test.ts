@@ -157,7 +157,8 @@ describe('BreadcrumbCollector', () => {
     network.install();
 
     await expect(window.fetch('https://api.test/down')).rejects.toThrow('Failed to fetch');
-    expect(sink.breadcrumbs[0].message).toBe('GET https://api.test/down → network error');
+    expect(sink.breadcrumbs[0].message).toBe('GET https://api.test/down → network');
+    expect(sink.breadcrumbs[0].data).toMatchObject({ status: 0, failure: 'network' });
 
     network.uninstall();
     window.fetch = originalFetch;

@@ -20,6 +20,8 @@ export interface ResolvedConfig {
   maskSelectors: string[];
   debug: boolean;
   captureHttpErrors: boolean;
+  captureNetworkErrors: boolean;
+  captureConsoleErrors: boolean;
   captureScreenshots: boolean;
   html2canvasUrl: string;
   html2canvasIntegrity: string;
@@ -76,6 +78,8 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
       ),
       debug: input.debug === true,
       captureHttpErrors: input.captureHttpErrors !== false,
+      captureNetworkErrors: input.captureNetworkErrors !== false,
+      captureConsoleErrors: input.captureConsoleErrors === true,
       captureScreenshots: input.captureScreenshots !== false,
       html2canvasUrl: typeof input.html2canvasUrl === 'string' && input.html2canvasUrl.length > 0 ? input.html2canvasUrl : DEFAULT_HTML2CANVAS_URL,
       html2canvasIntegrity:

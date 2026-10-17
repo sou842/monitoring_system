@@ -1,4 +1,4 @@
-import { BreadcrumbInput, ErrorPayload, StackFrame } from '../types';
+import { BreadcrumbInput, ErrorPayload, JsonObject, StackFrame } from '../types';
 
 /** Lifecycle shared by every collector. Both methods must be idempotent and never throw. */
 export interface Collector {
@@ -10,10 +10,17 @@ export interface Collector {
 export interface CapturedError {
   error: ErrorPayload;
   stacktrace: StackFrame[];
+  /** Extra details attached as the event's `context` (e.g. CSP directive, request failure kind). */
+  context?: JsonObject | null;
 }
 
 /** Kinds of performance problems that produce their own `performance` event. */
-export type PerformanceIssueKind = 'SlowPageLoad' | 'SlowApiCall' | 'MemoryLeakSuspected';
+export type PerformanceIssueKind =
+  | 'SlowPageLoad'
+  | 'SlowApiCall'
+  | 'MemoryLeakSuspected'
+  | 'MainThreadBlocked'
+  | 'LowFrameRate';
 
 /** Callbacks collectors use to hand data to the client. */
 export interface CollectorSink {

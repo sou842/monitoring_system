@@ -38,6 +38,14 @@ export interface ErrorTrackerConfig {
   debug?: boolean;
   /** Report fetch/XHR responses with a 4xx/5xx status as error events. Defaults to true. */
   captureHttpErrors?: boolean;
+  /**
+   * Report fetch/XHR requests that got no response (offline, timeout, CORS,
+   * DNS/SSL failure) as NetworkError events. User-cancelled requests are
+   * never reported. Defaults to true.
+   */
+  captureNetworkErrors?: boolean;
+  /** Report every `console.error(...)` call as an error event. Defaults to false (libraries log a lot of noise). */
+  captureConsoleErrors?: boolean;
   /** Attach a screenshot to error events. Defaults to true. */
   captureScreenshots?: boolean;
   /** Override where html2canvas is loaded from (self-hosting is recommended). */

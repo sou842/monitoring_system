@@ -4,31 +4,56 @@ import { useEffect, useState } from 'react';
 import { clearIssues, getIssues, subscribe } from '../../lib/issueStore';
 
 const COLORS = { error: '#c62828', performance: '#ef6c00', message: '#1565c0', crash: '#6a1b9a' };
+const SERVER_POLL_MS = 3000;
+
+const isServer = (issue) => issue.context?.source === 'server';
 
 export default function Issues() {
-  const [issues, setIssues] = useState([]);
+  const [browserIssues, setBrowserIssues] = useState([]);
+  const [serverIssues, setServerIssues] = useState([]);
   const [openIndex, setOpenIndex] = useState(null);
 
   useEffect(() => {
-    const load = () => setIssues(getIssues());
+    const load = () => setBrowserIssues(getIssues());
     load();
     return subscribe(load);
   }, []);
 
+  // Server-side errors are kept by the /api/events receiver, not in localStorage.
+  useEffect(() => {
+    const load = () =>
+      fetch('/api/events')
+        .then((res) => res.json())
+        .then((data) => setServerIssues(data.events))
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, SERVER_POLL_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const issues = [...browserIssues, ...serverIssues].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  const clearAll = () => {
+    clearIssues();
+    fetch('/api/events', { method: 'DELETE' }).then(() => setServerIssues([]));
+  };
+
   return (
     <div>
       <h1>Issues ({issues.length})</h1>
-      <p>Events captured by the SDK in this browser, newest first. Updates live.</p>
-      <button onClick={clearIssues} disabled={issues.length === 0}>Clear all</button>
+      <p>Events captured by the SDK, newest first. Browser issues update live; server issues every few seconds.</p>
+      <button onClick={clearAll} disabled={issues.length === 0}>Clear all</button>
       {issues.length === 0 && <p>No issues yet. Trigger some from the Home page.</p>}
 
       {issues.map((issue, i) => (
         <div className="card" key={issue.timestamp + i}>
           <div onClick={() => setOpenIndex(openIndex === i ? null : i)} style={{ cursor: 'pointer' }}>
             <span className="badge" style={{ background: COLORS[issue.event_type] || '#555' }}>{issue.event_type}</span>
+            {isServer(issue) && <span className="badge" style={{ background: '#37474f' }}>server</span>}
             <strong>{issue.error?.type}</strong>: {issue.error?.message}
             <div className="meta">
-              {new Date(issue.timestamp).toLocaleString()} · {issue.error?.handled ? 'handled' : 'unhandled'} · {issue.device?.url}
+              {new Date(issue.timestamp).toLocaleString()} · {issue.error?.handled ? 'handled' : 'unhandled'} ·{' '}
+              {isServer(issue) ? `${issue.context.method} ${issue.context.path}` : issue.device?.url}
             </div>
           </div>
           {openIndex === i && <IssueDetails issue={issue} />}
@@ -61,7 +86,7 @@ function IssueDetails({ issue }) {
 
       <h4>Performance</h4>
       <p>
-        Page load: {perf.page_load_ms ?? '–'} ms · TTFB: {perf.ttfb_ms ?? '–'} ms · FCP: {perf.fcp_ms ?? '–'} ms · LCP: {perf.lcp_ms ?? '–'} ms · CLS: {perf.cls ?? '–'}
+        Page load: {perf.page_load_ms ?? '–'} ms · TTFB: {perf.ttfb_ms ?? '–'} ms · FCP: {perf.fcp_ms ?? '–'} ms · LCP: {perf.lcp_ms ?? '–'} ms · CLS: {perf.cls ?? '–'} · FPS: {perf.frame_rate_fps ?? '–'}
         {perf.slow_screen && ' · ⚠️ slow page'}
       </p>
       {perf.slow_api_calls?.length > 0 && (
