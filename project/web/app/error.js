@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import ErrorTracker from '@company/error-tracker-js';
+import ErrorTracker from '@sourav732/error-tracker-js';
 
 /** Next.js error boundary: reports render crashes to the SDK. */
 export default function Error({ error, reset }) {

@@ -1,9 +1,29 @@
 {
-  "name": "@company/error-tracker-js",
-  "version": "1.0.0",
-  "description": "Client-side error, performance and crash tracking SDK for browser apps.",
+  "name": "@sourav732/error-tracker-js",
+  "version": "0.1.0",
+  "description": "Lightweight, zero-dependency error, performance and crash tracking SDK for browser apps (React, Vue, Next.js, vanilla JS).",
+  "keywords": [
+    "error-tracking",
+    "error-monitoring",
+    "crash-reporting",
+    "performance-monitoring",
+    "web-vitals",
+    "browser",
+    "react",
+    "nextjs",
+    "vue"
+  ],
+  "author": "sourav",
   "license": "UNLICENSED",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sou842/monitoring_system.git",
+    "directory": "error-tracking-sdk/js"
+  },
+  "homepage": "https://github.com/sou842/monitoring_system/tree/main/error-tracking-sdk/js#readme",
+  "bugs": {
+    "url": "https://github.com/sou842/monitoring_system/issues"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/types/index.d.ts",
@@ -22,13 +42,18 @@
   "engines": {
     "node": ">=14"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "rollup -c && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
+    "@rollup/plugin-terser": "^1.0.0",
     "@rollup/plugin-typescript": "^12.3.0",
     "jsdom": "^30.1.3",
     "rollup": "^4.64.8",

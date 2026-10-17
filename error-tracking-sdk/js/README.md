@@ -11,7 +11,7 @@ The SDK captures problems in the page and POSTs structured JSON events to your i
 ## Installation
 
 ```bash
-npm install @company/error-tracker-js
+npm install @sourav732/error-tracker-js
 ```
 
 ## Quick start
@@ -19,7 +19,7 @@ npm install @company/error-tracker-js
 Initialise as early as possible, before the rest of your app code runs:
 
 ```ts
-import ErrorTracker from '@company/error-tracker-js';
+import ErrorTracker from '@sourav732/error-tracker-js';
 
 ErrorTracker.init({
   apiKey: 'pk_live_xxx',
@@ -55,7 +55,7 @@ You can call any method before `init()`. Up to 100 calls are buffered and replay
 ### React
 
 ```tsx
-import ErrorTracker from '@company/error-tracker-js';
+import ErrorTracker from '@sourav732/error-tracker-js';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -216,3 +216,14 @@ npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 ```
 
 All thresholds, timeouts and limits live in [`src/constants.ts`](src/constants.ts).
+
+### Releasing
+
+```bash
+npm version patch     # or minor / major; bumps package.json and creates a git tag
+# then set SDK_VERSION in src/constants.ts to the same version (a test fails if they differ)
+npm publish           # runs typecheck, tests and build first (prepublishOnly), then uploads
+git push --follow-tags
+```
+
+The package is public (`publishConfig.access`). Check what will be uploaded with `npm publish --dry-run`.

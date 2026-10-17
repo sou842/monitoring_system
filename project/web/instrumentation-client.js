@@ -1,4 +1,4 @@
-import ErrorTracker from '@company/error-tracker-js';
+import ErrorTracker from '@sourav732/error-tracker-js';
 import { saveIssue } from './lib/issueStore';
 
 // Next.js runs this file in the browser before React starts (Next 15.3+), so

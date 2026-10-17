@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import ErrorTracker from '@company/error-tracker-js';
+import ErrorTracker from '@sourav732/error-tracker-js';
 
 /** Catches crashes in the root layout itself, which app/error.js cannot. */
 export default function GlobalError({ error, reset }) {

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import pkg from '../package.json';
+import { SDK_VERSION } from '../src/constants';
 import { buildEvent, EventInput, withField } from '../src/core/payloadBuilder';
 import { normalize } from '../src/core/serialize';
 import { expectSchemaShape, makeScope } from './helpers';
@@ -13,6 +15,10 @@ const ERROR_INPUT: EventInput = {
 const TIMESTAMP = '2026-10-17T10:42:15.000Z';
 
 describe('buildEvent', () => {
+  it('reports the same SDK version as package.json', () => {
+    expect(SDK_VERSION).toBe(pkg.version);
+  });
+
   it('produces every schema field, using null (never undefined) for unavailable values', () => {
     const event = buildEvent(ERROR_INPUT, makeScope(), TIMESTAMP);
     expectSchemaShape(event);
@@ -36,7 +42,7 @@ describe('buildEvent', () => {
     const event = buildEvent(ERROR_INPUT, scope, TIMESTAMP);
 
     expect(event).toMatchObject({
-      sdk: { name: 'error-tracker-js', version: '1.0.0' },
+      sdk: { name: 'error-tracker-js', version: pkg.version },
       api_key: 'test-key',
       event_type: 'error',
       level: 'error',

@@ -45,11 +45,18 @@ Three SDKs, all sending the **same shared payload schema**:
 - No Python on this machine; use Node for scripting.
 - JS: TypeScript is **pinned to ~5.9** because TS 7 drops `target: ES5`. Don't upgrade it.
 
+## JS SDK on npm
+- Package: **`@sourav732/error-tracker-js`**, public, from the user's own npm account. First version **0.1.0** (still early: only tested in Chrome). License stays `UNLICENSED`.
+- `prepublishOnly` runs typecheck + tests + build, so `npm publish` can't ship a broken build. The build is minified with `@rollup/plugin-terser` (ES5, ~55 KB per format, with source maps).
+- `SDK_VERSION` in `src/constants.ts` must equal the `package.json` version; a test enforces it. Bump both together.
+- The user runs `npm login` / `npm publish` themselves (needs their account and 2FA).
+- Verified 2026-10-17: the `npm pack` tarball installed in a fresh project works via CJS, ESM and strict TS, with zero runtime deps, and `npm publish --dry-run` passes.
+
 ## JS SDK quick reference
 ```bash
 cd error-tracking-sdk/js
 npm run typecheck   # strict TS over src + tests
-npm test            # Vitest + jsdom (150 tests passing)
+npm test            # Vitest + jsdom (151 tests passing)
 npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 ```
 - `src/core/client.ts` drives the pipeline: sample → dedup → rate-limit → build → screenshot → beforeSend → queue.

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import ErrorTracker from '@company/error-tracker-js';
+import ErrorTracker from '@sourav732/error-tracker-js';
 import { CRASH_LAYOUT_KEY } from '../components/LayoutCrashTrigger';
 
 const FREEZE_MS = 1500;
@@ -103,6 +103,7 @@ export default function Home() {
       </Section>
 
       <Section title="Other pages">
+        <Link href="/wrong_path">Wrong path</Link>
         <Link href="/hydration">Hydration mismatch</Link> · <Link href="/csp">CSP violation</Link> ·{' '}
         <a href="/server-error">Server component error</a> ·{' '}
         <button onClick={() => fetch('/api/crash')}>Server API crash</button>

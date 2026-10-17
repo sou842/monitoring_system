@@ -12,6 +12,7 @@
     "exactOptionalPropertyTypes": false,
     "importHelpers": false,
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": []

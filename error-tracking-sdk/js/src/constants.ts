@@ -4,7 +4,8 @@
  */
 
 export const SDK_NAME = 'error-tracker-js';
-export const SDK_VERSION = '1.0.0';
+/** Must match package.json "version" (a test enforces this). */
+export const SDK_VERSION = '0.1.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------

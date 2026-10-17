@@ -1,4 +1,4 @@
-import ErrorTracker from '@company/error-tracker-js';
+import ErrorTracker from '@sourav732/error-tracker-js';
 
 /**
  * Sends a server-side error through the SDK running in Node. The automatic
