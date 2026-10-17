@@ -1,0 +1,332 @@
+import { MAX_MESSAGE_LENGTH } from '../constants';
+import { BreadcrumbCollector } from '../collectors/breadcrumbCollector';
+import { CapturedError, Collector, CollectorSink, PerformanceIssueKind } from '../collectors/collector';
+import { captureFromThrown, ErrorCollector } from '../collectors/errorCollector';
+import { HttpErrorCollector } from '../collectors/httpErrorCollector';
+import { MemoryCollector, MemoryReading } from '../collectors/memoryCollector';
+import { NetworkInterceptor } from '../collectors/networkInterceptor';
+import { PerformanceCollector } from '../collectors/performanceCollector';
+import { ScreenshotCollector } from '../collectors/screenshotCollector';
+import { HttpTransport, Transport } from '../transport/httpTransport';
+import { LocalStorageStore, OfflineStore } from '../transport/offlineStore';
+import { Breadcrumb, BreadcrumbInput, EventLevel, TrackedUser, TrackerEvent } from '../types';
+import { CircularBuffer } from './circularBuffer';
+import { ResolvedConfig } from './config';
+import { DeviceInfo } from './device';
+import { getDocument, getWindow, nowIso } from './env';
+import { Deduplicator, fingerprint, RateLimiter } from './eventFilters';
+import { EventQueue } from './eventQueue';
+import { Logger } from './logger';
+import { buildEvent, EventInput, EventScope } from './payloadBuilder';
+import { guard, safely, safelyRun } from './safe';
+import { normalizeObject, truncate } from './serialize';
+
+/** Dependency overrides, used by tests. */
+export interface ClientDependencies {
+  transport?: Transport;
+  store?: OfflineStore;
+  random?: () => number;
+  rateLimiter?: RateLimiter;
+  deduplicator?: Deduplicator;
+  readMemory?: () => MemoryReading | null;
+  screenshot?: ScreenshotCollector;
+  queueRetryDelaysMs?: readonly number[];
+  queueFlushDelayMs?: number;
+}
+
+/**
+ * Owns all SDK state for one `init()` call: configuration, collectors,
+ * scope (user, breadcrumbs) and the delivery queue.
+ */
+export class Client implements CollectorSink {
+  readonly logger: Logger;
+  private readonly config: ResolvedConfig;
+  private readonly breadcrumbs: CircularBuffer<Breadcrumb>;
+  private readonly device = new DeviceInfo();
+  private readonly queue: EventQueue;
+  private readonly random: () => number;
+  private readonly rateLimiter: RateLimiter;
+  private readonly deduplicator: Deduplicator;
+  private readonly network: NetworkInterceptor;
+  private readonly performance: PerformanceCollector;
+  private readonly memory: MemoryCollector;
+  private readonly screenshot: ScreenshotCollector;
+  private readonly collectors: Collector[];
+  private user: TrackedUser | null = null;
+  private rateLimitWarned = false;
+  private started = false;
+  /** Events waiting on a screenshot before they can be queued. */
+  private pendingCaptures: Array<Promise<void>> = [];
+
+  private readonly handleOnline: () => void;
+  private readonly handleVisibility: () => void;
+  private readonly handlePageHide: () => void;
+
+  constructor(config: ResolvedConfig, deps: ClientDependencies = {}) {
+    this.config = config;
+    this.logger = new Logger(config.debug);
+    this.breadcrumbs = new CircularBuffer<Breadcrumb>(config.maxBreadcrumbs);
+    this.random = deps.random || Math.random;
+    this.rateLimiter = deps.rateLimiter || new RateLimiter();
+    this.deduplicator = deps.deduplicator || new Deduplicator();
+
+    // Transport must be created before NetworkInterceptor.install() so it
+    // captures the unwrapped fetch.
+    this.queue = new EventQueue({
+      transport: deps.transport || new HttpTransport(config.endpoint, config.apiKey, this.logger),
+      store: deps.store || new LocalStorageStore(this.logger),
+      logger: this.logger,
+      retryDelaysMs: deps.queueRetryDelaysMs,
+      flushDelayMs: deps.queueFlushDelayMs,
+    });
+
+    this.network = new NetworkInterceptor(config.endpoint, this.logger);
+    this.performance = new PerformanceCollector(this, this.network, this.logger);
+    this.memory = new MemoryCollector(this, this.logger, deps.readMemory);
+    this.screenshot =
+      deps.screenshot ||
+      new ScreenshotCollector(
+        { maskSelectors: config.maskSelectors, libraryUrl: config.html2canvasUrl, libraryIntegrity: config.html2canvasIntegrity },
+        this.logger,
+      );
+    this.collectors = [
+      new ErrorCollector(this, this.logger),
+      new BreadcrumbCollector(this, this.network, config.maskSelectors, this.logger),
+      this.performance,
+      this.memory,
+    ];
+    if (config.captureHttpErrors) this.collectors.push(new HttpErrorCollector(this, this.network));
+    this.collectors.push(
+      // Installed last: subscribers above register before requests start flowing.
+      this.network,
+    );
+
+    const self = this;
+    this.handleOnline = guard(this.logger, 'online handler', function onOnline() {
+      self.queue.restoreFromStore();
+    });
+    this.handleVisibility = guard(this.logger, 'visibility handler', function onVisibility() {
+      const doc = getDocument();
+      if (doc === null) return;
+      if (doc.visibilityState === 'hidden') {
+        self.queue.flush();
+      } else {
+        self.queue.restoreFromStore();
+      }
+    });
+    this.handlePageHide = guard(this.logger, 'pagehide handler', function onPageHide() {
+      // The page may be unloading; anything not yet sent is kept for next time.
+      self.queue.persistPending();
+    });
+  }
+
+  /** Installs collectors and lifecycle listeners, then sends events left over from earlier sessions. */
+  start(): void {
+    if (this.started) return;
+    this.started = true;
+
+    for (let i = 0; i < this.collectors.length; i++) {
+      const collector = this.collectors[i];
+      safelyRun(this.logger, 'install collector', function install() {
+        collector.install();
+      });
+    }
+
+    const win = getWindow();
+    const doc = getDocument();
+    if (win !== null) {
+      win.addEventListener('online', this.handleOnline);
+      win.addEventListener('pagehide', this.handlePageHide);
+    }
+    if (doc !== null) doc.addEventListener('visibilitychange', this.handleVisibility);
+
+    this.device.refine();
+    this.queue.restoreFromStore();
+    this.logger.info('initialized', { environment: this.config.environment, sampleRate: this.config.sampleRate });
+  }
+
+  /** Removes every hook from the page. Unsent events are persisted. */
+  close(): Promise<void> {
+    const self = this;
+    return this.flush().then(function teardown() {
+      for (let i = 0; i < self.collectors.length; i++) {
+        const collector = self.collectors[i];
+        safelyRun(self.logger, 'uninstall collector', function uninstall() {
+          collector.uninstall();
+        });
+      }
+      const win = getWindow();
+      const doc = getDocument();
+      if (win !== null) {
+        win.removeEventListener('online', self.handleOnline);
+        win.removeEventListener('pagehide', self.handlePageHide);
+      }
+      if (doc !== null) doc.removeEventListener('visibilitychange', self.handleVisibility);
+      self.queue.close();
+      self.started = false;
+    });
+  }
+
+  /** Waits for events still awaiting a screenshot, then sends everything queued. */
+  flush(): Promise<void> {
+    const queue = this.queue;
+    return Promise.all(this.pendingCaptures.slice())
+      .then(function send() {
+        return queue.flush();
+      })
+      .then(null, () => {
+        this.logger.warn('flush failed');
+      });
+  }
+
+  captureError(thrown: unknown, context?: object): void {
+    const captured = captureFromThrown(thrown, true);
+    this.capture(
+      {
+        eventType: 'error',
+        level: 'error',
+        error: captured.error,
+        stacktrace: captured.stacktrace,
+        context: context !== undefined && context !== null ? normalizeObject(context) : null,
+      },
+      true,
+    );
+  }
+
+  captureMessage(message: string, level: EventLevel): void {
+    this.capture(
+      {
+        eventType: 'message',
+        level: level,
+        error: { message: truncate(String(message), MAX_MESSAGE_LENGTH), type: 'Message', handled: true },
+        stacktrace: [],
+        context: null,
+      },
+      false,
+    );
+  }
+
+  setUser(user: TrackedUser | null): void {
+    if (user === null || user === undefined) {
+      this.user = null;
+      return;
+    }
+    if (typeof user !== 'object' || user.id === undefined || user.id === null) {
+      this.logger.warn('setUser requires an object with an id; ignoring');
+      return;
+    }
+    this.user = { id: String(user.id), email: user.email, name: user.name };
+  }
+
+  // -------------------------------------------------------------------------
+  // CollectorSink
+  // -------------------------------------------------------------------------
+
+  onError(captured: CapturedError): void {
+    this.capture(
+      { eventType: 'error', level: 'error', error: captured.error, stacktrace: captured.stacktrace, context: null },
+      true,
+    );
+  }
+
+  onBreadcrumb(input: BreadcrumbInput): void {
+    if (input === null || typeof input !== 'object') return;
+    this.breadcrumbs.push({
+      timestamp: nowIso(),
+      type: typeof input.type === 'string' ? input.type : 'log',
+      message: truncate(String(input.message), MAX_MESSAGE_LENGTH),
+      data: input.data !== undefined ? normalizeObject(input.data) : {},
+    });
+  }
+
+  onPerformanceIssue(kind: PerformanceIssueKind, message: string): void {
+    this.capture(
+      { eventType: 'performance', level: 'warning', error: { message: message, type: kind, handled: true }, stacktrace: [], context: null },
+      false,
+    );
+  }
+
+  onNavigation(): void {
+    this.memory.resetBaseline();
+  }
+
+  // -------------------------------------------------------------------------
+  // Pipeline: sample → dedup → rate limit → build → screenshot → beforeSend → queue
+  // -------------------------------------------------------------------------
+
+  private capture(input: EventInput, withScreenshot: boolean): void {
+    if (this.random() > this.config.sampleRate) {
+      this.logger.info('event dropped by sampleRate');
+      return;
+    }
+    if (!this.deduplicator.isNew(fingerprint(input.eventType, input.error, input.stacktrace))) {
+      this.logger.info('duplicate event dropped');
+      return;
+    }
+    if (!this.rateLimiter.tryAcquire()) {
+      if (!this.rateLimitWarned) this.logger.warn('rate limit reached; dropping events');
+      this.rateLimitWarned = true;
+      return;
+    }
+    this.rateLimitWarned = false;
+
+    // Snapshot scope now so breadcrumbs reflect the moment of the error, not
+    // whatever happens while the screenshot renders.
+    const scope = this.scope();
+    const timestamp = nowIso();
+    const self = this;
+
+    if (!withScreenshot || !this.config.captureScreenshots) {
+      this.finish(buildEvent(input, scope, timestamp));
+      return;
+    }
+
+    const pending = this.screenshot.capture().then(
+      function attach(shot) {
+        scope.screenshot = shot;
+        self.finish(buildEvent(input, scope, timestamp));
+      },
+      function withoutShot() {
+        self.finish(buildEvent(input, scope, timestamp));
+      },
+    );
+    this.pendingCaptures.push(pending);
+    pending.then(function untrack() {
+      const index = self.pendingCaptures.indexOf(pending);
+      if (index !== -1) self.pendingCaptures.splice(index, 1);
+    });
+  }
+
+  private finish(event: TrackerEvent): void {
+    safelyRun(this.logger, 'enqueue event', () => {
+      const beforeSend = this.config.beforeSend;
+      let final: TrackerEvent | null = event;
+      if (beforeSend !== null) {
+        // A throwing hook must not lose the event or break the app; send it unmodified.
+        final = safely(this.logger, 'beforeSend', function run() {
+          return beforeSend(event);
+        }, event);
+      }
+      if (final === null || final === undefined) {
+        this.logger.info('event dropped by beforeSend');
+        return;
+      }
+      this.queue.enqueue(final);
+    });
+  }
+
+  private scope(): EventScope {
+    return {
+      apiKey: this.config.apiKey,
+      environment: this.config.environment,
+      appVersion: this.config.appVersion,
+      user: this.user,
+      breadcrumbs: this.breadcrumbs.toArray(),
+      performance: this.performance.snapshot(),
+      memory: this.memory.snapshot(),
+      device: this.device.snapshot(),
+      screenshot: null,
+    };
+  }
+}
+
