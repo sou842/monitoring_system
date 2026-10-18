@@ -69,3 +69,15 @@ export const MAX_PROJECT_NAME_LENGTH = 80;
 
 /** MongoDB server error code for a unique-index violation. */
 export const MONGO_DUPLICATE_KEY = 11000;
+
+// ---------------------------------------------------------------------------
+// Dashboard statistics (api/stats.js)
+// ---------------------------------------------------------------------------
+const HOUR_MS = 60 * 60 * 1000;
+/** Selectable ranges: how many buckets, and how long each one is. */
+export const STATS_RANGES = {
+  '24h': { buckets: 24, stepMs: HOUR_MS },
+  '7d': { buckets: 7, stepMs: 24 * HOUR_MS },
+};
+export const DEFAULT_STATS_RANGE = '24h';
+export const TOP_ISSUES_LIMIT = 6;

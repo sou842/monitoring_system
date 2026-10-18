@@ -2,6 +2,7 @@
  * Error Tracker dashboard: a small single-page app with hash routes.
  *
  *   #/login            shared-password login
+ *   #/dashboard        overview charts (all projects or one; ?range=24h|7d&project=<id>)
  *   #/projects         projects, create project / API key
  *   #/p/<projectId>    issues of a project (filters in the hash query)
  *   #/i/<issueId>      one issue with its events
@@ -11,6 +12,16 @@
  */
 
 const REFRESH_MS = 15000;
+/** Cached data younger than this is used as is; older data is shown and refreshed in the background. */
+const STALE_MS = 10000;
+/** Cached data older than this is never shown, the page waits for fresh data instead. */
+const CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 100;
+/** The loading spinner only appears if data takes longer than this, so cached pages never flash it. */
+const LOADING_DELAY_MS = 150;
+const SOFT_RENDER_RETRY_MS = 100;
+/** The login session is not re-checked on every page change, only this often. */
+const SESSION_RECHECK_MS = 60 * 1000;
 const SDK_PACKAGE = '@sourav732/error-tracker-js';
 const SCREENSHOT_HOST = 'https://res.cloudinary.com/';
 const STATUSES = ['open', 'resolved', 'ignored', 'all'];
@@ -18,9 +29,11 @@ const EVENT_TYPES = ['error', 'message', 'performance', 'crash'];
 
 const app = document.getElementById('app');
 const topbar = document.getElementById('topbar');
+const sidebar = document.getElementById('sidebar');
 const crumbs = document.getElementById('crumbs');
 let refreshTimer = null;
-let projectsCache = null;
+let loadingTimer = null;
+let sessionCheckedAt = 0;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,12 +67,96 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   if (response.status === 401 && !path.startsWith('/api/auth/')) {
+    sessionCheckedAt = 0;
+    cache.clear();
     go('#/login');
     throw new ApiError('Session expired');
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiError((data.error && data.error.message) || `Request failed (${response.status})`);
+  // Any change (resolve, delete, new project, login, logout…) makes every cached read suspect: start fresh.
+  if (options.method && options.method !== 'GET') cache.clear();
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Data cache (stale-while-revalidate)
+//   cachedGet(path): cached data right away when there is any (and a background refresh when it is
+//   getting old), otherwise a normal fetch. Concurrent reads of one URL share one request. When a
+//   background refresh brings new data the current page is redrawn quietly, keeping the scroll position.
+// ---------------------------------------------------------------------------
+
+const cache = new Map(); // path → { data, json, at }
+const inflight = new Map(); // path → Promise
+const revalidating = new Set();
+let activeKeys = new Set(); // paths the page on screen was built from
+let rendering = false;
+let pageGuard = () => true;
+
+function storeInCache(path, data) {
+  cache.delete(path); // re-inserting moves it to the end: the Map doubles as an LRU list
+  cache.set(path, { data, json: JSON.stringify(data), at: Date.now() });
+  if (cache.size > CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value);
+}
+
+function fetchIntoCache(path) {
+  let pending = inflight.get(path);
+  if (!pending) {
+    pending = api(path)
+      .then((data) => { storeInCache(path, data); return data; })
+      .finally(() => inflight.delete(path));
+    inflight.set(path, pending);
+  }
+  return pending;
+}
+
+async function cachedGet(path) {
+  activeKeys.add(path);
+  const hit = cache.get(path);
+  if (hit && Date.now() - hit.at < CACHE_MAX_AGE_MS) {
+    if (Date.now() - hit.at >= STALE_MS) revalidate(path);
+    return hit.data;
+  }
+  return fetchIntoCache(path);
+}
+
+/** Warms the cache (e.g. on hover) so the next page opens instantly. Never throws. */
+function prefetch(path) {
+  const hit = cache.get(path);
+  if (hit && Date.now() - hit.at < STALE_MS) return;
+  fetchIntoCache(path).catch(() => {});
+}
+
+/** Refreshes one cached read in the background; redraws the page only if the data changed. */
+async function revalidate(path) {
+  if (revalidating.has(path)) return;
+  revalidating.add(path);
+  const before = cache.get(path) && cache.get(path).json;
+  try {
+    await fetchIntoCache(path);
+    const after = cache.get(path);
+    if (after && after.json !== before && activeKeys.has(path)) softRender();
+  } catch {
+    // Offline or server hiccup: keep showing what we have.
+  } finally {
+    revalidating.delete(path);
+  }
+}
+
+/** Redraws the current page from the cache without a loading state, unless the user is mid-action. */
+async function softRender() {
+  const typing = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+  if (rendering) { setTimeout(softRender, SOFT_RENDER_RETRY_MS); return; }
+  if (typing || app.querySelector('form, .key-box') || !pageGuard()) return;
+  const scroll = window.scrollY;
+  await render();
+  window.scrollTo(0, scroll);
+}
+
+/** Refreshes the page on screen every REFRESH_MS. `guard` can veto a redraw (e.g. rows are selected). */
+function startAutoRefresh(guard = () => true) {
+  pageGuard = guard;
+  refreshTimer = setInterval(() => { for (const path of activeKeys) revalidate(path); }, REFRESH_MS);
 }
 
 function go(hash) {
@@ -68,7 +165,7 @@ function go(hash) {
 }
 
 function parseHash() {
-  const raw = location.hash.slice(1) || '/projects';
+  const raw = location.hash.slice(1) || '/dashboard';
   const [path, query = ''] = raw.split('?');
   return { parts: path.split('/').filter(Boolean), query: new URLSearchParams(query) };
 }
@@ -95,6 +192,11 @@ function nodes(...items) {
   return items.flat().filter((item) => item !== null && item !== undefined && item !== false);
 }
 
+/** Highlights the active sidebar link. */
+function setNav(name) {
+  for (const link of document.querySelectorAll('[data-nav]')) link.classList.toggle('active', link.dataset.nav === name);
+}
+
 function setCrumbs(...items) {
   const present = nodes(items);
   crumbs.replaceChildren(...present.flatMap((item, i) => (i > 0 ? [el('span', { text: '/' }), item] : [item])));
@@ -102,11 +204,43 @@ function setCrumbs(...items) {
 
 /** Replaces the page content, ignoring absent (null) sections. */
 function show(...items) {
+  clearTimeout(loadingTimer);
   app.replaceChildren(...nodes(items));
 }
 
+/** Shows the spinner only if the data is slow; until then the previous page stays on screen. */
 function loading() {
-  show(el('p', { class: 'muted', text: 'Loading…' }));
+  clearTimeout(loadingTimer);
+  loadingTimer = setTimeout(() => {
+    app.replaceChildren(el('div', { class: 'loading' }, el('span', { class: 'spinner' }), 'Loading…'));
+  }, LOADING_DELAY_MS);
+}
+
+const ICONS = {
+  inbox: 'M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z',
+  check: 'M20 6 9 17l-5-5',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.5-3.5',
+  folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+};
+
+/** A rounded icon tile for empty states (static SVG, no event data). */
+function icon(name) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) svg.setAttribute(k, v);
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', ICONS[name]);
+  svg.append(path);
+  return el('div', { class: 'empty-icon' }, svg);
+}
+
+function emptyState(iconName, title, text, ...extra) {
+  return el('div', { class: 'card empty-state' }, icon(iconName), el('h2', { text: title }), el('p', { text }), ...extra);
+}
+
+/** Square tile with the project's initial. */
+function avatar(name, large = false) {
+  return el('div', { class: `avatar${large ? ' lg' : ''}`, text: (name.trim()[0] || '?').toUpperCase(), attrs: { 'aria-hidden': 'true' } });
 }
 
 function showError(error) {
@@ -143,9 +277,8 @@ function setupSnippet(apiKey) {
   ].join('\n');
 }
 
-async function getProjects(force = false) {
-  if (force || projectsCache === null) projectsCache = (await api('/api/projects')).projects;
-  return projectsCache;
+async function getProjects() {
+  return (await cachedGet('/api/projects')).projects;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +287,7 @@ async function getProjects(force = false) {
 
 function loginPage() {
   topbar.hidden = true;
+  sidebar.hidden = true;
   const input = el('input', { type: 'password', placeholder: 'Dashboard password', required: true, autocomplete: 'current-password', attrs: { 'aria-label': 'Password' } });
   const message = el('p', { class: 'notice error', hidden: true });
   const submit = el('button', { class: 'primary', type: 'submit', text: 'Log in' });
@@ -164,7 +298,7 @@ function loginPage() {
       message.hidden = true;
       try {
         await api('/api/auth/login', { method: 'POST', body: { password: input.value } });
-        go('#/projects');
+        go('#/dashboard');
       } catch (error) {
         message.textContent = error.message;
         message.hidden = false;
@@ -174,40 +308,200 @@ function loginPage() {
     },
   }, input, submit, message);
 
-  show(el('div', { class: 'login card card-body' },
-    el('h1', { text: 'Error Tracker' }),
-    el('p', { class: 'muted', text: 'Log in to see your projects and issues.' }),
-    form,
-  ));
+  show(el('div', { class: 'login-wrap' },
+    el('div', { class: 'login card' },
+      el('div', { class: 'brand' }, el('span', { class: 'brand-mark' }), 'ERROR TRACKER'),
+      el('h1', { text: 'Welcome back' }),
+      el('p', { class: 'muted', text: 'Log in to Error Tracker to see your projects and issues.' }),
+      form,
+    )));
   input.focus();
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard overview (charts are inline SVG built from numbers only)
+// ---------------------------------------------------------------------------
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const RANGE_LABELS = { '24h': '24H', '7d': '7 DAYS' };
+const CHART_SMALL = { width: 300, height: 110 };
+const CHART_LARGE = { width: 560, height: 220 };
+const CHART_AXIS_WIDTH = 34;
+const CHART_LABEL_HEIGHT = 22;
+const CHART_GRID_LINES = 4;
+const CHART_X_LABELS = 5;
+const ISSUE_TICKS = 50;
+const PROJECT_ROWS = 4;
+
+function svgEl(tag, attrs = {}, text) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/** Axis top for a maximum: four equal grid steps of 1, 2, 5 × 10ⁿ (minimum top of 4). */
+function niceMax(value) {
+  const rough = Math.max(value, CHART_GRID_LINES) / CHART_GRID_LINES;
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const step = ([1, 2, 5, 10].find((m) => m * magnitude >= rough) || 10) * magnitude;
+  return step * CHART_GRID_LINES;
+}
+
+function bucketLabel(iso, range) {
+  const date = new Date(iso);
+  return range === '7d'
+    ? date.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()
+    : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/**
+ * Column chart. `values` are bar heights, `labels` the x-axis text (a handful are shown).
+ * `axis: true` adds a y-axis with dashed grid lines.
+ */
+function columnChart(values, labels, { size, axis = false }) {
+  const { width, height } = size;
+  const left = axis ? CHART_AXIS_WIDTH : 0;
+  const plotH = height - CHART_LABEL_HEIGHT;
+  const top = axis ? niceMax(Math.max(...values, 0)) : Math.max(...values, 1);
+  const slot = (width - left) / values.length;
+  const barW = Math.max(2, slot * 0.58);
+  const svg = svgEl('svg', { class: 'chart', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Bar chart' });
+
+  if (axis) {
+    for (let i = 0; i <= CHART_GRID_LINES; i++) {
+      const y = plotH - (plotH * i) / CHART_GRID_LINES;
+      svg.append(svgEl('line', { class: 'grid-line', x1: left, x2: width, y1: y, y2: y }));
+      svg.append(svgEl('text', { x: 0, y: y + 3 }, String(Math.round((top * i) / CHART_GRID_LINES))));
+    }
+  }
+  values.forEach((value, i) => {
+    const h = value === 0 ? 0 : Math.max(2, (value / top) * plotH);
+    svg.append(svgEl('rect', { class: 'bar', x: left + i * slot + (slot - barW) / 2, y: plotH - h, width: barW, height: h }));
+  });
+  const every = Math.max(1, Math.floor((values.length - 1) / (CHART_X_LABELS - 1)));
+  for (let i = 0; i < values.length; i += every) {
+    const x = left + i * slot + slot / 2;
+    svg.append(svgEl('text', { x, y: height - 6, 'text-anchor': i === 0 ? 'start' : 'middle' }, labels[i]));
+  }
+  return svg;
+}
+
+function panel(className, label, side, ...content) {
+  return el('section', { class: `panel ${className}`.trim() },
+    el('div', { class: 'panel-head' }, el('span', { text: label }), el('span', { text: side })), ...content);
+}
+
+function deltaText(total, previous, range) {
+  if (previous === 0) return total === 0 ? 'No events yet' : 'No events in the previous period';
+  const percent = Math.round(((total - previous) / previous) * 100);
+  return `${percent >= 0 ? '+' : ''}${percent}% vs previous ${RANGE_LABELS[range].toLowerCase()}`;
+}
+
+async function dashboardPage(query) {
+  setNav('dashboard');
+  setCrumbs(el('span', { text: 'Dashboard' }));
+  loading();
+  const range = query.get('range') === '7d' ? '7d' : '24h';
+  const projects = await getProjects();
+  const projectId = projects.some((p) => p.id === query.get('project')) ? query.get('project') : '';
+  const stats = await cachedGet(`/api/stats?range=${range}${projectId ? `&projectId=${projectId}` : ''}`);
+
+  const change = (changes) => {
+    const next = new URLSearchParams({ range, ...(projectId ? { project: projectId } : {}), ...changes });
+    for (const [key, value] of [...next]) if (value === '') next.delete(key);
+    go(`#/dashboard?${next}`);
+  };
+  const toolbar = el('div', { class: 'toolbar' },
+    el('div', { class: 'seg', attrs: { role: 'group', 'aria-label': 'Time range' } },
+      Object.entries(RANGE_LABELS).map(([key, text]) => el('button', { class: range === key ? 'active' : '', text, onclick: () => change({ range: key }) }))),
+    el('select', { attrs: { 'aria-label': 'Project' }, onchange: (e) => change({ project: e.target.value }) },
+      el('option', { value: '', text: 'All projects' }),
+      projects.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === projectId }))),
+  );
+
+  if (projects.length === 0) {
+    show(toolbar, emptyState('folder', 'No projects yet', 'Create a project to get an API key. Charts appear once events arrive.',
+      el('button', { class: 'primary', attrs: { style: 'margin-top:16px' }, text: 'Create a project', onclick: () => go('#/projects') })));
+    return;
+  }
+
+  const labels = stats.series.map((b) => bucketLabel(b.start, range));
+  const totals = stats.series.map((b) => b.error + b.message + b.performance + b.crash);
+  const incidents = stats.series.map((b) => b.error + b.crash);
+  const sideLabel = RANGE_LABELS[range];
+
+  const events = panel('', 'Events', sideLabel,
+    el('div', { class: 'big', text: stats.total.toLocaleString() }),
+    el('div', { class: 'delta', text: deltaText(stats.total, stats.previousTotal, range) }),
+    el('div', { attrs: { style: 'margin-top:16px' } }, columnChart(totals, labels, { size: CHART_SMALL })));
+
+  const { open, resolved, ignored } = stats.statuses;
+  const issueTotal = open + resolved + ignored;
+  const onTicks = issueTotal === 0 ? 0 : Math.round((open / issueTotal) * ISSUE_TICKS);
+  const scoped = projects.filter((p) => !projectId || p.id === projectId).slice(0, PROJECT_ROWS);
+  const issuesPanel = panel('', 'Issues', 'NOW',
+    el('div', { class: 'big' }, open.toLocaleString(), el('small', { text: 'open' })),
+    el('div', { class: 'ticks', attrs: { 'aria-hidden': 'true' } }, Array.from({ length: ISSUE_TICKS }, (_, i) => el('i', { class: i < onTicks ? 'on' : '' }))),
+    el('div', { class: 'tick-legend' },
+      el('span', { text: `Open ${issueTotal === 0 ? 0 : Math.round((open / issueTotal) * 100)}%` }),
+      el('span', { class: 'muted', text: `Resolved ${resolved} · Ignored ${ignored}` })),
+    el('div', { class: 'list-lines' }, scoped.map((p) =>
+      el('a', { href: `#/p/${p.id}` }, el('span', { class: `k${p.openIssues === 0 ? ' off' : ''}`, text: p.name }), el('span', { class: 'muted', text: `${p.openIssues} open` })))));
+
+  const typeMax = Math.max(...Object.values(stats.byType), 1);
+  const types = panel('', 'Event types', sideLabel,
+    el('div', { class: 'hbars' }, Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).map(([type, n]) =>
+      el('div', { class: `hbar-row type-${type}` },
+        el('div', { class: 'top' }, el('span', { text: type }), el('span', { text: n.toLocaleString() })),
+        el('div', { class: 'hbar' }, el('i', { attrs: { style: `width:${(n / typeMax) * 100}%` } }))))));
+
+  const flow = panel('span-2', 'Error trend monitor', sideLabel,
+    el('h3', { class: 'panel-title', text: 'Incident Flow' }),
+    el('div', { class: 'legend' }, el('span', {}, el('i'), `Errors + crashes per ${range === '7d' ? 'day' : 'hour'}`)),
+    columnChart(incidents, labels, { size: CHART_LARGE, axis: true }));
+
+  const topMax = Math.max(...stats.topIssues.map((i) => i.count), 1);
+  const top = panel('', 'Top issues', sideLabel,
+    el('h3', { class: 'panel-title', text: 'Incident Volume' }),
+    stats.topIssues.length === 0
+      ? el('p', { class: 'muted', text: 'No events in this range.' })
+      : el('div', { class: 'hbars', attrs: { style: 'margin-top:18px' } }, stats.topIssues.map((issue) =>
+          el('a', { class: 'hbar-row', href: `#/i/${issue.id}`, title: issue.message || issue.errorType },
+            el('div', { class: 'top' }, el('span', { text: issue.errorType }), el('span', { text: issue.count.toLocaleString() })),
+            el('div', { class: 'hbar' }, el('i', { attrs: { style: `width:${(issue.count / topMax) * 100}%` } }))))));
+
+  show(toolbar, el('div', { class: 'dash-grid' }, events, issuesPanel, types, flow, top));
+  startAutoRefresh();
+}
+
 async function projectsPage() {
+  setNav('projects');
   setCrumbs(el('span', { text: 'Projects' }));
   loading();
-  const projects = await getProjects(true);
+  const projects = await getProjects();
 
   const createArea = el('div');
   const newButton = el('button', { class: 'primary', text: 'New project', onclick: () => showCreateForm(createArea, newButton) });
 
   const cards = projects.map((p) =>
-    el('div', { class: 'card' },
+    el('div', { class: 'card project' },
       el('a', { class: 'project-card', href: `#/p/${p.id}` },
-        el('h2', { text: p.name }),
-        el('div', { class: 'muted small mono', text: `Key: ${p.apiKeyHint}` }),
+        el('div', { class: 'project-top' }, avatar(p.name), el('h2', { text: p.name })),
         el('div', { class: 'stats' },
-          el('div', { class: 'stat' }, el('b', { text: p.openIssues }), el('span', { class: 'muted small', text: 'open issues' })),
-          el('div', { class: 'stat' }, el('b', { text: p.events24h }), el('span', { class: 'muted small', text: 'events (24h)' })),
+          el('div', { class: `stat${p.openIssues > 0 ? ' alert' : ''}` }, el('b', { text: p.openIssues.toLocaleString() }), el('span', { class: 'muted small', text: 'open issues' })),
+          el('div', { class: 'stat' }, el('b', { text: p.events24h.toLocaleString() }), el('span', { class: 'muted small', text: 'events (24h)' })),
         ),
+        el('div', { class: 'key-hint mono', text: `Key: ${p.apiKeyHint}` }),
       ),
     ),
   );
 
   show(
-    el('div', { class: 'row' }, el('h1', { text: 'Projects' }), el('span', { class: 'spacer' }), newButton),
-    el('p', { class: 'muted', text: 'Each app that sends errors is a project with its own API key.' }),
+    el('div', { class: 'page-head' }, el('h1', { text: 'Projects' }), el('span', { class: 'spacer' }), newButton),
+    el('p', { class: 'page-sub', text: 'Each app that sends errors is a project with its own API key.' }),
     createArea,
-    projects.length > 0 ? el('div', { class: 'grid section' }, cards) : el('div', { class: 'card empty section', text: 'No projects yet. Create one to get an API key.' }),
+    projects.length > 0 ? el('div', { class: 'grid section' }, cards) : emptyState('folder', 'No projects yet', 'Create your first project to get an API key and start tracking errors.'),
   );
 }
 
@@ -221,7 +515,6 @@ function showCreateForm(area, newButton) {
       event.preventDefault();
       try {
         const { project, apiKey } = await api('/api/projects', { method: 'POST', body: { name: input.value } });
-        projectsCache = null;
         area.replaceChildren(keyBox(`Project "${project.name}" created.`, apiKey, () => projectsPage()));
       } catch (e) {
         error.textContent = e.message;
@@ -250,6 +543,7 @@ function keyBox(title, apiKey, onDone) {
 }
 
 async function issuesPage(projectId, query) {
+  setNav('projects');
   loading();
   const projects = await getProjects();
   const project = projects.find((p) => p.id === projectId);
@@ -266,7 +560,7 @@ async function issuesPage(projectId, query) {
   };
   const params = new URLSearchParams({ projectId, ...filters, page: String(filters.page) });
   for (const [key, value] of [...params]) if (value === '') params.delete(key);
-  const data = await api(`/api/issues?${params}`);
+  const data = await cachedGet(`/api/issues?${params}`);
 
   const setFilter = (changes) => {
     const next = new URLSearchParams({ ...filters, page: '1', ...changes });
@@ -306,7 +600,6 @@ async function issuesPage(projectId, query) {
   deleteSelected.addEventListener('click', async () => {
     if (!confirm(`Delete ${selected.size} issue(s) and all their events? This can't be undone.`)) return;
     await api(`/api/issues?projectId=${projectId}`, { method: 'DELETE', body: { ids: [...selected] } });
-    projectsCache = null;
     render();
   });
   const selectAll = el('input', { type: 'checkbox', attrs: { 'aria-label': 'Select all issues on this page' } });
@@ -318,27 +611,26 @@ async function issuesPage(projectId, query) {
   let list;
   if (data.issues.length === 0) {
     list = allCount === 0
-      ? el('div', { class: 'card card-body' },
-          el('h2', { text: 'No issues yet' }),
-          el('p', { class: 'muted', text: `Errors appear here as soon as an app using this project's key (${project.apiKeyHint}) sends them. Setup:` }),
-          el('div', { class: 'key-box' }, el('pre', { text: setupSnippet('<your API key>') })))
-      : el('div', { class: 'card empty', text: 'No issues match these filters.' });
+      ? emptyState('inbox', 'No issues yet',
+          `Errors appear here as soon as an app using this project's key (${project.apiKeyHint}) sends them. Setup:`,
+          el('div', { class: 'key-box', attrs: { style: 'text-align:left;margin-top:16px;max-width:100%' } }, el('pre', { text: setupSnippet('<your API key>') })))
+      : emptyState('search', 'No issues match these filters', 'Try a different status, type or search term.');
   } else {
-    list = el('div', { class: 'card' },
+    list = el('div', { class: 'card issue-list' },
       el('div', { class: 'list-head' }, selectAll, el('span', { text: 'Issue' }), el('span', { text: 'Events' }), el('span', { text: 'Last seen' })),
       data.issues.map((issue) => {
         const box = el('input', { type: 'checkbox', attrs: { 'aria-label': 'Select issue' } });
         box.addEventListener('change', () => { if (box.checked) selected.add(issue.id); else selected.delete(issue.id); updateSelection(); });
         box.addEventListener('click', (e) => e.stopPropagation());
         boxes.push(box);
-        return el('a', { class: 'issue-row', href: `#/i/${issue.id}` },
+        return el('a', { class: `issue-row sev-${issue.eventType}`, href: `#/i/${issue.id}`, onmouseenter: () => prefetch(`/api/issue?id=${issue.id}`), onfocus: () => prefetch(`/api/issue?id=${issue.id}`) },
           box,
           el('div', { attrs: { style: 'min-width:0' } },
-            el('div', { class: 'issue-title' }, badge(issue.eventType), ' ', issue.errorType,
-              issue.status !== 'open' ? [' ', badge(issue.status)] : null,
-              issue.regressedAt && issue.status === 'open' ? [' ', badge('regressed', 'error')] : null),
+            el('div', { class: 'issue-title' }, badge(issue.eventType), issue.errorType,
+              issue.status !== 'open' ? badge(issue.status) : null,
+              issue.regressedAt && issue.status === 'open' ? badge('regressed', 'error') : null),
             el('div', { class: 'issue-msg', text: issue.message || '(no message)' }),
-            el('div', { class: 'muted small', text: [issue.culprit, issue.environments.join(', ')].filter(Boolean).join(' · ') }),
+            el('div', { class: 'issue-meta', text: [issue.culprit, issue.environments.join(', ')].filter(Boolean).join(' · ') }),
           ),
           el('div', { class: 'issue-count', text: issue.count.toLocaleString() }),
           el('div', { class: 'issue-when', text: timeAgo(issue.lastSeen), title: formatDate(issue.lastSeen) }),
@@ -361,7 +653,6 @@ async function issuesPage(projectId, query) {
     onclick: async () => {
       if (!confirm(`Replace the API key of "${project.name}"? Apps using the old key stop sending errors until updated.`)) return;
       const { apiKey } = await api(`/api/projects?id=${projectId}&action=rotate-key`, { method: 'POST' });
-      projectsCache = null;
       show(keyBox(`New API key for "${project.name}"`, apiKey, () => go(`#/p/${projectId}`)));
       clearInterval(refreshTimer);
     },
@@ -376,7 +667,6 @@ async function issuesPage(projectId, query) {
     onclick: async () => {
       if (!confirm(`Delete ALL ${clearCount} ${filters.status === 'all' ? '' : clearLabel + ' '}issue(s) of "${project.name}" with their events? This can't be undone.`)) return;
       await api(`/api/issues?projectId=${projectId}&status=${filters.status}`, { method: 'DELETE' });
-      projectsCache = null;
       render();
     },
   });
@@ -387,31 +677,31 @@ async function issuesPage(projectId, query) {
       if (!confirm(`Delete the project "${project.name}", every issue and event in it, and its API key? Apps using the key stop reporting. This can't be undone.`)) return;
       clearInterval(refreshTimer);
       await api(`/api/projects?id=${projectId}`, { method: 'DELETE' });
-      projectsCache = null;
       go('#/projects');
     },
   });
 
   show(
-    el('div', { class: 'row' }, el('h1', { text: project.name }), el('span', { class: 'spacer' }), rotate, deleteProject),
-    el('p', { class: 'muted small', text: `${data.total} issue(s) · refreshes every ${REFRESH_MS / 1000}s` }),
+    el('div', { class: 'page-head' }, avatar(project.name, true), el('h1', { text: project.name }), el('span', { class: 'spacer' }), rotate, deleteProject),
+    el('p', { class: 'page-sub', text: `${data.total} issue(s) · refreshes every ${REFRESH_MS / 1000}s` }),
     tabs, filterBar,
     data.issues.length > 0 ? el('div', { class: 'row bulk' }, deleteSelected, el('span', { class: 'spacer' }), clearAll) : null,
     list, pager,
   );
   // Keep the search box focused across auto-refreshes.
   if (query.get('q')) search.focus();
-  refreshTimer = setInterval(() => { if (document.activeElement !== search && selected.size === 0) render(); }, REFRESH_MS);
+  startAutoRefresh(() => selected.size === 0);
 }
 
 async function issuePage(issueId, query) {
+  setNav('projects');
   loading();
-  const data = await api(`/api/issue?id=${issueId}`);
+  const data = await cachedGet(`/api/issue?id=${issueId}`);
   const { issue } = data;
   const selectedId = query.get('event') || (data.latestEvent && data.latestEvent.id);
   const event = !selectedId ? null
     : data.latestEvent && data.latestEvent.id === selectedId ? data.latestEvent
-    : (await api(`/api/event?id=${selectedId}`)).event;
+    : (await cachedGet(`/api/event?id=${selectedId}`)).event;
 
   setCrumbs(
     el('a', { href: '#/projects', text: 'Projects' }),
@@ -433,7 +723,6 @@ async function issuePage(issueId, query) {
       onclick: async () => {
         if (!confirm(`Delete this issue and its ${issue.count.toLocaleString()} event(s)? This can't be undone.`)) return;
         await api(`/api/issue?id=${issueId}`, { method: 'DELETE' });
-        projectsCache = null;
         go(data.project ? `#/p/${data.project.id}` : '#/projects');
       },
     }),
@@ -443,9 +732,9 @@ async function issuePage(issueId, query) {
     el('div', { class: 'issue-header' },
       el('div', { class: 'title' },
         el('div', { class: 'row' }, badge(issue.eventType), badge(issue.status), issue.regressedAt && issue.status === 'open' ? badge('regressed', 'error') : null),
-        el('h1', { class: 'section', text: issue.errorType }),
+        el('h1', { text: issue.errorType }),
         el('div', { class: 'message', text: issue.message || '(no message)' }),
-        issue.culprit ? el('div', { class: 'muted mono small section', text: issue.culprit }) : null,
+        issue.culprit ? el('div', { class: 'culprit mono small', text: issue.culprit }) : null,
       ),
       actions,
     ),
@@ -470,8 +759,9 @@ async function issuePage(issueId, query) {
 
   show(header, el('div', { class: 'detail' },
     el('div', {}, el('h2', { text: `Latest events (${data.events.length})` }), eventsList),
-    event ? eventDetail(event) : el('div', { class: 'card empty', text: 'No events stored (older events are deleted after 30 days).' }),
+    event ? eventDetail(event) : emptyState('inbox', 'No events stored', 'Older events are deleted after 30 days.'),
   ));
+  startAutoRefresh();
 }
 
 function metaItem(label, value, title) {
@@ -575,24 +865,52 @@ function eventDetail(event) {
 
 async function render() {
   clearInterval(refreshTimer);
+  clearTimeout(loadingTimer);
+  activeKeys = new Set();
+  pageGuard = () => true;
+  rendering = true;
   const { parts, query } = parseHash();
   try {
     if (parts[0] === 'login') return loginPage();
-    const session = await api('/api/auth/session');
-    if (!session.authenticated) return go('#/login');
+    if (Date.now() - sessionCheckedAt > SESSION_RECHECK_MS) {
+      const session = await api('/api/auth/session');
+      if (!session.authenticated) return go('#/login');
+      sessionCheckedAt = Date.now();
+    }
     topbar.hidden = false;
+    sidebar.hidden = false;
+    if (parts[0] === 'projects') return await projectsPage();
     if (parts[0] === 'p' && parts[1]) return await issuesPage(parts[1], query);
     if (parts[0] === 'i' && parts[1]) return await issuePage(parts[1], query);
-    return await projectsPage();
+    return await dashboardPage(query);
   } catch (error) {
     showError(error);
+  } finally {
+    rendering = false;
   }
 }
 
 document.getElementById('logout').addEventListener('click', async () => {
   await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
-  projectsCache = null;
+  sessionCheckedAt = 0;
   go('#/login');
 });
+
+for (const button of document.querySelectorAll('[data-theme-set]')) {
+  button.addEventListener('click', () => {
+    document.documentElement.setAttribute('data-theme', button.dataset.themeSet);
+    try { localStorage.setItem('et_theme', button.dataset.themeSet); } catch { /* storage blocked: theme just isn't remembered */ }
+    syncThemeButtons();
+  });
+}
+function syncThemeButtons() {
+  const current = document.documentElement.getAttribute('data-theme');
+  for (const button of document.querySelectorAll('[data-theme-set]')) button.classList.toggle('active', button.dataset.themeSet === current);
+}
+syncThemeButtons();
 window.addEventListener('hashchange', render);
+// Coming back to the tab: bring the page up to date right away instead of waiting for the next tick.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) for (const path of activeKeys) revalidate(path);
+});
 render();

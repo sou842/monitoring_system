@@ -26,6 +26,7 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       issue: await import('../api/issue.js'),
       event: await import('../api/event.js'),
       health: await import('../api/health.js'),
+      stats: await import('../api/stats.js'),
     };
     db = await (await import('../lib/db.js')).getDb();
     const res = await api.login.POST(request('/api/auth/login', { method: 'POST', body: { password: 'test-password' } }));
@@ -215,5 +216,26 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
     assert.deepEqual(gone.deleted, { issues: 1, events: 1 });
     assert.equal(await db.collection('projects').countDocuments({ name: 'Other' }), 0);
     assert.equal((await api.projects.DELETE(del(`/api/projects?id=${other.project.id}`))).status, 404);
+  });
+
+  it('computes dashboard stats per bucket, type and status, and requires a login', async () => {
+    const created = await (await api.projects.POST(authed('/api/projects', { method: 'POST', body: { name: 'Stats app' } }))).json();
+    await ingest(created.apiKey, [
+      sampleEvent(),
+      sampleEvent(),
+      sampleEvent({ event_type: 'performance', error: { message: 'Slow', type: 'SlowPageLoad', handled: true } }),
+    ]);
+    const stats = await (await api.stats.GET(authed(`/api/stats?projectId=${created.project.id}&range=24h`))).json();
+    assert.equal(stats.total, 3);
+    assert.equal(stats.byType.error, 2);
+    assert.equal(stats.byType.performance, 1);
+    assert.equal(stats.series.length, 24);
+    assert.equal(stats.series.reduce((sum, b) => sum + b.error, 0), 2);
+    assert.equal(stats.series.at(-1).error, 2, 'events received just now land in the newest bucket');
+    assert.equal(stats.statuses.open, 2);
+    assert.equal(stats.topIssues[0].count, 2);
+    assert.equal((await (await api.stats.GET(authed('/api/stats?range=7d'))).json()).series.length, 7);
+    assert.equal((await api.stats.GET(authed('/api/stats?range=1y'))).status, 400);
+    assert.equal((await api.stats.GET(request('/api/stats'))).status, 401);
   });
 });
