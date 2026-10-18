@@ -430,3 +430,11 @@ details pre, .card pre.mono { margin-top: 8px; padding: 14px; background: var(--
 :root[data-theme='light'] .notice { border-radius: var(--radius-sm); }
 :root[data-theme='light'] .notice.error { background: var(--red-soft); border-color: transparent; }
 :root[data-theme='light'] .screenshot img { border-radius: var(--radius-sm); }
+
+/* ---------- Header refresh button ---------- */
+.icon-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; }
+.icon-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn.spinning svg { animation: spin 0.8s linear infinite; }
+.icon-btn.spinning { opacity: 0.7; cursor: progress; }
+:root[data-theme='light'] .icon-btn { border-radius: 999px; }
+@media (max-width: 760px) { .icon-btn span { display: none; } .icon-btn { padding: 0 11px; } }

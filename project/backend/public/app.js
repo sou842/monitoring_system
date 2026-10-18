@@ -11,7 +11,6 @@
  * built from DOM nodes with textContent only, never innerHTML.
  */
 
-const REFRESH_MS = 15000;
 /** Cached data younger than this is used as is; older data is shown and refreshed in the background. */
 const STALE_MS = 10000;
 /** Cached data older than this is never shown, the page waits for fresh data instead. */
@@ -31,7 +30,6 @@ const app = document.getElementById('app');
 const topbar = document.getElementById('topbar');
 const sidebar = document.getElementById('sidebar');
 const crumbs = document.getElementById('crumbs');
-let refreshTimer = null;
 let loadingTimer = null;
 let sessionCheckedAt = 0;
 
@@ -153,10 +151,25 @@ async function softRender() {
   window.scrollTo(0, scroll);
 }
 
-/** Refreshes the page on screen every REFRESH_MS. `guard` can veto a redraw (e.g. rows are selected). */
-function startAutoRefresh(guard = () => true) {
+/** `guard` can veto the quiet redraw that follows a background refresh (e.g. while rows are selected). */
+function guardRedraw(guard) {
   pageGuard = guard;
-  refreshTimer = setInterval(() => { for (const path of activeKeys) revalidate(path); }, REFRESH_MS);
+}
+
+/** The header's refresh button: fetches everything the page on screen shows, then redraws it. */
+async function refreshNow(button) {
+  if (rendering || button.classList.contains('spinning')) return;
+  button.classList.add('spinning');
+  const scroll = window.scrollY;
+  try {
+    await Promise.all([...activeKeys].map((path) => fetchIntoCache(path)));
+    await render();
+    window.scrollTo(0, scroll);
+  } catch {
+    // The page keeps what it shows; the spinner just stops.
+  } finally {
+    button.classList.remove('spinning');
+  }
 }
 
 function go(hash) {
@@ -472,7 +485,6 @@ async function dashboardPage(query) {
             el('div', { class: 'hbar' }, el('i', { attrs: { style: `width:${(issue.count / topMax) * 100}%` } }))))));
 
   show(toolbar, el('div', { class: 'dash-grid' }, events, issuesPanel, types, flow, top));
-  startAutoRefresh();
 }
 
 async function projectsPage() {
@@ -654,7 +666,6 @@ async function issuesPage(projectId, query) {
       if (!confirm(`Replace the API key of "${project.name}"? Apps using the old key stop sending errors until updated.`)) return;
       const { apiKey } = await api(`/api/projects?id=${projectId}&action=rotate-key`, { method: 'POST' });
       show(keyBox(`New API key for "${project.name}"`, apiKey, () => go(`#/p/${projectId}`)));
-      clearInterval(refreshTimer);
     },
   });
 
@@ -675,7 +686,6 @@ async function issuesPage(projectId, query) {
     text: 'Delete project',
     onclick: async () => {
       if (!confirm(`Delete the project "${project.name}", every issue and event in it, and its API key? Apps using the key stop reporting. This can't be undone.`)) return;
-      clearInterval(refreshTimer);
       await api(`/api/projects?id=${projectId}`, { method: 'DELETE' });
       go('#/projects');
     },
@@ -683,14 +693,14 @@ async function issuesPage(projectId, query) {
 
   show(
     el('div', { class: 'page-head' }, avatar(project.name, true), el('h1', { text: project.name }), el('span', { class: 'spacer' }), rotate, deleteProject),
-    el('p', { class: 'page-sub', text: `${data.total} issue(s) · refreshes every ${REFRESH_MS / 1000}s` }),
+    el('p', { class: 'page-sub', text: `${data.total} issue(s)` }),
     tabs, filterBar,
     data.issues.length > 0 ? el('div', { class: 'row bulk' }, deleteSelected, el('span', { class: 'spacer' }), clearAll) : null,
     list, pager,
   );
   // Keep the search box focused across auto-refreshes.
   if (query.get('q')) search.focus();
-  startAutoRefresh(() => selected.size === 0);
+  guardRedraw(() => selected.size === 0);
 }
 
 async function issuePage(issueId, query) {
@@ -761,7 +771,6 @@ async function issuePage(issueId, query) {
     el('div', {}, el('h2', { text: `Latest events (${data.events.length})` }), eventsList),
     event ? eventDetail(event) : emptyState('inbox', 'No events stored', 'Older events are deleted after 30 days.'),
   ));
-  startAutoRefresh();
 }
 
 function metaItem(label, value, title) {
@@ -864,7 +873,6 @@ function eventDetail(event) {
 // ---------------------------------------------------------------------------
 
 async function render() {
-  clearInterval(refreshTimer);
   clearTimeout(loadingTimer);
   activeKeys = new Set();
   pageGuard = () => true;
@@ -909,8 +917,6 @@ function syncThemeButtons() {
 }
 syncThemeButtons();
 window.addEventListener('hashchange', render);
-// Coming back to the tab: bring the page up to date right away instead of waiting for the next tick.
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) for (const path of activeKeys) revalidate(path);
-});
+const refreshButton = document.getElementById('refresh');
+refreshButton.addEventListener('click', () => refreshNow(refreshButton));
 render();
