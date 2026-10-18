@@ -1,7 +1,8 @@
 import { requireSession } from '../lib/auth.js';
 import { EVENT_TYPES, ISSUES_PAGE_SIZE, ISSUE_STATUSES } from '../lib/constants.js';
 import { getDb } from '../lib/db.js';
-import { errorResponse, handle, json, parseObjectId } from '../lib/http.js';
+import { deleteIssues } from '../lib/deletion.js';
+import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
 import { issueView } from '../lib/views.js';
 
 const SORTS = { lastSeen: { lastSeen: -1 }, count: { count: -1, lastSeen: -1 }, firstSeen: { firstSeen: -1 } };
@@ -58,4 +59,40 @@ export const GET = handle(async (request) => {
   for (const row of statusCounts) counts[row._id] = row.n;
 
   return json({ issues: rows.map(issueView), total, page, pageSize: ISSUES_PAGE_SIZE, counts, environments: environments.sort() });
+});
+
+const MAX_DELETE_IDS = 500;
+
+/**
+ * DELETE /api/issues?projectId=…  with either
+ *   body { ids: [...] }       → deletes those issues (of this project), or
+ *   &status=open|resolved|ignored|all → deletes every issue with that status ("clear all").
+ * Events go with their issues. Returns the number of issues and events removed.
+ */
+export const DELETE = handle(async (request) => {
+  const denied = requireSession(request);
+  if (denied) return denied;
+  const params = new URL(request.url).searchParams;
+  const projectId = parseObjectId(params.get('projectId'));
+  if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
+
+  const text = await request.text();
+  if (text.length > 0) {
+    const body = await readJson(new Request(request.url, { method: 'POST', body: text }), MAX_DELETE_IDS * 40);
+    if (!body.ok) return body.response;
+    const raw = body.value && body.value.ids;
+    if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_DELETE_IDS) {
+      return errorResponse(400, 'invalid_ids', `ids must be a list of 1 to ${MAX_DELETE_IDS} issue ids`);
+    }
+    const ids = raw.map(parseObjectId);
+    if (ids.includes(null)) return errorResponse(400, 'invalid_ids', 'ids contains an invalid issue id');
+    return json({ deleted: await deleteIssues(await getDb(), { projectId, _id: { $in: ids } }) });
+  }
+
+  const status = params.get('status');
+  if (status !== 'all' && !ISSUE_STATUSES.includes(status)) {
+    return errorResponse(400, 'invalid_status', 'Pass ids in the body, or status=open|resolved|ignored|all');
+  }
+  const filter = status === 'all' ? { projectId } : { projectId, status };
+  return json({ deleted: await deleteIssues(await getDb(), filter) });
 });

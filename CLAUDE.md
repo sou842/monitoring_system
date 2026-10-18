@@ -73,8 +73,10 @@ npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 - **Dashboard login:** one shared password (`DASHBOARD_PASSWORD`), HMAC-signed cookie (`SESSION_SECRET`).
 - **Grouping:** `lib/grouping.js` fingerprint = event type + error type + normalized message + top-frame function and file (build hashes stripped). Resolved issues reopen on regression. TTL: events 30 days, issues 90 days.
 - The Atlas user can't `dropDatabase`, so tests drop collections instead. Integration tests use a `monitor_test_<random>` database.
-- Commands: `npm run dev` (port 4000), `npm test` (27 tests). Deploy steps are in `project/backend/README.md` (Root Directory `project/backend`, preset Other, env vars, Atlas network access `0.0.0.0/0`).
+- Commands: `npm run dev` (port 4000), `npm test` (28 tests). Deploy steps are in `project/backend/README.md` (Root Directory `project/backend`, preset Other, env vars, Atlas network access `0.0.0.0/0`).
 - Verified 2026-10-17: the demo app sent 69 events, grouped into 27 issues. The dashboard was checked in headless Chrome (login, filters, search, resolve/reopen, screenshots, phone layout).
+- **Deleting (2026-10-18):** dashboard can delete one issue, selected issues, all issues by status, or a whole project (`lib/deletion.js`, `DELETE` on `api/issue.js`, `api/issues.js`, `api/projects.js`). Events go with their issues; Cloudinary images stay.
+- **Deployed:** https://monitoringsystem-backend.vercel.app (Vercel project, Root Directory `project/backend`). `vercel.json` sets `framework: null` and `.vercelignore` excludes `dev-server.js`, otherwise Vercel treated it as the app and every route crashed.
 - Not yet: Cloudinary image cleanup (needs API secret), per-user accounts, and the iOS/Android SDKs sending here.
 
 ## Demo app: `project/web/`

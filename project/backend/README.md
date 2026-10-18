@@ -63,6 +63,9 @@ Optional, recommended: in Cloudinary → Settings → Upload presets → your pr
 | `GET /api/issues?projectId=…&status=&type=&env=&q=&sort=&page=` | session | Issue list with filters. |
 | `GET /api/issue?id=…` · `PATCH /api/issue?id=…` | session | Issue with its latest events / set `status` (open, resolved, ignored). |
 | `GET /api/event?id=…` | session | One event in full. |
+| `DELETE /api/issue?id=…` | session | Delete an issue and all its events. |
+| `DELETE /api/issues?projectId=…` | session | With body `{ "ids": [...] }` (max 500) deletes those issues; with `&status=open|resolved|ignored|all` deletes every issue with that status. Events go too. |
+| `DELETE /api/projects?id=…` | session | Delete a project, its issues, events and API key. |
 
 ## How it works
 
@@ -71,7 +74,7 @@ Optional, recommended: in Cloudinary → Settings → Upload presets → your pr
 - **Regressions:** a resolved issue that happens again is reopened and marked *regressed*.
 - **Screenshots:** uploaded to Cloudinary under `error-tracker/<projectId>/`. Images over 400 KB are refused rather than uploaded, so raw full-size images never reach Cloudinary (the SDK already sends ~50 KB JPEGs). The dashboard loads them through Cloudinary's low-quality, auto-format delivery.
 - **API keys:** only a SHA-256 hash is stored.
-- **Retention:** MongoDB TTL indexes delete events after 30 days and issues not seen for 90 days. Cloudinary images are not deleted automatically: that needs the Cloudinary API secret, and is a possible follow-up.
+- **Retention:** MongoDB TTL indexes delete events after 30 days and issues not seen for 90 days. Cloudinary images are not deleted automatically, nor when you delete issues in the dashboard: that needs the Cloudinary API secret, and is a possible follow-up.
 - **Security:** the dashboard renders all event data as text (never HTML), so a malicious error message can't run script in the dashboard. Login failures are delayed by 1 s.
 
 ## Layout

@@ -297,6 +297,24 @@ async function issuesPage(projectId, query) {
     select('Sort', filters.sort, [['lastSeen', 'Last seen'], ['count', 'Most events'], ['firstSeen', 'Newest']], 'sort'),
   );
 
+  const selected = new Set();
+  const deleteSelected = el('button', { class: 'danger', text: 'Delete selected', disabled: true });
+  const updateSelection = () => {
+    deleteSelected.disabled = selected.size === 0;
+    deleteSelected.textContent = selected.size > 0 ? `Delete selected (${selected.size})` : 'Delete selected';
+  };
+  deleteSelected.addEventListener('click', async () => {
+    if (!confirm(`Delete ${selected.size} issue(s) and all their events? This can't be undone.`)) return;
+    await api(`/api/issues?projectId=${projectId}`, { method: 'DELETE', body: { ids: [...selected] } });
+    projectsCache = null;
+    render();
+  });
+  const selectAll = el('input', { type: 'checkbox', attrs: { 'aria-label': 'Select all issues on this page' } });
+  const boxes = [];
+  selectAll.addEventListener('change', () => {
+    for (const box of boxes) { box.checked = selectAll.checked; box.dispatchEvent(new Event('change')); }
+  });
+
   let list;
   if (data.issues.length === 0) {
     list = allCount === 0
@@ -307,9 +325,14 @@ async function issuesPage(projectId, query) {
       : el('div', { class: 'card empty', text: 'No issues match these filters.' });
   } else {
     list = el('div', { class: 'card' },
-      el('div', { class: 'list-head' }, el('span', { text: 'Issue' }), el('span', { text: 'Events' }), el('span', { text: 'Last seen' })),
-      data.issues.map((issue) =>
-        el('a', { class: 'issue-row', href: `#/i/${issue.id}` },
+      el('div', { class: 'list-head' }, selectAll, el('span', { text: 'Issue' }), el('span', { text: 'Events' }), el('span', { text: 'Last seen' })),
+      data.issues.map((issue) => {
+        const box = el('input', { type: 'checkbox', attrs: { 'aria-label': 'Select issue' } });
+        box.addEventListener('change', () => { if (box.checked) selected.add(issue.id); else selected.delete(issue.id); updateSelection(); });
+        box.addEventListener('click', (e) => e.stopPropagation());
+        boxes.push(box);
+        return el('a', { class: 'issue-row', href: `#/i/${issue.id}` },
+          box,
           el('div', { attrs: { style: 'min-width:0' } },
             el('div', { class: 'issue-title' }, badge(issue.eventType), ' ', issue.errorType,
               issue.status !== 'open' ? [' ', badge(issue.status)] : null,
@@ -319,7 +342,8 @@ async function issuesPage(projectId, query) {
           ),
           el('div', { class: 'issue-count', text: issue.count.toLocaleString() }),
           el('div', { class: 'issue-when', text: timeAgo(issue.lastSeen), title: formatDate(issue.lastSeen) }),
-        )),
+        );
+      }),
     );
   }
 
@@ -343,14 +367,41 @@ async function issuesPage(projectId, query) {
     },
   });
 
+  const clearLabel = filters.status === 'all' ? 'all' : filters.status;
+  const clearCount = filters.status === 'all' ? allCount : data.counts[filters.status];
+  const clearAll = el('button', {
+    class: 'danger',
+    text: filters.status === 'all' ? `Delete everything (${clearCount})` : `Delete all ${clearLabel} (${clearCount})`,
+    disabled: clearCount === 0,
+    onclick: async () => {
+      if (!confirm(`Delete ALL ${clearCount} ${filters.status === 'all' ? '' : clearLabel + ' '}issue(s) of "${project.name}" with their events? This can't be undone.`)) return;
+      await api(`/api/issues?projectId=${projectId}&status=${filters.status}`, { method: 'DELETE' });
+      projectsCache = null;
+      render();
+    },
+  });
+  const deleteProject = el('button', {
+    class: 'ghost danger',
+    text: 'Delete project',
+    onclick: async () => {
+      if (!confirm(`Delete the project "${project.name}", every issue and event in it, and its API key? Apps using the key stop reporting. This can't be undone.`)) return;
+      clearInterval(refreshTimer);
+      await api(`/api/projects?id=${projectId}`, { method: 'DELETE' });
+      projectsCache = null;
+      go('#/projects');
+    },
+  });
+
   show(
-    el('div', { class: 'row' }, el('h1', { text: project.name }), el('span', { class: 'spacer' }), rotate),
+    el('div', { class: 'row' }, el('h1', { text: project.name }), el('span', { class: 'spacer' }), rotate, deleteProject),
     el('p', { class: 'muted small', text: `${data.total} issue(s) · refreshes every ${REFRESH_MS / 1000}s` }),
-    tabs, filterBar, list, pager,
+    tabs, filterBar,
+    data.issues.length > 0 ? el('div', { class: 'row bulk' }, deleteSelected, el('span', { class: 'spacer' }), clearAll) : null,
+    list, pager,
   );
   // Keep the search box focused across auto-refreshes.
   if (query.get('q')) search.focus();
-  refreshTimer = setInterval(() => { if (document.activeElement !== search) render(); }, REFRESH_MS);
+  refreshTimer = setInterval(() => { if (document.activeElement !== search && selected.size === 0) render(); }, REFRESH_MS);
 }
 
 async function issuePage(issueId, query) {
@@ -376,6 +427,16 @@ async function issuePage(issueId, query) {
     issue.status !== 'resolved' ? el('button', { class: 'primary', text: 'Resolve', onclick: () => setStatus('resolved') }) : null,
     issue.status !== 'ignored' ? el('button', { text: 'Ignore', onclick: () => setStatus('ignored') }) : null,
     issue.status !== 'open' ? el('button', { text: 'Reopen', onclick: () => setStatus('open') }) : null,
+    el('button', {
+      class: 'danger',
+      text: 'Delete',
+      onclick: async () => {
+        if (!confirm(`Delete this issue and its ${issue.count.toLocaleString()} event(s)? This can't be undone.`)) return;
+        await api(`/api/issue?id=${issueId}`, { method: 'DELETE' });
+        projectsCache = null;
+        go(data.project ? `#/p/${data.project.id}` : '#/projects');
+      },
+    }),
   );
 
   const header = el('div', { class: 'card card-body' },

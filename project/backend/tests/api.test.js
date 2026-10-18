@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import { ObjectId } from 'mongodb';
 import { hasDatabase, request, sampleEvent, useTestDatabase } from './helpers.js';
 
 const enabled = hasDatabase();
@@ -156,5 +157,63 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
     const res = api.events.OPTIONS();
     assert.equal(res.status, 204);
     assert.match(res.headers.get('access-control-allow-headers'), /X-API-Key/);
+  });
+
+  it('deletes issues (with their events): one, selected ones, by status, and requires a login', async () => {
+    const del = (path, body) => authed(path, { method: 'DELETE', body });
+    const issueList = async (query = '') => (await (await api.issues.GET(authed(`/api/issues?projectId=${projectId}&status=all${query}`))).json());
+    const eventCount = () => db.collection('events').countDocuments({ projectId: new ObjectId(projectId) });
+
+    assert.equal((await api.issue.DELETE(request('/api/issue?id=' + '0'.repeat(24), { method: 'DELETE' }))).status, 401);
+    assert.equal((await api.issues.DELETE(request(`/api/issues?projectId=${projectId}&status=all`, { method: 'DELETE' }))).status, 401);
+
+    await ingest(apiKey, [
+      sampleEvent({ error: { message: 'Delete me A', type: 'DeleteA', handled: false } }),
+      sampleEvent({ error: { message: 'Delete me B', type: 'DeleteB', handled: false } }),
+      sampleEvent({ error: { message: 'Delete me C', type: 'DeleteC', handled: false } }),
+    ]);
+    const before = await issueList();
+    const byType = Object.fromEntries(before.issues.map((i) => [i.errorType, i.id]));
+
+    // one issue: the issue and its events go, others stay
+    const eventsBefore = await eventCount();
+    const one = await (await api.issue.DELETE(del(`/api/issue?id=${byType.DeleteA}`))).json();
+    assert.deepEqual(one.deleted, { issues: 1, events: 1 });
+    assert.equal(await eventCount(), eventsBefore - 1);
+    assert.equal((await api.issue.GET(authed(`/api/issue?id=${byType.DeleteA}`))).status, 404);
+    assert.equal((await api.issue.DELETE(del(`/api/issue?id=${byType.DeleteA}`))).status, 404);
+
+    // selected ids: only this project's matching issues
+    const some = await (await api.issues.DELETE(del(`/api/issues?projectId=${projectId}`, { ids: [byType.DeleteB] }))).json();
+    assert.deepEqual(some.deleted, { issues: 1, events: 1 });
+    assert.equal((await api.issues.DELETE(del(`/api/issues?projectId=${projectId}`, { ids: ['nope'] }))).status, 400);
+    assert.equal((await api.issues.DELETE(del(`/api/issues?projectId=${projectId}`, { ids: [] }))).status, 400);
+    assert.equal((await api.issues.DELETE(del(`/api/issues?projectId=${projectId}`))).status, 400, 'needs ids or a status');
+
+    // other project's issues are untouched even if their id is passed
+    const other = await (await api.projects.POST(authed('/api/projects', { method: 'POST', body: { name: 'Other' } }))).json();
+    await ingest(other.apiKey, [sampleEvent({ error: { message: 'Other app bug', type: 'OtherBug', handled: false } })]);
+    const otherIssue = (await (await api.issues.GET(authed(`/api/issues?projectId=${other.project.id}`))).json()).issues[0];
+    const cross = await (await api.issues.DELETE(del(`/api/issues?projectId=${projectId}`, { ids: [otherIssue.id] }))).json();
+    assert.deepEqual(cross.deleted, { issues: 0, events: 0 });
+
+    // by status: only resolved ones
+    await api.issue.PATCH(authed(`/api/issue?id=${byType.DeleteC}`, { method: 'PATCH', body: { status: 'resolved' } }));
+    const resolved = await (await api.issues.DELETE(del(`/api/issues?projectId=${projectId}&status=resolved`))).json();
+    assert.equal(resolved.deleted.issues, 1);
+    assert.equal((await issueList('&q=DeleteC')).total, 0);
+    assert.ok((await issueList()).total > 0, 'open issues remain');
+
+    // clear all, then the project itself (which also removes the other project's data only when asked)
+    await api.issues.DELETE(del(`/api/issues?projectId=${projectId}&status=all`));
+    assert.equal((await issueList()).total, 0);
+    assert.equal(await eventCount(), 0);
+    assert.equal((await api.issues.GET(authed(`/api/issues?projectId=${other.project.id}`))).status, 200);
+    assert.equal((await (await api.issues.GET(authed(`/api/issues?projectId=${other.project.id}`))).json()).total, 1);
+
+    const gone = await (await api.projects.DELETE(del(`/api/projects?id=${other.project.id}`))).json();
+    assert.deepEqual(gone.deleted, { issues: 1, events: 1 });
+    assert.equal(await db.collection('projects').countDocuments({ name: 'Other' }), 0);
+    assert.equal((await api.projects.DELETE(del(`/api/projects?id=${other.project.id}`))).status, 404);
   });
 });

@@ -1,5 +1,6 @@
 import { requireSession } from '../lib/auth.js';
 import { getDb } from '../lib/db.js';
+import { deleteProject } from '../lib/deletion.js';
 import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
 import { cleanProjectName, createProject, projectView, rotateApiKey } from '../lib/projects.js';
 
@@ -51,4 +52,15 @@ export const POST = handle(async (request) => {
   if (name === null) return errorResponse(400, 'invalid_name', 'Project name is required (max 80 characters)');
   const { project, apiKey } = await createProject(db, name);
   return json({ project: projectView(project), apiKey }, 201);
+});
+
+/** DELETE /api/projects?id=… — removes the project, its issues and events, and its API key. */
+export const DELETE = handle(async (request) => {
+  const denied = requireSession(request);
+  if (denied) return denied;
+  const id = parseObjectId(new URL(request.url).searchParams.get('id'));
+  if (id === null) return errorResponse(400, 'invalid_id', 'Missing or invalid project id');
+  const removed = await deleteProject(await getDb(), id);
+  if (removed === null) return errorResponse(404, 'not_found', 'Project not found');
+  return json({ deleted: removed });
 });

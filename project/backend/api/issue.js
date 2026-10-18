@@ -1,6 +1,7 @@
 import { requireSession } from '../lib/auth.js';
 import { ISSUE_RECENT_EVENTS, ISSUE_STATUSES } from '../lib/constants.js';
 import { getDb } from '../lib/db.js';
+import { deleteIssues } from '../lib/deletion.js';
 import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
 import { eventSummaryView, eventView, issueView } from '../lib/views.js';
 
@@ -46,4 +47,15 @@ export const PATCH = handle(async (request) => {
   );
   if (issue === null) return errorResponse(404, 'not_found', 'Issue not found');
   return json({ issue: issueView(issue) });
+});
+
+/** DELETE /api/issue?id=… — removes the issue and all of its events. */
+export const DELETE = handle(async (request) => {
+  const denied = requireSession(request);
+  if (denied) return denied;
+  const id = parseObjectId(new URL(request.url).searchParams.get('id'));
+  if (id === null) return errorResponse(400, 'invalid_id', 'Missing or invalid issue id');
+  const removed = await deleteIssues(await getDb(), { _id: id });
+  if (removed.issues === 0) return errorResponse(404, 'not_found', 'Issue not found');
+  return json({ deleted: removed });
 });
