@@ -85,8 +85,8 @@ A basic Next.js 15 (App Router, plain JS) app that uses the JS SDK through `file
 - **Browser:** the SDK is initialized in `instrumentation-client.js`, which runs before React hydrates, so first-render and hydration errors are caught. `app/error.js` reports page render crashes, and `app/global-error.js` reports root-layout crashes.
 - **Server:** `instrumentation.js` → `onRequestError` → `lib/serverErrors.js` sends API-route, server-component and SSR errors through the SDK in Node, with `context.source: "server"`.
 - The home page has a button for every scenario. Other demo pages: `/hydration`, `/csp` (report-only CSP header from `next.config.mjs`, plus a broken `<img>` in the server HTML), `/server-error`.
-- APIs: `/api/products`, `/api/slow` (2.5 s), `/api/fail` (500), `/api/bad-json`, `/api/crash` (server throw). `/api/events` is the local receiver: POST prints events to the terminal and keeps server events in memory; GET/DELETE list/clear them.
-- **Issues page** (`/issues`): temporary dashboard. The SDK's `beforeSend` hook saves browser events to `localStorage["web_issues"]` (newest 30) through `lib/issueStore.js`. Server events are polled from `/api/events`. Each issue expands to show stack trace, breadcrumbs, performance (incl. FPS), memory, device, context and screenshot.
+- APIs: `/api/products`, `/api/slow` (2.5 s), `/api/fail` (500), `/api/bad-json`, `/api/crash` (server throw).
+- **Viewing errors:** in the backend dashboard (local http://localhost:4000 or the Vercel URL). The old `/issues` page, `lib/issueStore.js` (`localStorage["web_issues"]`) and the `/api/events` local receiver were removed on 2026-10-18. The server SDK uses `ET_SERVER_ENDPOINT`, falling back to `NEXT_PUBLIC_ET_ENDPOINT`.
 - **Real-browser check:** build with `NEXT_DIST_DIR=.next-test npx next build` (a separate folder, so it doesn't clash with `npm run dev`), then drive headless Chrome (installed at `C:/Program Files/Google/Chrome/Application/chrome.exe`) over the DevTools protocol with a throwaway `--user-data-dir`. Done 2026-10-17: every scenario produced exactly one event in Chrome.
 
 ## Next steps

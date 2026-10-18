@@ -6,11 +6,10 @@ import ErrorTracker from '@sourav732/error-tracker-js';
  */
 export async function reportServerError(error, request, context) {
   if (!ErrorTracker.isInitialized()) {
-    const host = request.headers?.host || 'localhost:3000';
     ErrorTracker.init({
       apiKey: process.env.NEXT_PUBLIC_ET_API_KEY,
-      // The server needs an absolute URL; default to this app's own receiver.
-      endpoint: process.env.ET_SERVER_ENDPOINT || `http://${host}/api/events`,
+      // The server needs an absolute URL (the browser one may be relative).
+      endpoint: process.env.ET_SERVER_ENDPOINT || process.env.NEXT_PUBLIC_ET_ENDPOINT,
       environment: process.env.NODE_ENV,
       appVersion: '0.1.0',
       captureScreenshots: false,
