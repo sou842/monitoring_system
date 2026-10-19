@@ -6,13 +6,14 @@ import { EVENT_TYPES, STATS_RANGES, TOP_ISSUES_LIMIT } from './constants.js';
  * issues that produced the most events in the range.
  *
  * @param {import('mongodb').Db} db
- * @param {{ projectId?: import('mongodb').ObjectId | null, range: keyof typeof STATS_RANGES, now?: Date }} options
+ * @param {{ projectIds: import('mongodb').ObjectId[], range: keyof typeof STATS_RANGES, now?: Date }} options
+ *   `projectIds`: the projects to include (the caller's own projects, or one of them).
  */
-export async function computeStats(db, { projectId = null, range, now = new Date() }) {
+export async function computeStats(db, { projectIds, range, now = new Date() }) {
   const { buckets, stepMs } = STATS_RANGES[range];
   const start = new Date(now.getTime() - buckets * stepMs);
   const previousStart = new Date(start.getTime() - buckets * stepMs);
-  const scope = projectId ? { projectId } : {};
+  const scope = { projectId: { $in: projectIds } };
   const events = db.collection('events');
   const issues = db.collection('issues');
 

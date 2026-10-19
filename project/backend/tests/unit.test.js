@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { checkPassword, createSessionToken, readCookie, verifySessionToken } from '../lib/auth.js';
+import { ObjectId } from 'mongodb';
+import { createSessionToken, crossSiteResponse, readCookie, verifySessionToken } from '../lib/auth.js';
+import { hashPassword, passwordProblem, verifyPassword } from '../lib/passwords.js';
+import { cleanUserName, normalizeEmail } from '../lib/users.js';
 import { optimizedUrl, parseImageDataUrl, uploadScreenshot } from '../lib/cloudinary.js';
 import { MAX_SCREENSHOT_BYTES, SESSION_TTL_MS } from '../lib/constants.js';
 import { culprit, fingerprint, normalizeFilename, normalizeMessage } from '../lib/grouping.js';
@@ -8,7 +11,6 @@ import { validateEvent } from '../lib/validate.js';
 import { sampleEvent } from './helpers.js';
 
 process.env.SESSION_SECRET = 'test-secret';
-process.env.DASHBOARD_PASSWORD = 'correct horse';
 process.env.CLOUDINARY_CLOUD_NAME = 'demo';
 process.env.CLOUDINARY_UPLOAD_PRESET = 'preset';
 
@@ -96,20 +98,34 @@ describe('validateEvent', () => {
 });
 
 describe('dashboard sessions', () => {
-  it('checks the shared password', () => {
-    assert.equal(checkPassword('correct horse'), true);
-    assert.equal(checkPassword('wrong'), false);
-    assert.equal(checkPassword(undefined), false);
+  const user = { _id: new ObjectId(), sessionVersion: 3 };
+
+  it('issues signed tokens with the user and session version, that expire', () => {
+    const now = Date.now();
+    const token = createSessionToken(user, now);
+    assert.deepEqual(verifySessionToken(token, now), { userId: user._id, version: 3 });
+    assert.equal(verifySessionToken(token, now + SESSION_TTL_MS + 1), null);
+    assert.equal(verifySessionToken('garbage', now), null);
+    assert.equal(verifySessionToken(undefined, now), null);
   });
 
-  it('issues signed tokens that expire and cannot be forged', () => {
+  it('rejects tokens whose payload was changed', () => {
     const now = Date.now();
-    const token = createSessionToken(now);
-    assert.equal(verifySessionToken(token, now), true);
-    assert.equal(verifySessionToken(token, now + SESSION_TTL_MS + 1), false);
-    const [expires, signature] = token.split('.');
-    assert.equal(verifySessionToken(`${Number(expires) + 1000}.${signature}`, now), false);
-    assert.equal(verifySessionToken('garbage', now), false);
+    const [, signature] = createSessionToken(user, now).split('.');
+    const forged = Buffer.from(JSON.stringify({ u: String(new ObjectId()), v: 3, e: now + SESSION_TTL_MS })).toString('base64url');
+    assert.equal(verifySessionToken(`${forged}.${signature}`, now), null);
+  });
+
+  it('refuses cross-site writes but allows same-site ones and reads', () => {
+    const req = (method, origin) => new Request('http://dash.test/api/projects', { method, headers: { host: 'dash.test', ...(origin ? { origin } : {}) } });
+    assert.equal(crossSiteResponse(req('POST', 'https://evil.test')).status, 403);
+    assert.equal(crossSiteResponse(req('POST', 'http://dash.test')), null);
+    assert.equal(crossSiteResponse(req('POST')), null, 'no Origin (non-browser client)');
+    assert.equal(crossSiteResponse(req('GET', 'https://evil.test')), null);
+  });
+
+  it('ignores a malformed cookie value instead of throwing', () => {
+    assert.equal(readCookie(new Request('http://x', { headers: { cookie: 'et_session=%E0%A4%A' } }), 'et_session'), null);
   });
 
   it('reads cookies from the header', () => {
@@ -154,5 +170,37 @@ describe('screenshots', () => {
   it('serves screenshots compressed', () => {
     assert.equal(optimizedUrl('https://res.cloudinary.com/demo/image/upload/v1/x.jpg'),
       'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto:low,w_1280,c_limit/v1/x.jpg');
+  });
+});
+
+describe('accounts', () => {
+  it('hashes passwords with a random salt and verifies them', async () => {
+    const hash = await hashPassword('correct horse battery');
+    assert.match(hash, /^scrypt\$16384\$8\$1\$/);
+    assert.notEqual(hash, await hashPassword('correct horse battery'), 'salted');
+    assert.equal(await verifyPassword('correct horse battery', hash), true);
+    assert.equal(await verifyPassword('wrong horse battery', hash), false);
+    assert.equal(await verifyPassword('anything', 'not-a-hash'), false);
+    assert.equal(await verifyPassword(undefined, hash), false);
+  });
+
+  it('enforces password rules', () => {
+    assert.equal(passwordProblem('long enough pw', 'a@b.co'), null);
+    assert.match(passwordProblem('short'), /at least 8/);
+    assert.match(passwordProblem('x'.repeat(129)), /at most 128/);
+    assert.match(passwordProblem('         '), /spaces/);
+    assert.match(passwordProblem('Me@Example.com', 'me@example.com'), /email/);
+    assert.match(passwordProblem(undefined), /at least 8/);
+  });
+
+  it('normalizes emails and names', () => {
+    assert.equal(normalizeEmail('  Jane.Doe@Example.COM '), 'jane.doe@example.com');
+    assert.equal(normalizeEmail('no-at-sign'), null);
+    assert.equal(normalizeEmail('a@b'), null);
+    assert.equal(normalizeEmail(42), null);
+    assert.equal(normalizeEmail(`${'x'.repeat(250)}@example.com`), null);
+    assert.equal(cleanUserName('  Jane   Doe '), 'Jane Doe');
+    assert.equal(cleanUserName('   '), null);
+    assert.equal(cleanUserName('x'.repeat(81)), null);
   });
 });

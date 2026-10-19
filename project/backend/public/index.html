@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Error Tracker</title>
+    <meta name="description" content="Error, performance and crash monitoring for your web apps. Free to sign up." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="/styles.css" />
@@ -19,8 +20,15 @@
           <a href="#/projects" data-nav="projects">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Projects
           </a>
+          <a href="#/admin" data-nav="admin" id="nav-admin" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>Admin
+          </a>
         </nav>
         <div class="nav nav-bottom">
+          <a href="#/account" data-nav="account" class="user-chip" id="user-chip" title="Account settings">
+            <span class="avatar sm" id="user-initial" aria-hidden="true"></span>
+            <span class="user-meta"><b id="user-name"></b><small id="user-email"></small></span>
+          </a>
           <button class="nav-btn" id="logout" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 8l-4 4 4 4M6 12h10"/></svg>Log out
           </button>
@@ -45,6 +53,7 @@
         <main id="app" aria-live="polite"></main>
       </div>
     </div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

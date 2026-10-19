@@ -1,6 +1,6 @@
-import { requireSession } from '../lib/auth.js';
+import { ownedProject } from '../lib/access.js';
+import { requireUser } from '../lib/auth.js';
 import { EVENT_TYPES, ISSUES_PAGE_SIZE, ISSUE_STATUSES } from '../lib/constants.js';
-import { getDb } from '../lib/db.js';
 import { deleteIssues } from '../lib/deletion.js';
 import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
 import { issueView } from '../lib/views.js';
@@ -21,12 +21,14 @@ function escapeRegex(text) {
  * Returns the page of issues plus per-status counts and the project's environments for filters.
  */
 export const GET = handle(async (request) => {
-  const denied = requireSession(request);
-  if (denied) return denied;
+  const auth = await requireUser(request);
+  if (auth.response) return auth.response;
 
   const params = new URL(request.url).searchParams;
   const projectId = parseObjectId(params.get('projectId'));
   if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
+  const { db } = auth;
+  if ((await ownedProject(db, auth.user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
 
   const status = params.get('status') || 'open';
   const filter = { projectId };
@@ -46,7 +48,6 @@ export const GET = handle(async (request) => {
   const sort = SORTS[params.get('sort')] || SORTS.lastSeen;
   const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
 
-  const db = await getDb();
   const issues = db.collection('issues');
   const [rows, total, statusCounts, environments] = await Promise.all([
     issues.find(filter).sort(sort).skip((page - 1) * ISSUES_PAGE_SIZE).limit(ISSUES_PAGE_SIZE).toArray(),
@@ -70,11 +71,13 @@ const MAX_DELETE_IDS = 500;
  * Events go with their issues. Returns the number of issues and events removed.
  */
 export const DELETE = handle(async (request) => {
-  const denied = requireSession(request);
-  if (denied) return denied;
+  const auth = await requireUser(request);
+  if (auth.response) return auth.response;
+  const { db } = auth;
   const params = new URL(request.url).searchParams;
   const projectId = parseObjectId(params.get('projectId'));
   if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
+  if ((await ownedProject(db, auth.user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
 
   const text = await request.text();
   if (text.length > 0) {
@@ -86,7 +89,7 @@ export const DELETE = handle(async (request) => {
     }
     const ids = raw.map(parseObjectId);
     if (ids.includes(null)) return errorResponse(400, 'invalid_ids', 'ids contains an invalid issue id');
-    return json({ deleted: await deleteIssues(await getDb(), { projectId, _id: { $in: ids } }) });
+    return json({ deleted: await deleteIssues(db, { projectId, _id: { $in: ids } }) });
   }
 
   const status = params.get('status');
@@ -94,5 +97,5 @@ export const DELETE = handle(async (request) => {
     return errorResponse(400, 'invalid_status', 'Pass ids in the body, or status=open|resolved|ignored|all');
   }
   const filter = status === 'all' ? { projectId } : { projectId, status };
-  return json({ deleted: await deleteIssues(await getDb(), filter) });
+  return json({ deleted: await deleteIssues(db, filter) });
 });

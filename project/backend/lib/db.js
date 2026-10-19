@@ -43,6 +43,8 @@ export async function closeDb() {
 export async function ensureIndexes(db) {
   await Promise.all([
     db.collection('projects').createIndex({ apiKeyHash: 1 }, { unique: true }),
+    db.collection('projects').createIndex({ ownerId: 1, createdAt: -1 }),
+    db.collection('users').createIndex({ email: 1 }, { unique: true }),
 
     // One issue per (project, fingerprint): this is what groups repeated errors.
     db.collection('issues').createIndex({ projectId: 1, fingerprint: 1 }, { unique: true }),

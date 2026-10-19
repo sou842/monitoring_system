@@ -89,10 +89,20 @@ function send(res, status, data) {
   res.end(isJson ? JSON.stringify(data) : data);
 }
 
+/** The headers vercel.json applies to every route, so local runs hit the same CSP as production. */
+function globalHeaders() {
+  const config = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'));
+  const rule = (config.headers || []).find((h) => h.source === '/(.*)');
+  // HSTS is meaningless (and sticky) on http://localhost.
+  return rule ? rule.headers.filter((h) => h.key !== 'Strict-Transport-Security') : [];
+}
+
 loadEnvFile(join(ROOT, '.env.local'));
 const port = Number(process.env.PORT) || DEFAULT_PORT;
+const SECURITY_HEADERS = globalHeaders();
 
 createServer(async (req, res) => {
+  for (const { key, value } of SECURITY_HEADERS) res.setHeader(key, value);
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   try {
     if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);

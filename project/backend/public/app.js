@@ -1,11 +1,13 @@
 /**
  * Error Tracker dashboard: a small single-page app with hash routes.
  *
- *   #/login            shared-password login
+ *   #/login, #/signup  accounts (anyone can sign up; each user sees only their own projects)
  *   #/dashboard        overview charts (all projects or one; ?range=24h|7d&project=<id>)
  *   #/projects         projects, create project / API key
  *   #/p/<projectId>    issues of a project (filters in the hash query)
  *   #/i/<issueId>      one issue with its events
+ *   #/account          profile, password, sessions, delete account
+ *   #/admin            users and usage (admins only)
  *
  * All event data comes from end users' browsers and is untrusted: the UI is
  * built from DOM nodes with textContent only, never innerHTML.
@@ -25,6 +27,13 @@ const SDK_PACKAGE = '@sourav732/error-tracker-js';
 const SCREENSHOT_HOST = 'https://res.cloudinary.com/';
 const STATUSES = ['open', 'resolved', 'ignored', 'all'];
 const EVENT_TYPES = ['error', 'message', 'performance', 'crash'];
+/** Mirrors the server's rules (lib/constants.js); the server re-checks everything. */
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 128;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AUTH_ROUTES = ['login', 'signup'];
+const TOAST_MS = 3600;
+const TOAST_EXIT_MS = 250;
 
 const app = document.getElementById('app');
 const topbar = document.getElementById('topbar');
@@ -32,6 +41,13 @@ const sidebar = document.getElementById('sidebar');
 const crumbs = document.getElementById('crumbs');
 let loadingTimer = null;
 let sessionCheckedAt = 0;
+/** The logged-in user ({ id, email, name, role }), or null. */
+let me = null;
+/** Where to go after logging in (the page that asked for a login). */
+let returnTo = null;
+let fieldSeq = 0;
+/** A just-created project's key, shown once on the redrawn Projects page. */
+let pendingKey = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,23 +71,39 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
-class ApiError extends Error {}
+class ApiError extends Error {
+  constructor(message, { status = 0, code = '' } = {}) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    credentials: 'same-origin',
-    headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  if (response.status === 401 && !path.startsWith('/api/auth/')) {
-    sessionCheckedAt = 0;
-    cache.clear();
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      credentials: 'same-origin',
+      headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch {
+    throw new ApiError('Network error. Check your connection and try again.', { code: 'network' });
+  }
+  if (response.status === 401 && !path.startsWith('/api/auth')) {
+    forgetSession();
+    if (!AUTH_ROUTES.includes(parseHash().parts[0])) returnTo = location.hash;
     go('#/login');
-    throw new ApiError('Session expired');
+    throw new ApiError('Session expired', { status: 401, code: 'session_expired' });
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError((data.error && data.error.message) || `Request failed (${response.status})`);
+  if (!response.ok) {
+    throw new ApiError((data.error && data.error.message) || `Request failed (${response.status})`, {
+      status: response.status,
+      code: data.error && data.error.code,
+    });
+  }
   // Any change (resolve, delete, new project, login, logout…) makes every cached read suspect: start fresh.
   if (options.method && options.method !== 'GET') cache.clear();
   return data;
@@ -257,8 +289,211 @@ function avatar(name, large = false) {
 }
 
 function showError(error) {
-  if (error instanceof ApiError && error.message === 'Session expired') return;
+  if (error instanceof ApiError && error.code === 'session_expired') return;
   show(el('div', { class: 'notice error', text: error.message || 'Something went wrong' }));
+}
+
+function forgetSession() {
+  me = null;
+  sessionCheckedAt = 0;
+  cache.clear();
+}
+
+// ---------------------------------------------------------------------------
+// UI kit: toasts, dialogs, form fields, busy buttons
+// ---------------------------------------------------------------------------
+
+/** Short confirmation at the bottom of the screen. `kind`: success | error. */
+function toast(message, kind = 'success') {
+  const host = document.getElementById('toasts');
+  const node = el('div', { class: `toast ${kind}`, attrs: { role: kind === 'error' ? 'alert' : 'status' } }, el('span', { class: 'toast-dot' }), el('span', { text: message }));
+  host.append(node);
+  setTimeout(() => {
+    node.classList.add('leaving');
+    setTimeout(() => node.remove(), TOAST_EXIT_MS);
+  }, TOAST_MS);
+}
+
+/** Wraps a click handler: failures become an error toast instead of an unhandled rejection. */
+function action(fn) {
+  return async (...args) => {
+    try {
+      await fn(...args);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.code === 'session_expired')) toast(error.message || 'Something went wrong', 'error');
+    }
+  };
+}
+
+/** Disables a button and shows a spinner in it while work is in progress. */
+function setBusy(button, busy) {
+  button.disabled = busy;
+  button.classList.toggle('busy', busy);
+  button.setAttribute('aria-busy', String(busy));
+}
+
+/**
+ * Modal dialog. Resolves with `true` (or the typed value when `input` is given),
+ * or `false`/`null` when cancelled. With `onConfirm`, the dialog stays open and
+ * shows the error if that async step fails (e.g. a wrong password).
+ */
+function openDialog({ title, message, confirmText = 'Confirm', danger = false, input = null, onConfirm = null }) {
+  return new Promise((resolve) => {
+    const cancelled = input ? null : false;
+    const inputField = input
+      ? field({ label: input.label, type: input.type || 'text', autocomplete: input.autocomplete || 'off', placeholder: input.placeholder || '' })
+      : null;
+    if (inputField && input.type === 'password') addPasswordToggle(inputField);
+    const error = el('p', { class: 'notice error', hidden: true, attrs: { role: 'alert' } });
+    const confirmButton = el('button', { class: danger ? 'danger solid' : 'primary', type: 'submit', text: confirmText });
+    const cancelButton = el('button', { type: 'button', text: 'Cancel' });
+    const form = el('form', { class: 'modal-body', noValidate: true },
+      el('h2', { class: 'modal-title', text: title }),
+      message ? el('p', { class: 'modal-text', text: message }) : null,
+      inputField && inputField.wrap,
+      error,
+      el('div', { class: 'modal-actions' }, cancelButton, confirmButton));
+    const dialog = el('dialog', { class: `modal${danger ? ' modal-danger' : ''}`, attrs: { 'aria-label': title } }, form);
+
+    let finished = false;
+    const finish = (value) => {
+      if (finished) return;
+      finished = true;
+      dialog.close();
+      dialog.remove();
+      resolve(value);
+    };
+    cancelButton.addEventListener('click', () => finish(cancelled));
+    dialog.addEventListener('cancel', (event) => { event.preventDefault(); if (!confirmButton.disabled) finish(cancelled); });
+    dialog.addEventListener('click', (event) => { if (event.target === dialog && !confirmButton.disabled) finish(cancelled); });
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const value = inputField ? inputField.input.value : true;
+      if (inputField && value.trim() === '') { inputField.setError('This field is required'); inputField.input.focus(); return; }
+      if (!onConfirm) { finish(value); return; }
+      setBusy(confirmButton, true);
+      cancelButton.disabled = true;
+      error.hidden = true;
+      try {
+        await onConfirm(value);
+        finish(value);
+      } catch (failure) {
+        setBusy(confirmButton, false);
+        cancelButton.disabled = false;
+        if (inputField) { inputField.setError(failure.message); inputField.input.select(); } else { error.textContent = failure.message; error.hidden = false; }
+      }
+    });
+
+    document.body.append(dialog);
+    dialog.showModal();
+    (inputField ? inputField.input : cancelButton).focus();
+  });
+}
+
+/** Labelled input with hint and inline error. Extra props go to the <input>. */
+function field({ label, hint, ...props }) {
+  const id = `f${++fieldSeq}`;
+  const input = el('input', { ...props, id });
+  const error = el('p', { class: 'field-error', hidden: true, attrs: { id: `${id}-error` } });
+  const wrap = el('div', { class: 'field' },
+    el('label', { class: 'field-label', text: label, attrs: { for: id } }),
+    input,
+    hint ? el('p', { class: 'field-hint', text: hint }) : null,
+    error);
+  input.addEventListener('input', () => setError(''));
+  function setError(message) {
+    error.textContent = message || '';
+    error.hidden = !message;
+    if (message) {
+      input.setAttribute('aria-invalid', 'true');
+      input.setAttribute('aria-describedby', error.id);
+    } else {
+      input.removeAttribute('aria-invalid');
+      input.removeAttribute('aria-describedby');
+    }
+  }
+  return { wrap, input, setError };
+}
+
+/** Adds a Show/Hide button inside a password field. */
+function addPasswordToggle(passwordField) {
+  const { input } = passwordField;
+  const toggle = el('button', { type: 'button', class: 'input-addon', text: 'Show', attrs: { 'aria-label': 'Show password', 'aria-pressed': 'false' } });
+  toggle.addEventListener('click', () => {
+    const reveal = input.type === 'password';
+    input.type = reveal ? 'text' : 'password';
+    toggle.textContent = reveal ? 'Hide' : 'Show';
+    toggle.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+    toggle.setAttribute('aria-pressed', String(reveal));
+    input.focus();
+  });
+  const box = el('div', { class: 'input-wrap' });
+  input.replaceWith(box);
+  box.append(input, toggle);
+  return passwordField;
+}
+
+function passwordField(props) {
+  return addPasswordToggle(field({ type: 'password', maxLength: MAX_PASSWORD_LENGTH, ...props }));
+}
+
+const STRENGTH_LABELS = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
+
+/** 0 (too short) to 4 (strong): length, mixed case, digits and symbols. */
+function passwordScore(password) {
+  if (password.length < MIN_PASSWORD_LENGTH) return 0;
+  let score = 1;
+  if (password.length >= 12) score += 1;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+  if (/\d/.test(password) && /[^A-Za-z0-9]/.test(password)) score += 1;
+  return score;
+}
+
+/** Four-segment strength bar that follows a password input. */
+function strengthMeter(input) {
+  const bars = Array.from({ length: 4 }, () => el('i'));
+  const label = el('span', { class: 'strength-label' });
+  const meter = el('div', { class: 'strength', hidden: true, attrs: { 'aria-live': 'polite' } }, el('div', { class: 'strength-bars' }, bars), label);
+  input.addEventListener('input', () => {
+    const score = passwordScore(input.value);
+    meter.hidden = input.value.length === 0;
+    meter.dataset.score = String(score);
+    bars.forEach((bar, i) => bar.classList.toggle('on', i < score));
+    label.textContent = STRENGTH_LABELS[score];
+  });
+  return meter;
+}
+
+/** Client-side check of a new password; the server applies the same rules. */
+function newPasswordProblem(password, email = '') {
+  if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters`;
+  if (password.trim() === '') return 'Password cannot be only spaces';
+  if (email && password.toLowerCase() === email.trim().toLowerCase()) return 'Password cannot be your email address';
+  return null;
+}
+
+/** Small theme switch (dark / light), used on the login and sign-up pages. */
+function themeToggle() {
+  const make = (theme, label, path) => {
+    const button = el('button', { type: 'button', attrs: { 'data-theme-set': theme, 'aria-label': label, title: label } });
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    const shape = document.createElementNS(SVG_NS, 'path');
+    shape.setAttribute('d', path);
+    svg.append(shape);
+    button.append(svg);
+    button.classList.toggle('active', document.documentElement.getAttribute('data-theme') === theme);
+    bindThemeButton(button);
+    return button;
+  };
+  return el('div', { class: 'theme-toggle', attrs: { role: 'group', 'aria-label': 'Theme' } },
+    make('dark', 'Dark theme', 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z'),
+    make('light', 'Light theme', 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'));
+}
+
+function firstName(user) {
+  return (user && user.name ? user.name.split(' ')[0] : '') || 'there';
 }
 
 function badge(text, kind = text) {
@@ -298,37 +533,374 @@ async function getProjects() {
 // Pages
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Sign up / log in
+// ---------------------------------------------------------------------------
+
+const AUTH_FEATURES = [
+  ['Every error, grouped', 'Uncaught exceptions, failed requests and crashes, grouped into issues with stack traces and breadcrumbs.'],
+  ['Performance & 404s', 'Slow pages, slow API calls, frozen UIs, memory leaks and missing pages, out of the box.'],
+  ['Private by default', 'Your projects and their data are visible only to your account.'],
+];
+
+/** Split layout: product intro on the left, the form card on the right. */
+function authLayout(card) {
+  const check = () => {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', ICONS.check);
+    svg.append(path);
+    return el('span', { class: 'feature-icon' }, svg);
+  };
+  const snippet = [`import ErrorTracker from '${SDK_PACKAGE}';`, '', 'ErrorTracker.init({', "  apiKey: 'et_…',", `  endpoint: '${location.origin}/api/v1/events',`, '});'].join('\n');
+  return el('div', { class: 'auth' },
+    el('section', { class: 'auth-hero', attrs: { 'aria-label': 'About Error Tracker' } },
+      el('div', { class: 'brand' }, el('span', { class: 'brand-mark' }), 'ERROR TRACKER'),
+      el('div', { class: 'auth-pitch' },
+        el('p', { class: 'eyebrow', text: 'Error monitoring for web apps' }),
+        el('h2', { class: 'auth-headline', text: 'Know about every error before your users report it.' }),
+        el('ul', { class: 'auth-features' }, AUTH_FEATURES.map(([title, text]) => el('li', {}, check(), el('div', {}, el('b', { text: title }), el('span', { text }))))),
+        el('div', { class: 'auth-code' }, el('div', { class: 'auth-code-head' }, el('i'), el('i'), el('i'), el('span', { text: 'app.js' })), el('pre', { text: snippet }))),
+      el('p', { class: 'auth-foot', text: 'Free to use · Zero-dependency SDK · Set up in two minutes' })),
+    el('div', { class: 'auth-main' },
+      el('div', { class: 'auth-top' }, el('div', { class: 'brand auth-brand-mobile' }, el('span', { class: 'brand-mark' }), 'ERROR TRACKER'), el('span', { class: 'spacer' }), themeToggle()),
+      el('div', { class: 'auth-card' }, card)));
+}
+
+/** Shows a server error next to the field it belongs to, or in the form's banner. */
+function showFormError(error, fieldsByCode, banner) {
+  const target = fieldsByCode[error.code];
+  if (target) {
+    target.setError(error.message);
+    target.input.focus();
+  } else {
+    banner.textContent = error.message;
+    banner.hidden = false;
+  }
+}
+
+function afterLogin(user) {
+  me = user;
+  sessionCheckedAt = Date.now();
+  updateChrome();
+  const target = returnTo && !AUTH_ROUTES.some((r) => returnTo.startsWith(`#/${r}`)) ? returnTo : '#/dashboard';
+  returnTo = null;
+  go(target);
+}
+
 function loginPage() {
-  topbar.hidden = true;
-  sidebar.hidden = true;
-  const input = el('input', { type: 'password', placeholder: 'Dashboard password', required: true, autocomplete: 'current-password', attrs: { 'aria-label': 'Password' } });
-  const message = el('p', { class: 'notice error', hidden: true });
-  const submit = el('button', { class: 'primary', type: 'submit', text: 'Log in' });
+  const email = field({ label: 'Email', type: 'email', name: 'email', autocomplete: 'email', maxLength: 254, placeholder: 'you@company.com' });
+  const password = passwordField({ label: 'Password', name: 'password', autocomplete: 'current-password' });
+  const banner = el('div', { class: 'notice error', hidden: true, attrs: { role: 'alert' } });
+  const submit = el('button', { class: 'primary block', type: 'submit', text: 'Log in' });
+
   const form = el('form', {
+    class: 'auth-form',
+    noValidate: true,
     onsubmit: async (event) => {
       event.preventDefault();
-      submit.disabled = true;
-      message.hidden = true;
+      banner.hidden = true;
+      let invalid = null;
+      if (password.input.value === '') { password.setError('Enter your password'); invalid = password; }
+      if (!EMAIL_PATTERN.test(email.input.value.trim())) { email.setError('Enter a valid email address'); invalid = email; }
+      if (invalid) { invalid.input.focus(); return; }
+      setBusy(submit, true);
       try {
-        await api('/api/auth/login', { method: 'POST', body: { password: input.value } });
-        go('#/dashboard');
+        const { user } = await api('/api/auth?action=login', { method: 'POST', body: { email: email.input.value, password: password.input.value } });
+        afterLogin(user);
       } catch (error) {
-        message.textContent = error.message;
-        message.hidden = false;
-        submit.disabled = false;
-        input.select();
+        setBusy(submit, false);
+        showFormError(error, {}, banner);
+        if (error.code === 'invalid_credentials') password.input.select();
       }
     },
-  }, input, submit, message);
+  }, banner, email.wrap, password.wrap, submit);
 
-  show(el('div', { class: 'login-wrap' },
-    el('div', { class: 'login card' },
-      el('div', { class: 'brand' }, el('span', { class: 'brand-mark' }), 'ERROR TRACKER'),
-      el('h1', { text: 'Welcome back' }),
-      el('p', { class: 'muted', text: 'Log in to Error Tracker to see your projects and issues.' }),
-      form,
-    )));
-  input.focus();
+  show(authLayout(el('div', {},
+    el('h1', { text: 'Log in' }),
+    el('p', { class: 'auth-sub', text: 'Welcome back. Enter your details to see your projects.' }),
+    form,
+    el('p', { class: 'auth-switch' }, 'New to Error Tracker? ', el('a', { href: '#/signup', text: 'Create an account' })))));
+  email.input.focus();
+}
+
+function signupPage() {
+  const name = field({ label: 'Full name', name: 'name', autocomplete: 'name', maxLength: 80, placeholder: 'Jane Doe' });
+  const email = field({ label: 'Work email', type: 'email', name: 'email', autocomplete: 'email', maxLength: 254, placeholder: 'you@company.com' });
+  const password = passwordField({ label: 'Password', name: 'new-password', autocomplete: 'new-password', hint: `At least ${MIN_PASSWORD_LENGTH} characters. A longer passphrase is stronger.` });
+  password.wrap.append(strengthMeter(password.input));
+  const banner = el('div', { class: 'notice error', hidden: true, attrs: { role: 'alert' } });
+  const submit = el('button', { class: 'primary block', type: 'submit', text: 'Create account' });
+
+  const form = el('form', {
+    class: 'auth-form',
+    noValidate: true,
+    onsubmit: async (event) => {
+      event.preventDefault();
+      banner.hidden = true;
+      const problems = [
+        [password, newPasswordProblem(password.input.value, email.input.value)],
+        [email, EMAIL_PATTERN.test(email.input.value.trim()) ? null : 'Enter a valid email address'],
+        [name, name.input.value.trim() ? null : 'Enter your name'],
+      ].filter(([, problem]) => problem);
+      for (const [f, problem] of problems) f.setError(problem);
+      if (problems.length > 0) { problems.at(-1)[0].input.focus(); return; }
+      setBusy(submit, true);
+      try {
+        const { user } = await api('/api/auth?action=signup', {
+          method: 'POST',
+          body: { name: name.input.value, email: email.input.value, password: password.input.value },
+        });
+        toast(`Welcome, ${firstName(user)}! Your account is ready.`);
+        afterLogin(user);
+      } catch (error) {
+        setBusy(submit, false);
+        showFormError(error, { invalid_email: email, email_taken: email, invalid_name: name, weak_password: password }, banner);
+      }
+    },
+  }, banner, name.wrap, email.wrap, password.wrap, submit);
+
+  show(authLayout(el('div', {},
+    el('h1', { text: 'Create your account' }),
+    el('p', { class: 'auth-sub', text: 'Start tracking errors in your apps. It only takes a minute.' }),
+    form,
+    el('p', { class: 'auth-switch' }, 'Already have an account? ', el('a', { href: '#/login', text: 'Log in' })))));
+  name.input.focus();
+}
+
+// ---------------------------------------------------------------------------
+// Account settings
+// ---------------------------------------------------------------------------
+
+function settingsCard(title, description, ...content) {
+  return el('section', { class: 'card settings-card' },
+    el('div', { class: 'settings-head' }, el('h3', { text: title }), description ? el('p', { class: 'muted', text: description }) : null),
+    el('div', { class: 'settings-body' }, ...content));
+}
+
+async function accountPage() {
+  setNav('account');
+  setCrumbs(el('span', { text: 'Account' }));
+  loading();
+  const { user, usage } = await cachedGet('/api/account');
+  me = user;
+  updateChrome();
+
+  const name = field({ label: 'Name', value: user.name, autocomplete: 'name', maxLength: 80 });
+  const email = field({ label: 'Email', value: user.email, type: 'email', readOnly: true, hint: 'Your email is your login and cannot be changed.' });
+  const saveName = el('button', { class: 'primary', type: 'submit', text: 'Save changes' });
+  const profileForm = el('form', {
+    class: 'settings-form',
+    noValidate: true,
+    onsubmit: action(async (event) => {
+      event.preventDefault();
+      if (!name.input.value.trim()) { name.setError('Enter your name'); name.input.focus(); return; }
+      setBusy(saveName, true);
+      try {
+        const res = await api('/api/account', { method: 'PATCH', body: { name: name.input.value } });
+        me = res.user;
+        updateChrome();
+        name.input.value = res.user.name;
+        toast('Profile saved');
+      } catch (error) {
+        if (error.code === 'invalid_name') name.setError(error.message);
+        else toast(error.message, 'error');
+      } finally {
+        setBusy(saveName, false);
+      }
+    }),
+  }, name.wrap, email.wrap, el('div', { class: 'form-actions' }, saveName));
+
+  const current = passwordField({ label: 'Current password', autocomplete: 'current-password' });
+  const next = passwordField({ label: 'New password', autocomplete: 'new-password', hint: `At least ${MIN_PASSWORD_LENGTH} characters.` });
+  next.wrap.append(strengthMeter(next.input));
+  const repeat = passwordField({ label: 'Confirm new password', autocomplete: 'new-password' });
+  const savePassword = el('button', { class: 'primary', type: 'submit', text: 'Update password' });
+  const passwordForm = el('form', {
+    class: 'settings-form',
+    noValidate: true,
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const problems = [
+        [repeat, repeat.input.value === next.input.value ? null : 'Passwords do not match'],
+        [next, newPasswordProblem(next.input.value, user.email)],
+        [current, current.input.value ? null : 'Enter your current password'],
+      ].filter(([, problem]) => problem);
+      for (const [f, problem] of problems) f.setError(problem);
+      if (problems.length > 0) { problems.at(-1)[0].input.focus(); return; }
+      setBusy(savePassword, true);
+      try {
+        await api('/api/account', { method: 'PATCH', body: { currentPassword: current.input.value, newPassword: next.input.value } });
+        passwordForm.reset();
+        next.input.dispatchEvent(new Event('input'));
+        toast('Password updated. Other devices were logged out.');
+      } catch (error) {
+        if (error.code === 'wrong_password') current.setError(error.message);
+        else if (error.code === 'weak_password') next.setError(error.message);
+        else toast(error.message, 'error');
+      } finally {
+        setBusy(savePassword, false);
+      }
+    },
+  }, current.wrap, next.wrap, repeat.wrap, el('div', { class: 'form-actions' }, savePassword));
+
+  const logoutOthers = el('button', {
+    text: 'Log out other devices',
+    onclick: action(async () => {
+      const ok = await openDialog({
+        title: 'Log out other devices?',
+        message: 'Every other browser where you are logged in will be signed out. You stay logged in here.',
+        confirmText: 'Log out others',
+        onConfirm: () => api('/api/account?action=logout-others', { method: 'POST' }),
+      });
+      if (ok) toast('Other devices were logged out');
+    }),
+  });
+
+  const deleteAccount = el('button', {
+    class: 'danger solid',
+    text: 'Delete account',
+    onclick: action(async () => {
+      const done = await openDialog({
+        title: 'Delete your account?',
+        message: `This permanently deletes your account and ${usage.projects} project(s) with all their issues and events. Apps using your API keys will stop reporting. This can't be undone.`,
+        confirmText: 'Delete my account',
+        danger: true,
+        input: { label: 'Enter your password to confirm', type: 'password', autocomplete: 'current-password' },
+        onConfirm: (password) => api('/api/account', { method: 'DELETE', body: { password } }),
+      });
+      if (done === null) return;
+      forgetSession();
+      toast('Your account was deleted');
+      go('#/signup');
+    }),
+  });
+
+  show(
+    el('div', { class: 'page-head' }, el('h1', { text: 'Account' })),
+    el('p', { class: 'page-sub', text: 'Manage your profile, password and sessions.' }),
+    el('div', { class: 'settings' },
+      settingsCard('Profile', null,
+        el('div', { class: 'profile-row' }, avatar(user.name, true),
+          el('div', {}, el('b', { text: user.name }), el('div', { class: 'muted small', text: `${user.role === 'admin' ? 'Admin · ' : ''}Member since ${new Date(user.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}` })),
+          el('span', { class: 'spacer' }),
+          el('div', { class: 'usage' }, el('b', { text: `${usage.projects} / ${usage.projectLimit}` }), el('span', { class: 'muted small', text: 'projects used' }))),
+        profileForm),
+      settingsCard('Password', 'Changing your password logs you out on every other device.', passwordForm),
+      settingsCard('Sessions', 'Signed in on a shared or lost device? End those sessions here.', el('div', { class: 'row' }, logoutOthers)),
+      el('section', { class: 'card settings-card danger-zone' },
+        el('div', { class: 'settings-head' }, el('h3', { text: 'Delete account' }), el('p', { class: 'muted', text: 'Permanently remove your account, your projects and all of their data.' })),
+        el('div', { class: 'settings-body' }, el('div', { class: 'row' }, deleteAccount)))),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Admin console
+// ---------------------------------------------------------------------------
+
+async function adminPage(query) {
+  setNav('admin');
+  setCrumbs(el('span', { text: 'Admin' }));
+  if (me && me.role !== 'admin') {
+    // The role may have changed since the last session check (e.g. just promoted): ask the server.
+    sessionCheckedAt = 0;
+    await ensureSession();
+  }
+  if (!me || me.role !== 'admin') {
+    show(emptyState('folder', 'Admins only', 'You need admin rights to open this page.'));
+    return;
+  }
+  loading();
+  const q = (query.get('q') || '').trim();
+  const data = await cachedGet(`/api/admin${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  const { totals } = data;
+
+  const kpi = (label, value, note) => el('section', { class: 'panel kpi' },
+    el('div', { class: 'panel-head' }, el('span', { text: label })),
+    el('div', { class: 'big', text: value.toLocaleString() }),
+    note ? el('div', { class: 'delta', text: note }) : null);
+
+  const search = el('input', { type: 'search', placeholder: 'Search by name or email…', value: q, attrs: { 'aria-label': 'Search users' } });
+  search.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(`#/admin${search.value.trim() ? `?q=${encodeURIComponent(search.value.trim())}` : ''}`); });
+
+  const CHANGES = {
+    disable: { body: { status: 'disabled' }, title: (u) => `Disable ${u.name}?`, confirm: 'Disable account', done: (u) => `${u.name} was disabled`, danger: true,
+      message: (u) => `${u.email} will be logged out everywhere and can't log in. Their projects stop accepting events until the account is enabled again.` },
+    enable: { body: { status: 'active' }, title: (u) => `Enable ${u.name}?`, confirm: 'Enable account', done: (u) => `${u.name} was enabled`,
+      message: (u) => `${u.email} can log in again and their projects accept events again.` },
+    promote: { body: { role: 'admin' }, title: (u) => `Make ${u.name} an admin?`, confirm: 'Make admin', done: (u) => `${u.name} is now an admin`,
+      message: (u) => `${u.email} will be able to manage every account, including yours.` },
+    demote: { body: { role: 'user' }, title: (u) => `Remove admin rights from ${u.name}?`, confirm: 'Remove admin', done: (u) => `${u.name} is no longer an admin`,
+      message: (u) => `${u.email} keeps their account and projects, but can no longer open this page.` },
+  };
+  const change = (user, kind) => action(async () => {
+    const c = CHANGES[kind];
+    const ok = await openDialog({
+      title: c.title(user),
+      message: c.message(user),
+      confirmText: c.confirm,
+      danger: Boolean(c.danger),
+      onConfirm: () => api(`/api/admin?id=${user.id}`, { method: 'PATCH', body: c.body }),
+    });
+    if (ok) { toast(c.done(user)); render(); }
+  });
+  const remove = (user) => action(async () => {
+    const ok = await openDialog({
+      title: `Delete ${user.name}?`,
+      message: `This permanently deletes ${user.email}, their ${user.projects} project(s) and all issues and events in them. This can't be undone.`,
+      confirmText: 'Delete user',
+      danger: true,
+      input: { label: `Type “${user.email}” to confirm`, autocomplete: 'off' },
+      onConfirm: async (typed) => {
+        if (typed.trim().toLowerCase() !== user.email) throw new Error('The email does not match');
+        await api(`/api/admin?id=${user.id}`, { method: 'DELETE' });
+      },
+    });
+    if (ok !== null) { toast(`${user.email} deleted`); render(); }
+  });
+
+  const rows = data.users.map((u) => {
+    const self = u.id === me.id;
+    return el('tr', { class: u.status === 'disabled' ? 'is-disabled' : '' },
+      el('td', {}, el('div', { class: 'user-cell' }, avatar(u.name), el('div', {}, el('b', { text: u.name }), self ? badge('you', 'info') : null, el('div', { class: 'muted small', text: u.email })))),
+      el('td', {}, badge(u.role, u.role === 'admin' ? 'open' : 'info')),
+      el('td', {}, badge(u.status, u.status === 'active' ? 'resolved' : 'error')),
+      el('td', { class: 'num', text: u.projects.toLocaleString() }),
+      el('td', { class: 'num', text: u.events24h.toLocaleString() }),
+      el('td', { class: 'muted', text: new Date(u.createdAt).toLocaleDateString(), title: formatDate(u.createdAt) }),
+      el('td', { class: 'muted', text: u.lastLoginAt ? timeAgo(u.lastLoginAt) : '–', title: formatDate(u.lastLoginAt) }),
+      el('td', { class: 'actions' }, self ? el('span', { class: 'muted small', text: 'Use Account page' }) : el('div', { class: 'row nowrap' },
+        u.status === 'active'
+          ? el('button', { class: 'sm', text: 'Disable', onclick: change(u, 'disable') })
+          : el('button', { class: 'sm', text: 'Enable', onclick: change(u, 'enable') }),
+        u.role === 'admin'
+          ? el('button', { class: 'sm', text: 'Remove admin', onclick: change(u, 'demote') })
+          : el('button', { class: 'sm', text: 'Make admin', onclick: change(u, 'promote') }),
+        el('button', { class: 'sm danger', text: 'Delete', onclick: remove(u) }))),
+    );
+  });
+
+  show(
+    el('div', { class: 'page-head' }, el('h1', { text: 'Admin' })),
+    el('p', { class: 'page-sub', text: 'Accounts and usage across the whole installation. Admins manage accounts; they cannot read other users’ issues.' }),
+    el('div', { class: 'kpi-grid' },
+      kpi('Users', totals.users, `${totals.disabledUsers} disabled · ${totals.admins} admin(s)`),
+      kpi('Projects', totals.projects, totals.unownedProjects > 0 ? `${totals.unownedProjects} without an owner` : 'All owned'),
+      kpi('Events (24h)', totals.events24h, 'Across all projects'),
+      kpi('Avg. projects / user', totals.users === 0 ? 0 : Math.round((totals.projects / totals.users) * 10) / 10, null)),
+    el('div', { class: 'filters section' }, search),
+    data.users.length === 0
+      ? emptyState('search', 'No users found', q ? `Nobody matches “${q}”.` : 'No accounts yet.')
+      : el('div', { class: 'card table-wrap' },
+          el('table', { class: 'table' },
+            el('thead', {}, el('tr', {}, ['User', 'Role', 'Status', 'Projects', 'Events 24h', 'Joined', 'Last login', ''].map((h, i) =>
+              el('th', { class: i === 3 || i === 4 ? 'num' : '', text: h })))),
+            el('tbody', {}, rows))),
+    data.truncated ? el('p', { class: 'muted small section', text: 'Showing the newest 500 accounts. Search to find others.' }) : null,
+  );
+  if (q) search.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -434,8 +1006,7 @@ async function dashboardPage(query) {
   );
 
   if (projects.length === 0) {
-    show(toolbar, emptyState('folder', 'No projects yet', 'Create a project to get an API key. Charts appear once events arrive.',
-      el('button', { class: 'primary', attrs: { style: 'margin-top:16px' }, text: 'Create a project', onclick: () => go('#/projects') })));
+    show(welcome());
     return;
   }
 
@@ -487,14 +1058,38 @@ async function dashboardPage(query) {
   show(toolbar, el('div', { class: 'dash-grid' }, events, issuesPanel, types, flow, top));
 }
 
-async function projectsPage() {
+/** First-run guide for an account with no projects yet. */
+function welcome() {
+  const step = (n, title, text, ...extra) => el('li', { class: 'step' },
+    el('span', { class: 'step-n', text: String(n) }),
+    el('div', {}, el('b', { text: title }), el('p', { class: 'muted', text }), ...extra));
+  return el('div', { class: 'card welcome' },
+    el('p', { class: 'eyebrow', text: 'Getting started' }),
+    el('h1', { text: `Welcome, ${firstName(me)}` }),
+    el('p', { class: 'muted welcome-sub', text: 'Three steps to your first tracked error. Charts and issues appear here as soon as events arrive.' }),
+    el('ol', { class: 'steps' },
+      step(1, 'Create a project', 'Each app gets its own project and API key.',
+        el('button', { class: 'primary', text: 'Create a project', onclick: () => go('#/projects?new=1') })),
+      step(2, 'Install the SDK', 'Add the package and call init() as early as possible in your app.',
+        el('div', { class: 'key-box' }, el('pre', { text: `npm install ${SDK_PACKAGE}` }))),
+      step(3, 'Watch errors arrive', 'Errors, slow pages, failed requests and crashes show up grouped into issues, with stack traces and breadcrumbs.')));
+}
+
+async function projectsPage(query) {
   setNav('projects');
   setCrumbs(el('span', { text: 'Projects' }));
   loading();
-  const projects = await getProjects();
+  const { projects, limit } = await cachedGet('/api/projects');
+  const atLimit = projects.length >= limit;
 
   const createArea = el('div');
-  const newButton = el('button', { class: 'primary', text: 'New project', onclick: () => showCreateForm(createArea, newButton) });
+  const newButton = el('button', {
+    class: 'primary',
+    text: 'New project',
+    disabled: atLimit,
+    title: atLimit ? `You can have at most ${limit} projects` : undefined,
+    onclick: () => showCreateForm(createArea, newButton),
+  });
 
   const cards = projects.map((p) =>
     el('div', { class: 'card project' },
@@ -510,33 +1105,48 @@ async function projectsPage() {
   );
 
   show(
-    el('div', { class: 'page-head' }, el('h1', { text: 'Projects' }), el('span', { class: 'spacer' }), newButton),
-    el('p', { class: 'page-sub', text: 'Each app that sends errors is a project with its own API key.' }),
+    el('div', { class: 'page-head' }, el('h1', { text: 'Projects' }), el('span', { class: 'spacer' }),
+      el('span', { class: `usage-pill${atLimit ? ' full' : ''}`, text: `${projects.length} / ${limit} projects` }), newButton),
+    el('p', { class: 'page-sub', text: atLimit
+      ? `You have reached the limit of ${limit} projects. Delete a project to create another.`
+      : 'Each app that sends errors is a project with its own API key.' }),
     createArea,
     projects.length > 0 ? el('div', { class: 'grid section' }, cards) : emptyState('folder', 'No projects yet', 'Create your first project to get an API key and start tracking errors.'),
   );
+  if (pendingKey) {
+    const { title, apiKey } = pendingKey;
+    pendingKey = null;
+    createArea.replaceChildren(keyBox(title, apiKey, () => { createArea.replaceChildren(); window.scrollTo(0, 0); }));
+  } else if (query && query.get('new') === '1' && !atLimit) {
+    showCreateForm(createArea, newButton);
+  }
 }
 
 function showCreateForm(area, newButton) {
   newButton.disabled = true;
-  const input = el('input', { placeholder: 'Project name, e.g. "Web shop"', maxLength: 80, required: true, attrs: { 'aria-label': 'Project name' } });
-  const error = el('p', { class: 'notice error', hidden: true });
+  const name = field({ label: 'Project name', placeholder: 'e.g. Web shop', maxLength: 80, autocomplete: 'off', hint: 'Usually the name of the app or website that will send errors.' });
+  const submit = el('button', { class: 'primary', type: 'submit', text: 'Create project' });
   const form = el('form', {
-    class: 'row',
+    class: 'create-form',
+    noValidate: true,
     onsubmit: async (event) => {
       event.preventDefault();
+      if (!name.input.value.trim()) { name.setError('Enter a project name'); name.input.focus(); return; }
+      setBusy(submit, true);
       try {
-        const { project, apiKey } = await api('/api/projects', { method: 'POST', body: { name: input.value } });
-        area.replaceChildren(keyBox(`Project "${project.name}" created.`, apiKey, () => projectsPage()));
+        const { project, apiKey } = await api('/api/projects', { method: 'POST', body: { name: name.input.value } });
+        // Redraw the list (it now includes the project) with the one-time key on top.
+        pendingKey = { title: `Project "${project.name}" created`, apiKey };
+        if (location.hash === '#/projects') await render(); else go('#/projects');
       } catch (e) {
-        error.textContent = e.message;
-        error.hidden = false;
+        setBusy(submit, false);
+        name.setError(e.message);
       }
     },
-  }, input, el('button', { class: 'primary', type: 'submit', text: 'Create' }),
-    el('button', { type: 'button', text: 'Cancel', onclick: () => { area.replaceChildren(); newButton.disabled = false; } }));
-  area.replaceChildren(el('div', { class: 'card card-body section' }, form, error));
-  input.focus();
+  }, name.wrap, el('div', { class: 'form-actions' },
+    el('button', { type: 'button', text: 'Cancel', onclick: () => { area.replaceChildren(); newButton.disabled = false; } }), submit));
+  area.replaceChildren(el('div', { class: 'card card-body section' }, el('h3', { class: 'card-title', text: 'New project' }), form));
+  name.input.focus();
 }
 
 /** Shows a just-issued API key once, with a ready-to-paste setup snippet. */
@@ -609,11 +1219,19 @@ async function issuesPage(projectId, query) {
     deleteSelected.disabled = selected.size === 0;
     deleteSelected.textContent = selected.size > 0 ? `Delete selected (${selected.size})` : 'Delete selected';
   };
-  deleteSelected.addEventListener('click', async () => {
-    if (!confirm(`Delete ${selected.size} issue(s) and all their events? This can't be undone.`)) return;
-    await api(`/api/issues?projectId=${projectId}`, { method: 'DELETE', body: { ids: [...selected] } });
+  deleteSelected.addEventListener('click', action(async () => {
+    const count = selected.size;
+    const ok = await openDialog({
+      title: `Delete ${count} issue(s)?`,
+      message: "The selected issues and all their events will be deleted. This can't be undone.",
+      confirmText: 'Delete',
+      danger: true,
+      onConfirm: () => api(`/api/issues?projectId=${projectId}`, { method: 'DELETE', body: { ids: [...selected] } }),
+    });
+    if (!ok) return;
+    toast(`Deleted ${count} issue(s)`);
     render();
-  });
+  }));
   const selectAll = el('input', { type: 'checkbox', attrs: { 'aria-label': 'Select all issues on this page' } });
   const boxes = [];
   selectAll.addEventListener('change', () => {
@@ -662,11 +1280,16 @@ async function issuesPage(projectId, query) {
   const rotate = el('button', {
     class: 'ghost',
     text: 'Rotate API key',
-    onclick: async () => {
-      if (!confirm(`Replace the API key of "${project.name}"? Apps using the old key stop sending errors until updated.`)) return;
-      const { apiKey } = await api(`/api/projects?id=${projectId}&action=rotate-key`, { method: 'POST' });
-      show(keyBox(`New API key for "${project.name}"`, apiKey, () => go(`#/p/${projectId}`)));
-    },
+    onclick: action(async () => {
+      let apiKey = null;
+      const ok = await openDialog({
+        title: 'Rotate the API key?',
+        message: `"${project.name}" gets a new key and the current one stops working immediately. Apps using it stop sending errors until you update them.`,
+        confirmText: 'Rotate key',
+        onConfirm: async () => { apiKey = (await api(`/api/projects?id=${projectId}&action=rotate-key`, { method: 'POST' })).apiKey; },
+      });
+      if (ok) show(keyBox(`New API key for "${project.name}"`, apiKey, () => go(`#/p/${projectId}`)));
+    }),
   });
 
   const clearLabel = filters.status === 'all' ? 'all' : filters.status;
@@ -675,20 +1298,38 @@ async function issuesPage(projectId, query) {
     class: 'danger',
     text: filters.status === 'all' ? `Delete everything (${clearCount})` : `Delete all ${clearLabel} (${clearCount})`,
     disabled: clearCount === 0,
-    onclick: async () => {
-      if (!confirm(`Delete ALL ${clearCount} ${filters.status === 'all' ? '' : clearLabel + ' '}issue(s) of "${project.name}" with their events? This can't be undone.`)) return;
-      await api(`/api/issues?projectId=${projectId}&status=${filters.status}`, { method: 'DELETE' });
+    onclick: action(async () => {
+      const ok = await openDialog({
+        title: `Delete ${clearCount} ${filters.status === 'all' ? '' : clearLabel + ' '}issue(s)?`,
+        message: `All ${filters.status === 'all' ? '' : clearLabel + ' '}issues of "${project.name}" and their events will be deleted. This can't be undone.`,
+        confirmText: 'Delete all',
+        danger: true,
+        onConfirm: () => api(`/api/issues?projectId=${projectId}&status=${filters.status}`, { method: 'DELETE' }),
+      });
+      if (!ok) return;
+      toast(`Deleted ${clearCount} issue(s)`);
       render();
-    },
+    }),
   });
   const deleteProject = el('button', {
     class: 'ghost danger',
     text: 'Delete project',
-    onclick: async () => {
-      if (!confirm(`Delete the project "${project.name}", every issue and event in it, and its API key? Apps using the key stop reporting. This can't be undone.`)) return;
-      await api(`/api/projects?id=${projectId}`, { method: 'DELETE' });
+    onclick: action(async () => {
+      const typed = await openDialog({
+        title: `Delete "${project.name}"?`,
+        message: "The project, every issue and event in it, and its API key will be deleted. Apps using the key stop reporting. This can't be undone.",
+        confirmText: 'Delete project',
+        danger: true,
+        input: { label: `Type “${project.name}” to confirm`, autocomplete: 'off' },
+        onConfirm: async (value) => {
+          if (value.trim() !== project.name) throw new Error('The name does not match');
+          await api(`/api/projects?id=${projectId}`, { method: 'DELETE' });
+        },
+      });
+      if (typed === null) return;
+      toast(`Project "${project.name}" deleted`);
       go('#/projects');
-    },
+    }),
   });
 
   show(
@@ -719,22 +1360,32 @@ async function issuePage(issueId, query) {
     el('span', { text: issue.errorType }),
   );
 
-  const setStatus = async (status) => {
+  const STATUS_TOASTS = { resolved: 'Issue resolved', ignored: 'Issue ignored', open: 'Issue reopened' };
+  const setStatus = (status) => action(async (event) => {
+    setBusy(event.currentTarget, true);
     await api(`/api/issue?id=${issueId}`, { method: 'PATCH', body: { status } });
+    toast(STATUS_TOASTS[status]);
     render();
-  };
+  });
   const actions = el('div', { class: 'row' },
-    issue.status !== 'resolved' ? el('button', { class: 'primary', text: 'Resolve', onclick: () => setStatus('resolved') }) : null,
-    issue.status !== 'ignored' ? el('button', { text: 'Ignore', onclick: () => setStatus('ignored') }) : null,
-    issue.status !== 'open' ? el('button', { text: 'Reopen', onclick: () => setStatus('open') }) : null,
+    issue.status !== 'resolved' ? el('button', { class: 'primary', text: 'Resolve', onclick: setStatus('resolved') }) : null,
+    issue.status !== 'ignored' ? el('button', { text: 'Ignore', onclick: setStatus('ignored') }) : null,
+    issue.status !== 'open' ? el('button', { text: 'Reopen', onclick: setStatus('open') }) : null,
     el('button', {
       class: 'danger',
       text: 'Delete',
-      onclick: async () => {
-        if (!confirm(`Delete this issue and its ${issue.count.toLocaleString()} event(s)? This can't be undone.`)) return;
-        await api(`/api/issue?id=${issueId}`, { method: 'DELETE' });
+      onclick: action(async () => {
+        const ok = await openDialog({
+          title: 'Delete this issue?',
+          message: `The issue and its ${issue.count.toLocaleString()} event(s) will be deleted. If the error happens again, it comes back as a new issue.`,
+          confirmText: 'Delete issue',
+          danger: true,
+          onConfirm: () => api(`/api/issue?id=${issueId}`, { method: 'DELETE' }),
+        });
+        if (!ok) return;
+        toast('Issue deleted');
         go(data.project ? `#/p/${data.project.id}` : '#/projects');
-      },
+      }),
     }),
   );
 
@@ -879,17 +1530,22 @@ async function render() {
   rendering = true;
   const { parts, query } = parseHash();
   try {
-    if (parts[0] === 'login') return loginPage();
-    if (Date.now() - sessionCheckedAt > SESSION_RECHECK_MS) {
-      const session = await api('/api/auth/session');
-      if (!session.authenticated) return go('#/login');
-      sessionCheckedAt = Date.now();
+    if (AUTH_ROUTES.includes(parts[0])) {
+      // Already logged in: skip the form.
+      if (await ensureSession()) return go(returnTo || '#/dashboard');
+      setShell(false);
+      return parts[0] === 'signup' ? signupPage() : loginPage();
     }
-    topbar.hidden = false;
-    sidebar.hidden = false;
-    if (parts[0] === 'projects') return await projectsPage();
+    if (!(await ensureSession())) {
+      returnTo = location.hash && location.hash !== '#/dashboard' ? location.hash : null;
+      return go('#/login');
+    }
+    setShell(true);
+    if (parts[0] === 'projects') return await projectsPage(query);
     if (parts[0] === 'p' && parts[1]) return await issuesPage(parts[1], query);
     if (parts[0] === 'i' && parts[1]) return await issuePage(parts[1], query);
+    if (parts[0] === 'account') return await accountPage();
+    if (parts[0] === 'admin') return await adminPage(query);
     return await dashboardPage(query);
   } catch (error) {
     showError(error);
@@ -898,13 +1554,40 @@ async function render() {
   }
 }
 
-document.getElementById('logout').addEventListener('click', async () => {
-  await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
-  sessionCheckedAt = 0;
-  go('#/login');
-});
+/** True when logged in. The server is asked at most every SESSION_RECHECK_MS. */
+async function ensureSession() {
+  if (me && Date.now() - sessionCheckedAt < SESSION_RECHECK_MS) return true;
+  const session = await api('/api/auth');
+  me = session.authenticated ? session.user : null;
+  sessionCheckedAt = me ? Date.now() : 0;
+  if (me) updateChrome();
+  return me !== null;
+}
 
-for (const button of document.querySelectorAll('[data-theme-set]')) {
+/** Sidebar + header for the app pages; a full-screen layout for login and sign-up. */
+function setShell(visible) {
+  topbar.hidden = !visible;
+  sidebar.hidden = !visible;
+  document.body.classList.toggle('auth-mode', !visible);
+}
+
+/** Shows the logged-in user in the sidebar, and the Admin link to admins. */
+function updateChrome() {
+  if (!me) return;
+  document.getElementById('nav-admin').hidden = me.role !== 'admin';
+  document.getElementById('user-name').textContent = me.name;
+  document.getElementById('user-email').textContent = me.email;
+  document.getElementById('user-initial').textContent = (me.name.trim()[0] || '?').toUpperCase();
+}
+
+document.getElementById('logout').addEventListener('click', action(async () => {
+  await api('/api/auth?action=logout', { method: 'POST' }).catch(() => {});
+  forgetSession();
+  returnTo = null;
+  go('#/login');
+}));
+
+function bindThemeButton(button) {
   button.addEventListener('click', () => {
     document.documentElement.setAttribute('data-theme', button.dataset.themeSet);
     try { localStorage.setItem('et_theme', button.dataset.themeSet); } catch { /* storage blocked: theme just isn't remembered */ }
@@ -915,6 +1598,7 @@ function syncThemeButtons() {
   const current = document.documentElement.getAttribute('data-theme');
   for (const button of document.querySelectorAll('[data-theme-set]')) button.classList.toggle('active', button.dataset.themeSet === current);
 }
+for (const button of document.querySelectorAll('[data-theme-set]')) bindThemeButton(button);
 syncThemeButtons();
 window.addEventListener('hashchange', render);
 const refreshButton = document.getElementById('refresh');

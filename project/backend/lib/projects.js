@@ -26,10 +26,10 @@ export function cleanProjectName(name) {
   return trimmed.length > 0 && trimmed.length <= MAX_PROJECT_NAME_LENGTH ? trimmed : null;
 }
 
-/** Creates a project; returns it together with the one-time plain API key. */
-export async function createProject(db, name, now = new Date()) {
+/** Creates a project owned by `ownerId`; returns it together with the one-time plain API key. */
+export async function createProject(db, name, ownerId, now = new Date()) {
   const apiKey = generateApiKey();
-  const doc = { name, apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey), createdAt: now };
+  const doc = { name, ownerId, apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey), createdAt: now };
   const { insertedId } = await db.collection('projects').insertOne(doc);
   return { project: { _id: insertedId, ...doc }, apiKey };
 }
@@ -40,12 +40,18 @@ export async function rotateApiKey(db, projectId) {
   const result = await db
     .collection('projects')
     .updateOne({ _id: projectId }, { $set: { apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey) } });
-  projectCache.clear();
+  clearProjectCache();
   return result.matchedCount === 1 ? apiKey : null;
 }
 
 // Ingestion looks the key up on every request; a short cache saves a query each time.
+// Other serverless instances keep their copy for up to PROJECT_CACHE_TTL_MS.
 const projectCache = new Map();
+
+/** Forgets cached key lookups in this instance (after rotating a key or disabling an owner). */
+export function clearProjectCache() {
+  projectCache.clear();
+}
 
 export async function findProjectByApiKey(db, apiKey, now = Date.now()) {
   if (typeof apiKey !== 'string' || !apiKey.startsWith(API_KEY_PREFIX)) return null;

@@ -4,6 +4,8 @@
  * deleted: that needs the Cloudinary API secret, which this app doesn't hold.
  */
 
+import { clearProjectCache } from './projects.js';
+
 const DELETE_CHUNK = 5000;
 
 /**
@@ -30,5 +32,22 @@ export async function deleteProject(db, projectId) {
   // Events whose issue is already gone (e.g. sent while the delete was running).
   removed.events += (await db.collection('events').deleteMany({ projectId })).deletedCount;
   await db.collection('projects').deleteOne({ _id: projectId });
+  // The deleted key must stop working right away in this instance.
+  clearProjectCache();
+  return removed;
+}
+
+/** Deletes an account with every project it owns (and their issues and events). */
+export async function deleteUser(db, userId) {
+  const projectIds = await db.collection('projects').distinct('_id', { ownerId: userId });
+  const removed = { projects: 0, issues: 0, events: 0 };
+  for (const projectId of projectIds) {
+    const counts = await deleteProject(db, projectId);
+    if (counts === null) continue;
+    removed.projects += 1;
+    removed.issues += counts.issues;
+    removed.events += counts.events;
+  }
+  await db.collection('users').deleteOne({ _id: userId });
   return removed;
 }

@@ -54,6 +54,7 @@ async function ingest(request) {
   const db = await getDb();
   const project = await findProjectByApiKey(db, apiKey);
   if (project === null) return errorResponse(401, 'invalid_api_key', 'Unknown API key');
+  if (project.disabled) return errorResponse(403, 'project_disabled', 'This project belongs to a disabled account');
 
   const budget = await consumeEventBudget(db, project._id, events.length);
   if (!budget.allowed) {

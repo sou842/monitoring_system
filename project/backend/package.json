@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "node dev-server.js",
+    "make-admin": "node scripts/make-admin.js",
     "test": "node --test \"tests/**/*.test.js\""
   },
   "dependencies": {

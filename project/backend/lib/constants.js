@@ -57,8 +57,6 @@ export const SECONDS_PER_DAY = 24 * 60 * 60;
 // ---------------------------------------------------------------------------
 export const SESSION_COOKIE = 'et_session';
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-/** Delay after a wrong password, to slow down guessing. */
-export const LOGIN_FAILURE_DELAY_MS = 1000;
 export const ISSUES_PAGE_SIZE = 50;
 export const ISSUE_RECENT_EVENTS = 50;
 export const PROJECT_CACHE_TTL_MS = 60 * 1000;
@@ -66,6 +64,34 @@ export const ISSUE_STATUSES = ['open', 'resolved', 'ignored'];
 export const API_KEY_PREFIX = 'et_';
 export const API_KEY_BYTES = 24;
 export const MAX_PROJECT_NAME_LENGTH = 80;
+
+// ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+export const MIN_PASSWORD_LENGTH = 8;
+/** Upper bound so a huge "password" can't be used to burn CPU in scrypt. */
+export const MAX_PASSWORD_LENGTH = 128;
+export const MAX_EMAIL_LENGTH = 254;
+export const MAX_USER_NAME_LENGTH = 80;
+/** Keeps one account from filling the shared database. */
+export const MAX_PROJECTS_PER_USER = 10;
+export const USER_ROLES = ['user', 'admin'];
+export const USER_STATUSES = ['active', 'disabled'];
+/** scrypt cost settings (~50 ms per hash) and sizes. Stored with each hash, so they can be raised later. */
+export const SCRYPT_COST = 16384;
+export const SCRYPT_BLOCK_SIZE = 8;
+export const SCRYPT_PARALLELISM = 1;
+export const SCRYPT_SALT_BYTES = 16;
+export const SCRYPT_KEY_BYTES = 64;
+export const SCRYPT_MAX_MEMORY = 64 * 1024 * 1024;
+/** Login attempts allowed per account (from one IP) and per IP, within the window. */
+export const LOGIN_ATTEMPTS_PER_ACCOUNT = 10;
+export const LOGIN_ATTEMPTS_PER_IP = 50;
+export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+/** New accounts allowed per IP within the window. */
+export const SIGNUPS_PER_IP = 5;
+export const SIGNUP_WINDOW_MS = 60 * 60 * 1000;
+export const ADMIN_USERS_LIMIT = 500;
 
 /** MongoDB server error code for a unique-index violation. */
 export const MONGO_DUPLICATE_KEY = 11000;
