@@ -1,6 +1,6 @@
 {
   "name": "@sourav732/error-tracker-js",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Lightweight, zero-dependency error, performance and crash tracking SDK for browser apps (React, Vue, Next.js, vanilla JS).",
   "keywords": [
     "error-tracking",
@@ -20,7 +20,7 @@
     "url": "git+https://github.com/sou842/monitoring_system.git",
     "directory": "error-tracking-sdk/js"
   },
-  "homepage": "https://github.com/sou842/monitoring_system/tree/main/error-tracking-sdk/js#readme",
+  "homepage": "https://monitoringsystem-backend.vercel.app/",
   "bugs": {
     "url": "https://github.com/sou842/monitoring_system/issues"
   },

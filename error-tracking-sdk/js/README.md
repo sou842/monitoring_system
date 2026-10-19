@@ -1,12 +1,22 @@
 # Error Tracker — JavaScript SDK
 
-Client-side error, performance and memory monitoring for browser apps (vanilla JS, React, Vue, …).
-The SDK captures problems in the page and POSTs structured JSON events to your ingestion endpoint.
+Client-side error, performance and memory monitoring for browser apps (vanilla JS, React, Vue, Next.js, …).
+The SDK captures problems in the page and sends them to the **Error Tracker dashboard**, where they are grouped into issues with stack traces, breadcrumbs, screenshots and charts.
+
+**Dashboard: [monitoringsystem-backend.vercel.app](https://monitoringsystem-backend.vercel.app/)**. Free to sign up, and your projects are visible only to your account.
 
 - **Zero runtime dependencies.** ES5 output, ESM and CommonJS builds, TypeScript types included.
 - **Never breaks the host app.** Every hook is guarded. SDK failures are swallowed and logged only when `debug: true`.
 - **Silent by default.** Nothing is written to the console unless `debug: true`.
 - **Supported environments:** Chrome 60+, Safari 12+, Firefox 60+, and Node.js 14+ (manual capture only; Node needs a global `fetch`, i.e. 18+, to deliver events).
+
+## Get your API key
+
+1. Open **[monitoringsystem-backend.vercel.app](https://monitoringsystem-backend.vercel.app/)** and create an account.
+2. Go to **Projects → New project**, give it your app's name, and copy the API key (`et_…`). It is shown only once; if you lose it, use **Rotate API key** on the project page.
+3. Install the SDK and call `init()` with that key (below). Errors appear in the dashboard within seconds.
+
+One project per app or website. Each account can have up to 10 projects.
 
 ## Installation
 
@@ -22,8 +32,8 @@ Initialise as early as possible, before the rest of your app code runs:
 import ErrorTracker from '@sourav732/error-tracker-js';
 
 ErrorTracker.init({
-  apiKey: 'pk_live_xxx',
-  endpoint: 'https://api.yourcompany.com/v1/events',
+  apiKey: 'et_your_project_key',                                     // from the dashboard
+  endpoint: 'https://monitoringsystem-backend.vercel.app/api/v1/events',
   environment: 'production',
   appVersion: '2.1.4',
   sampleRate: 1.0,
@@ -51,6 +61,10 @@ ErrorTracker.addBreadcrumb({ type: 'cart', message: 'Applied coupon', data: { co
 ```
 
 You can call any method before `init()`. Up to 100 calls are buffered and replayed once the SDK starts.
+
+Open your project in the [dashboard](https://monitoringsystem-backend.vercel.app/) to see the issues: filter by type, environment and status, resolve or ignore them, and inspect each event's stack trace, breadcrumbs, device and performance data. A resolved issue reopens automatically if the error comes back.
+
+**Your own backend instead:** `endpoint` can be any server that accepts the batch format described under [Delivery](#delivery).
 
 ### React
 
@@ -84,7 +98,7 @@ app.config.errorHandler = (err, instance, info) => {
 ```html
 <script type="module">
   import ErrorTracker from '/vendor/error-tracker/index.mjs';
-  ErrorTracker.init({ apiKey: 'pk_live_xxx', endpoint: 'https://api.yourcompany.com/v1/events' });
+  ErrorTracker.init({ apiKey: 'et_your_project_key', endpoint: 'https://monitoringsystem-backend.vercel.app/api/v1/events' });
 </script>
 ```
 
@@ -93,7 +107,7 @@ app.config.errorHandler = (err, instance, info) => {
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `apiKey` | `string` | required | Sent in the `X-API-Key` header. Kept in memory only, never written to storage. |
-| `endpoint` | `string` | required | Ingestion URL. Batches are POSTed here. |
+| `endpoint` | `string` | required | Ingestion URL. Batches are POSTed here. For the hosted dashboard: `https://monitoringsystem-backend.vercel.app/api/v1/events`. |
 | `environment` | `string` | `'production'` | Free-form, e.g. `staging`. |
 | `appVersion` | `string` | `null` | Your app's version. |
 | `sampleRate` | `number` | `1.0` | 0–1. Each event is dropped when `Math.random() > sampleRate`. |
@@ -124,8 +138,8 @@ An invalid `apiKey` or `endpoint` leaves the SDK disabled. It never throws.
 
 ```ts
 ErrorTracker.init({
-  apiKey: 'pk_live_xxx',
-  endpoint: 'https://api.yourcompany.com/v1/events',
+  apiKey: 'et_your_project_key',
+  endpoint: 'https://monitoringsystem-backend.vercel.app/api/v1/events',
   slowApiCallMs: 3000,  // report API calls slower than 3 s (default 2 s)
   slowPageLoadMs: 5000, // report page loads slower than 5 s (default 3 s)
 });
@@ -243,7 +257,7 @@ Every event follows the shared cross-platform schema. Every field is always pres
 ```json
 {
   "sdk": { "name": "error-tracker-js", "version": "1.0.0" },
-  "api_key": "pk_live_xxx",
+  "api_key": "et_your_project_key",
   "event_type": "error",
   "level": "error",
   "timestamp": "2026-10-17T10:42:15.000Z",
@@ -273,7 +287,7 @@ Every event follows the shared cross-platform schema. Every field is always pres
 **JS-specific fields** that are not part of the shared schema: `level` (severity of `captureMessage`), `context` (the second argument to `captureError`), `performance.cls`, and `device.referrer`.
 
 **Event types:**
-- `error` covers uncaught and captured errors, plus `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError` and `CrossOriginScriptError` in `error.type`.
+- `error` covers uncaught and captured errors, plus `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError` and `PageNotFound` in `error.type`.
 - `message` comes from `captureMessage`, and also carries the `EventsDropped` summary.
 - `performance` carries `SlowPageLoad`, `SlowApiCall`, `MemoryLeakSuspected`, `MainThreadBlocked` and `LowFrameRate` in `error.type`.
 - `crash` is unused on the web.
