@@ -89,6 +89,19 @@ function captureMessage(message: string, level: EventLevel = 'info'): void {
 }
 
 /**
+ * Reports that a page does not exist, as a `PageNotFound` event. Call it from
+ * your router's "not found" page (Next.js `app/not-found.js`, a React Router
+ * `path="*"` route, …) so client-side route misses are tracked too. On a page
+ * the SDK already detected as a 404, the duplicate is dropped.
+ * @param url The missing URL; defaults to the current page.
+ */
+function capturePageNotFound(url?: string): void {
+  withClient('capturePageNotFound', function run(c) {
+    c.capturePageNotFound(url);
+  });
+}
+
+/**
  * Attaches a user to all subsequent events. Pass `null` to clear it (e.g. on logout).
  */
 function setUser(user: TrackedUser | null): void {
@@ -139,6 +152,7 @@ export const ErrorTracker = {
   init: init,
   captureError: captureError,
   captureMessage: captureMessage,
+  capturePageNotFound: capturePageNotFound,
   setUser: setUser,
   addBreadcrumb: addBreadcrumb,
   flush: flush,
@@ -147,7 +161,7 @@ export const ErrorTracker = {
   version: SDK_VERSION,
 };
 
-export { init, captureError, captureMessage, setUser, addBreadcrumb, flush, close, isInitialized };
+export { init, captureError, captureMessage, capturePageNotFound, setUser, addBreadcrumb, flush, close, isInitialized };
 export default ErrorTracker;
 
 export type {

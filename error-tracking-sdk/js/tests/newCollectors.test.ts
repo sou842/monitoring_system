@@ -198,12 +198,21 @@ describe('ResponsivenessCollector', () => {
     ]);
   });
 
+  it('uses a custom main-thread block threshold when given', () => {
+    const sink = new RecordingSink();
+    const collector = new ResponsivenessCollector(sink, logger, { now: () => 100000, requestFrame: () => {}, freezeThresholdMs: 2000 });
+    collector.recordLongTask(1500); // over the default 1 s, under the custom 2 s
+    expect(sink.issues).toHaveLength(0);
+    collector.recordLongTask(2500);
+    expect(sink.issues).toEqual([{ kind: 'MainThreadBlocked', message: 'Main thread blocked for 2500ms (page unresponsive)' }]);
+  });
+
   /** Drives the sampler with a fake clock: `frameMs` between frames. */
-  function sample(frameMs: number): { collector: ResponsivenessCollector; sink: RecordingSink } {
+  function sample(frameMs: number, lowFpsThreshold?: number): { collector: ResponsivenessCollector; sink: RecordingSink } {
     let now = 0;
     const sink = new RecordingSink();
     const queue: Array<() => void> = [];
-    const collector = new ResponsivenessCollector(sink, logger, { now: () => now, requestFrame: (cb) => queue.push(cb) });
+    const collector = new ResponsivenessCollector(sink, logger, { now: () => now, requestFrame: (cb) => queue.push(cb), lowFpsThreshold });
     collector.sampleFrameRate();
     while (queue.length > 0) {
       now += frameMs;
@@ -222,6 +231,14 @@ describe('ResponsivenessCollector', () => {
     const { collector, sink } = sample(100);
     expect(collector.frameRate()).toBe(10);
     expect(sink.issues).toEqual([{ kind: 'LowFrameRate', message: 'Low frame rate: 10 fps (janky scrolling/animation)' }]);
+  });
+
+  it('uses a custom low frame rate threshold when given', () => {
+    const at25 = sample(40); // 25 fps: fine by default (20), low for a 30 fps threshold
+    expect(at25.collector.frameRate()).toBe(25);
+    expect(at25.sink.issues).toHaveLength(0);
+    const strict = sample(40, 30);
+    expect(strict.sink.issues).toEqual([{ kind: 'LowFrameRate', message: 'Low frame rate: 25 fps (janky scrolling/animation)' }]);
   });
 
   it('discards a sample stretched by the tab being hidden', () => {

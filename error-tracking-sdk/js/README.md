@@ -104,11 +104,84 @@ app.config.errorHandler = (err, instance, info) => {
 | `captureNetworkErrors` | `boolean` | `true` | Report fetch/XHR requests that got no response (offline, timeout, refused, DNS/SSL, CORS) as `NetworkError`. Requests the app aborts are never reported. |
 | `captureConsoleErrors` | `boolean` | `false` | Report each `console.error(...)` call as an event. Off by default because libraries log a lot of noise there. |
 | `captureScreenshots` | `boolean` | `true` | Attach a viewport screenshot to error events. |
+| `detectPageNotFound` | `boolean` | `true` | Report a `PageNotFound` event when the page itself was served with a 404 or 410 status. See [Missing pages](#missing-pages-404). |
 | `html2canvasUrl` | `string` | cdnjs html2canvas 1.4.1 | Where the screenshot library is loaded from. |
 | `html2canvasIntegrity` | `string` | SRI hash of the default URL | SRI hash for `html2canvasUrl`. Defaults to `''` (no check) when you set a custom URL. |
 | `beforeSend` | `(event) => event \| null` | — | Scrub or drop events before they are queued. If the hook throws, the original event is sent. |
+| `slowApiCallMs` | `number` | `2000` | See [Performance thresholds](#performance-thresholds). |
+| `slowPageLoadMs` | `number` | `3000` | See [Performance thresholds](#performance-thresholds). |
+| `mainThreadBlockedMs` | `number` | `1000` | See [Performance thresholds](#performance-thresholds). |
+| `lowFrameRateFps` | `number` | `20` | See [Performance thresholds](#performance-thresholds). |
+| `memoryPollIntervalMs` | `number` | `30000` | See [Performance thresholds](#performance-thresholds). |
+| `memoryLeakGrowth` | `number` | `0.2` | See [Performance thresholds](#performance-thresholds). |
+| `memoryLeakReadings` | `number` | `3` | See [Performance thresholds](#performance-thresholds). |
 
 An invalid `apiKey` or `endpoint` leaves the SDK disabled. It never throws.
+
+### Performance thresholds
+
+*Added in 0.3.0.* By default the SDK decides what counts as "slow" for you. If your app has different expectations, for example a reporting API that normally takes 2.5 s, pass your own limits to `init()`:
+
+```ts
+ErrorTracker.init({
+  apiKey: 'pk_live_xxx',
+  endpoint: 'https://api.yourcompany.com/v1/events',
+  slowApiCallMs: 3000,  // report API calls slower than 3 s (default 2 s)
+  slowPageLoadMs: 5000, // report page loads slower than 5 s (default 3 s)
+});
+```
+
+Every option is optional. Leave one out to keep its default.
+
+| Option | Default | Allowed range | Reported as | Meaning |
+| --- | --- | --- | --- | --- |
+| `slowApiCallMs` | `2000` | 100 – 600000 | `SlowApiCall` | A fetch/XHR call that takes longer than this many ms. |
+| `slowPageLoadMs` | `3000` | 100 – 600000 | `SlowPageLoad` | A page load (navigation start → `load` event) longer than this many ms. |
+| `mainThreadBlockedMs` | `1000` | 50 – 60000 | `MainThreadBlocked` | One main-thread task freezing the page longer than this many ms. Chromium only. |
+| `lowFrameRateFps` | `20` | 1 – 60 | `LowFrameRate` | A sampled frame rate below this many frames per second. |
+| `memoryPollIntervalMs` | `30000` | 5000 – 3600000 | — | How often the JS heap size is read. Chromium only. |
+| `memoryLeakGrowth` | `0.2` | 0.01 – 10 | `MemoryLeakSuspected` | Heap growth ratio that counts as a leak (`0.2` = 20%). |
+| `memoryLeakReadings` | `3` | 2 – 20 | `MemoryLeakSuspected` | How many readings in a row must keep rising, with the total growth above `memoryLeakGrowth`, for a leak to be reported. |
+
+A value outside the allowed range is moved to the nearest limit, so `slowApiCallMs: 10` behaves like `100`. A value that isn't a number (a string, `NaN`, `Infinity`) is ignored and the default is used. Neither case throws.
+
+`MainThreadBlocked` and `LowFrameRate` are each reported at most once every 30 s, whatever thresholds you set.
+
+### Missing pages (404)
+
+*Added in 0.3.0.* When a visitor opens a page that doesn't exist, e.g. types `/abouts` instead of `/about` or follows an old link, the SDK sends a `PageNotFound` event:
+
+```json
+{
+  "event_type": "error",
+  "level": "warning",
+  "error": { "type": "PageNotFound", "message": "Page not found: /abouts", "handled": true },
+  "context": { "url": "https://app.example.com/abouts", "path": "/abouts", "status": 404, "referrer": "https://app.example.com/", "source": "http-status" }
+}
+```
+
+`referrer` tells you which page holds the broken link. Query strings are removed from both URLs.
+
+**Automatic:** if the server answers the page with **404 or 410**, the SDK reports it on its own. This needs no code, but the SDK must be loaded on your 404 page too. It works in Chromium 109+ (Chrome, Edge, Opera) and Firefox, while Safari doesn't expose a page's HTTP status.
+
+**From your router:** single-page apps often show a "not found" screen without any HTTP request, and Safari can't be detected automatically. To cover both, call `capturePageNotFound()` from your not-found page:
+
+```jsx
+// Next.js (App Router): app/not-found.js
+'use client';
+import { useEffect } from 'react';
+import ErrorTracker from '@sourav732/error-tracker-js';
+
+export default function NotFound() {
+  useEffect(() => { ErrorTracker.capturePageNotFound(); }, []);
+  return <h1>Page not found</h1>;
+}
+
+// React Router: <Route path="*" element={<NotFound />} /> with the same useEffect
+// Vue Router: { path: '/:pathMatch(.*)*', component: NotFound } and call it in onMounted()
+```
+
+`capturePageNotFound(url?)` uses the current page URL when called without an argument. On a page the SDK already reported automatically, the second report is dropped, so you get exactly one event. Turn off automatic detection with `detectPageNotFound: false`. Manual calls still work.
 
 Other public methods: `flush(): Promise<void>` sends everything now (and never rejects). `close(): Promise<void>` flushes, removes every hook and persists anything unsent. `isInitialized(): boolean`.
 
@@ -118,13 +191,14 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | --- | --- |
 | **Errors** | `error` events (capture phase) and `unhandledrejection`. Stack traces are parsed from V8, Firefox and Safari formats into `{ filename, lineno, colno, function }` (max 50 frames, no source maps applied). Errors from other-origin scripts loaded without CORS are labelled `CrossOriginScriptError` (see below). |
 | **Network** | `HttpError` for fetch/XHR responses with a 4xx/5xx status (e.g. `GET https://app.example.com/api/cart → 500`). `NetworkError` for requests that got no response: offline, timeout, connection refused, DNS/SSL failure, CORS (`context.failure` says which, as far as the browser reveals). Requests the app aborts itself are not reported. `InvalidJsonResponse` when `response.json()` fails, even if the app catches it. The stack trace of all three points at the app code that made the request. |
+| **Missing pages** | `PageNotFound` (level `warning`) when the page itself was served with 404/410 (Chromium 109+, Firefox), or when the app calls `capturePageNotFound()`. See [Missing pages](#missing-pages-404). |
 | **Resources** | `ResourceError` for failed `<img>`/`<script>`/`<link>` loads, web fonts (`document.fonts`), and CSS background images / `@import`s with a 4xx/5xx status. Failures that happened while the HTML was still loading, before the SDK started, are picked up from Resource Timing. Failed `<link rel="preload">` hints are skipped, since the element using the file reports it. CSS-image and pre-start checks are Chromium 109+ only, and same-origin (or `Timing-Allow-Origin`) only. |
 | **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. Violations caused by the SDK's own screenshot library are ignored. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
 | **Console** | Opt-in (`captureConsoleErrors: true`): each `console.error(...)` becomes a `ConsoleError` event, or the passed Error's own type. Errors the SDK has already reported are skipped. |
 | **Breadcrumbs** | Clicks (tag, visible text, CSS path; form values are never read), `pushState`/`replaceState`/`popstate` navigation, page visibility changes, `console.warn`/`console.error`, and every `fetch`/XHR call (URL, method, status or failure, duration). |
-| **Performance** | Page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS (via `PerformanceObserver`), plus the last 20 API calls. A page load over 3000 ms or an API call over 2000 ms is flagged and also sent as its own `performance` event. |
-| **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. |
-| **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `performance` event when the heap grows by more than 20% across 3 consecutive rising readings with no navigation in between. |
+| **Performance** | Page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS (via `PerformanceObserver`), plus the last 20 API calls. A page load over 3000 ms or an API call over 2000 ms is flagged and also sent as its own `performance` event (adjustable with `slowPageLoadMs` / `slowApiCallMs`). |
+| **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. Adjustable with `mainThreadBlockedMs` / `lowFrameRateFps`. |
+| **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `performance` event when the heap grows by more than 20% across 3 consecutive rising readings with no navigation in between. Adjustable with `memoryPollIntervalMs`, `memoryLeakGrowth` and `memoryLeakReadings`. |
 | **Screenshots** | The visible viewport as a compressed JPEG: at most 1280 px wide, quality 0.5, typically around 50 KB, capped at ~370 KB. Only taken when the page is visible, at most one every 10 s, with a 3 s time budget. |
 
 Query strings and fragments are stripped from every recorded URL, because they often carry tokens.

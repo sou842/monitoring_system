@@ -87,10 +87,16 @@ export class ClsTracker {
   }
 }
 
+/** When a page load or API call counts as slow (ms). */
+export interface PerformanceThresholds {
+  slowPageLoadMs: number;
+  slowApiCallMs: number;
+}
+
 /**
  * Collects page-load metrics (load time, TTFB, FCP, LCP, CLS) and the duration
- * of every fetch/XHR call. Reports a `performance` event when the page load
- * exceeds 3 s or an API call exceeds 2 s.
+ * of every fetch/XHR call. Reports a `performance` event when the page load or
+ * an API call exceeds its threshold (3 s and 2 s by default).
  */
 export class PerformanceCollector implements Collector {
   private installed = false;
@@ -107,6 +113,7 @@ export class PerformanceCollector implements Collector {
     private readonly sink: CollectorSink,
     private readonly network: NetworkInterceptor,
     private readonly logger: Logger,
+    private readonly thresholds: PerformanceThresholds = { slowPageLoadMs: SLOW_PAGE_LOAD_MS, slowApiCallMs: SLOW_API_CALL_MS },
   ) {
     const self = this;
     this.handleLoad = guard(logger, 'page load metrics', function onLoad() {
@@ -190,7 +197,7 @@ export class PerformanceCollector implements Collector {
   /** Records a completed request; exposed so it can be unit-tested without patching fetch. */
   recordApiCall(call: ApiCall): void {
     this.apiCalls.push(call);
-    if (call.duration_ms > SLOW_API_CALL_MS) {
+    if (call.duration_ms > this.thresholds.slowApiCallMs) {
       this.slowApiCalls.push(call);
       this.sink.onPerformanceIssue(
         'SlowApiCall',
@@ -212,7 +219,7 @@ export class PerformanceCollector implements Collector {
       if (fcp.length > 0) this.metrics.fcp_ms = toMs(fcp[0].startTime);
     }
 
-    if (timings.pageLoadMs !== null && timings.pageLoadMs > SLOW_PAGE_LOAD_MS) {
+    if (timings.pageLoadMs !== null && timings.pageLoadMs > this.thresholds.slowPageLoadMs) {
       this.metrics.slow_screen = true;
       this.sink.onPerformanceIssue('SlowPageLoad', 'Slow page load: ' + timings.pageLoadMs + 'ms');
     }

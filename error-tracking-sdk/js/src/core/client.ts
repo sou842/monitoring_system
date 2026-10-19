@@ -7,6 +7,7 @@ import { HttpErrorCollector } from '../collectors/httpErrorCollector';
 import { JsonResponseCollector } from '../collectors/jsonResponseCollector';
 import { MemoryCollector, MemoryReading } from '../collectors/memoryCollector';
 import { NetworkInterceptor } from '../collectors/networkInterceptor';
+import { PageNotFoundCollector, PageNotFoundDetails } from '../collectors/pageNotFoundCollector';
 import { PerformanceCollector } from '../collectors/performanceCollector';
 import { ResourceCollector } from '../collectors/resourceCollector';
 import { ResponsivenessCollector } from '../collectors/responsivenessCollector';
@@ -18,7 +19,7 @@ import { Breadcrumb, BreadcrumbInput, EventLevel, TrackedUser, TrackerEvent } fr
 import { CircularBuffer } from './circularBuffer';
 import { ResolvedConfig } from './config';
 import { DeviceInfo } from './device';
-import { getDocument, getWindow, nowIso } from './env';
+import { absoluteUrl, getDocument, getWindow, nowIso, stripQuery } from './env';
 import { Deduplicator, fingerprint, RateLimiter } from './eventFilters';
 import { EventQueue } from './eventQueue';
 import { Logger } from './logger';
@@ -90,9 +91,19 @@ export class Client implements CollectorSink {
     });
 
     this.network = new NetworkInterceptor(config.endpoint, this.logger);
-    this.performance = new PerformanceCollector(this, this.network, this.logger);
-    this.memory = new MemoryCollector(this, this.logger, deps.readMemory);
-    this.responsiveness = new ResponsivenessCollector(this, this.logger);
+    this.performance = new PerformanceCollector(this, this.network, this.logger, {
+      slowPageLoadMs: config.slowPageLoadMs,
+      slowApiCallMs: config.slowApiCallMs,
+    });
+    this.memory = new MemoryCollector(this, this.logger, deps.readMemory, {
+      intervalMs: config.memoryPollIntervalMs,
+      leakGrowth: config.memoryLeakGrowth,
+      leakReadings: config.memoryLeakReadings,
+    });
+    this.responsiveness = new ResponsivenessCollector(this, this.logger, {
+      freezeThresholdMs: config.mainThreadBlockedMs,
+      lowFpsThreshold: config.lowFrameRateFps,
+    });
     this.screenshot =
       deps.screenshot ||
       new ScreenshotCollector(
@@ -110,6 +121,11 @@ export class Client implements CollectorSink {
       new ResourceCollector(this, this.logger),
       new JsonResponseCollector(this, this.logger, (url: string) => this.network.isSdkUrl(url)),
     ];
+    if (config.detectPageNotFound) {
+      this.collectors.push(
+        new PageNotFoundCollector((details: PageNotFoundDetails) => this.reportPageNotFound(details), this.logger),
+      );
+    }
     if (config.captureHttpErrors || config.captureNetworkErrors) {
       this.collectors.push(
         new HttpErrorCollector(this, this.network, { httpErrors: config.captureHttpErrors, networkErrors: config.captureNetworkErrors }),
@@ -211,6 +227,49 @@ export class Client implements CollectorSink {
         context: context !== undefined && context !== null ? normalizeObject(context) : null,
       },
       true,
+    );
+  }
+
+  /** Reports that `url` (default: the current page) does not exist. */
+  capturePageNotFound(url?: string): void {
+    const win = getWindow();
+    const doc = getDocument();
+    const target = typeof url === 'string' && url.length > 0 ? url : win !== null ? win.location.href : '';
+    if (target.length === 0) {
+      this.logger.warn('capturePageNotFound needs a URL outside the browser; ignoring');
+      return;
+    }
+    this.reportPageNotFound({
+      url: target,
+      status: null,
+      referrer: doc !== null && doc.referrer.length > 0 ? doc.referrer : null,
+      source: 'app',
+    });
+  }
+
+  private reportPageNotFound(details: PageNotFoundDetails): void {
+    const url = stripQuery(absoluteUrl(details.url));
+    let path = url;
+    safelyRun(this.logger, 'page path', function parsePath() {
+      path = new URL(url).pathname;
+    });
+    // Same message and empty stack for both sources, so an app that also calls
+    // capturePageNotFound() on a real 404 page is deduplicated to one event.
+    this.capture(
+      {
+        eventType: 'error',
+        level: 'warning',
+        error: { message: truncate('Page not found: ' + path, MAX_MESSAGE_LENGTH), type: 'PageNotFound', handled: true },
+        stacktrace: [],
+        context: {
+          url: url,
+          path: path,
+          status: details.status,
+          referrer: details.referrer !== null ? stripQuery(details.referrer) : null,
+          source: details.source,
+        },
+      },
+      false,
     );
   }
 

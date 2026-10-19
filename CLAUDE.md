@@ -32,7 +32,8 @@ Three SDKs, all sending the **same shared payload schema**:
 - **Extra JS fields beyond the shared schema:** `level`, `context`, `performance.cls`, `device.referrer`. ⚠️ Still needs backend sign-off. iOS and Android should probably include `level` and `context` too.
 - **JS screenshots:** html2canvas loaded on demand from cdnjs with an SRI hash (the user chose this over a DOM serializer). Two-layer masking: style the cloned DOM, then draw black rectangles over masked elements.
 - **Performance events:** `event_type: "performance"`, with the issue in `error.type` (`SlowPageLoad`, `SlowApiCall`, `MemoryLeakSuspected`, `MainThreadBlocked`, `LowFrameRate`) and `handled: true`.
-- **Error types built by the SDK** (all `event_type: "error"`): `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError`. Extra detail goes in `context`.
+- **Error types built by the SDK** (all `event_type: "error"`): `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError`, `PageNotFound`. Extra detail goes in `context`.
+- **`PageNotFound` (2026-10-19, JS 0.3.0):** `collectors/pageNotFoundCollector.ts` reads the document's Navigation Timing `responseStatus` once at install; 404/410 → event with level `warning`, `handled: true`, no screenshot, empty stack, message `Page not found: <path>`, context `{ url, path, status, referrer, source: 'http-status'|'app' }`. Public `capturePageNotFound(url?)` covers SPA route misses and Safari; same message + empty stack so the client dedup collapses a manual call on an auto-detected 404. Config `detectPageNotFound` (default true). Backend groups one issue per path. Verified in headless Chrome + local backend + dashboard.
 - **`handled` rule:** `false` = broke without app code getting a chance (uncaught exceptions/rejections, failed resources, CSP, workers). `true` = handed back to the app (HTTP status, rejected request, JSON parse error, console.error, perf issues, `captureError`).
 - **One failure, one event:** `core/reportedErrors.ts` remembers reported error objects (WeakSet) and short-lived text signatures, so the same failure arriving by a second route (unhandledrejection, console.error, worker error re-dispatched on window) is skipped.
 - **Error storms:** when the rate limit drops events, one `EventsDropped` message (`context.dropped_count`) is sent 10 s later.
@@ -46,7 +47,8 @@ Three SDKs, all sending the **same shared payload schema**:
 - JS: TypeScript is **pinned to ~5.9** because TS 7 drops `target: ES5`. Don't upgrade it.
 
 ## JS SDK on npm
-- Package: **`@sourav732/error-tracker-js`**, public, from the user's own npm account. **0.1.0 is published**; **0.2.0** is prepared locally (compressed screenshots, size-limited batches, Windows OS version fix) and the user still has to publish it. License stays `UNLICENSED`.
+- Package: **`@sourav732/error-tracker-js`**, public, from the user's own npm account. **0.1.0 and 0.2.0 are published**; **0.3.0** is prepared locally (configurable performance thresholds, `PageNotFound`) and the user still has to publish it. License stays `UNLICENSED`.
+- **Configurable thresholds (2026-10-19, user chose flat options):** `init()` takes optional `slowApiCallMs`, `slowPageLoadMs`, `mainThreadBlockedMs`, `lowFrameRateFps`, `memoryPollIntervalMs`, `memoryLeakGrowth`, `memoryLeakReadings`. Defaults and min/max stay in `constants.ts`; `resolveConfig()` clamps out-of-range values and ignores non-numbers. Transport, rate-limit, dedup and screenshot limits are deliberately **not** configurable. iOS/Android should offer the same option names.
 - `prepublishOnly` runs typecheck + tests + build, so `npm publish` can't ship a broken build. The build is minified with `@rollup/plugin-terser` (ES5, ~55 KB per format, with source maps).
 - `SDK_VERSION` in `src/constants.ts` must equal the `package.json` version; a test enforces it. Bump both together.
 - The user runs `npm login` / `npm publish` themselves (needs their account and 2FA).
@@ -56,7 +58,7 @@ Three SDKs, all sending the **same shared payload schema**:
 ```bash
 cd error-tracking-sdk/js
 npm run typecheck   # strict TS over src + tests
-npm test            # Vitest + jsdom (153 tests passing)
+npm test            # Vitest + jsdom (172 tests passing)
 npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 ```
 - `src/core/client.ts` drives the pipeline: sample → dedup → rate-limit → build → screenshot → beforeSend → queue.
@@ -83,7 +85,7 @@ npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 ## Demo app: `project/web/`
 A basic Next.js 15 (App Router, plain JS) app that uses the JS SDK through `file:../../error-tracking-sdk/js`. `node_modules` symlinks to the SDK folder, so after an SDK change: run `npm run build` in the SDK, then restart `npm run dev` (delete `.next/` if the change doesn't show up).
 - Sends to the backend: `.env.local` has the "Web demo" project key and `NEXT_PUBLIC_ET_ENDPOINT` / `ET_SERVER_ENDPOINT` = `http://localhost:4000/api/v1/events`. The user edits this app too (blue background, a `/wrong_path` link), so don't overwrite their changes.
-- **Browser:** the SDK is initialized in `instrumentation-client.js`, which runs before React hydrates, so first-render and hydration errors are caught. `app/error.js` reports page render crashes, and `app/global-error.js` reports root-layout crashes.
+- **Browser:** the SDK is initialized in `instrumentation-client.js`, which runs before React hydrates, so first-render and hydration errors are caught. `app/error.js` reports page render crashes, and `app/global-error.js` reports root-layout crashes. `app/not-found.js` calls `capturePageNotFound()`; the home page has an `<a href="/abouts">` typo link (full page load → automatic detection). In the production build Next hard-navigates the `<Link href="/wrong_path">` too, so it is also caught automatically.
 - **Server:** `instrumentation.js` → `onRequestError` → `lib/serverErrors.js` sends API-route, server-component and SSR errors through the SDK in Node, with `context.source: "server"`.
 - The home page has a button for every scenario. Other demo pages: `/hydration`, `/csp` (report-only CSP header from `next.config.mjs`, plus a broken `<img>` in the server HTML), `/server-error`.
 - APIs: `/api/products`, `/api/slow` (2.5 s), `/api/fail` (500), `/api/bad-json`, `/api/crash` (server throw).

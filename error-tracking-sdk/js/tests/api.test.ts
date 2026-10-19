@@ -71,6 +71,116 @@ describe('ErrorTracker public API', () => {
     expect(sentEvents()[0].error).toEqual({ message: 'foo is not defined', type: 'ReferenceError', handled: false });
   });
 
+  it('applies slowApiCallMs from init() to real fetch calls', async () => {
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    ErrorTracker.init({ ...BASE_CONFIG, slowApiCallMs: 3000 });
+    // The mock fetch parses every body, so app calls send an empty batch too.
+    const call = (url: string, ms: number) => {
+      const pending = window.fetch(url, { method: 'POST', body: '{"events":[]}' });
+      clock += ms;
+      return pending;
+    };
+
+    await call('https://app.test/api/search', 2500); // slow by the default 2 s, fine with 3 s
+    await call('https://app.test/api/report', 3500);
+    await ErrorTracker.flush();
+
+    const slow = sentEvents().filter((e) => e.error !== null && e.error.type === 'SlowApiCall');
+    expect(slow).toHaveLength(1);
+    expect(slow[0].error).toMatchObject({ message: 'Slow API call: POST https://app.test/api/report took 3500ms', handled: true });
+  });
+
+  describe('PageNotFound', () => {
+    /** Pretends the current document was served with `status` at `path`. */
+    function servePage(path: string, status: number | undefined): void {
+      history.replaceState(null, '', path);
+      const real = performance.getEntriesByType.bind(performance);
+      vi.spyOn(performance, 'getEntriesByType').mockImplementation((type: string) =>
+        type === 'navigation' ? [{ entryType: 'navigation', startTime: 0, responseStatus: status } as unknown as PerformanceEntry] : real(type),
+      );
+    }
+
+    function notFoundEvents(): TrackerEvent[] {
+      return sentEvents().filter((e) => e.error !== null && e.error.type === 'PageNotFound');
+    }
+
+    afterEach(() => {
+      history.replaceState(null, '', '/');
+    });
+
+    it('reports a page served with 404, without its query string', async () => {
+      servePage('/abouts?token=secret#top', 404);
+      ErrorTracker.init(BASE_CONFIG);
+      await ErrorTracker.flush();
+
+      const events = notFoundEvents();
+      expect(events).toHaveLength(1);
+      expectSchemaShape(events[0]);
+      expect(events[0]).toMatchObject({
+        event_type: 'error',
+        level: 'warning',
+        error: { message: 'Page not found: /abouts', type: 'PageNotFound', handled: true },
+        stacktrace: [],
+        context: { url: location.origin + '/abouts', path: '/abouts', status: 404, source: 'http-status' },
+      });
+    });
+
+    it('reports 410 Gone too', async () => {
+      servePage('/old-page', 410);
+      ErrorTracker.init(BASE_CONFIG);
+      await ErrorTracker.flush();
+      expect(notFoundEvents()[0].context).toMatchObject({ path: '/old-page', status: 410 });
+    });
+
+    it('does nothing for normal pages or when the browser hides the status', async () => {
+      servePage('/about', 200);
+      ErrorTracker.init(BASE_CONFIG);
+      await ErrorTracker.close();
+      servePage('/about', undefined); // Safari: no responseStatus
+      ErrorTracker.init(BASE_CONFIG);
+      await ErrorTracker.flush();
+      expect(notFoundEvents()).toHaveLength(0);
+    });
+
+    it('can be turned off with detectPageNotFound: false', async () => {
+      servePage('/abouts', 404);
+      ErrorTracker.init({ ...BASE_CONFIG, detectPageNotFound: false });
+      await ErrorTracker.flush();
+      expect(notFoundEvents()).toHaveLength(0);
+    });
+
+    it('capturePageNotFound() reports client-side route misses', async () => {
+      servePage('/', 200);
+      ErrorTracker.init(BASE_CONFIG);
+      history.pushState(null, '', '/wrong_path?x=1');
+      ErrorTracker.capturePageNotFound();
+      ErrorTracker.capturePageNotFound('/other-missing');
+      await ErrorTracker.flush();
+
+      expect(notFoundEvents().map((e) => e.context)).toEqual([
+        { url: location.origin + '/wrong_path', path: '/wrong_path', status: null, referrer: null, source: 'app' },
+        { url: location.origin + '/other-missing', path: '/other-missing', status: null, referrer: null, source: 'app' },
+      ]);
+    });
+
+    it('sends one event when the app also calls capturePageNotFound() on a detected 404', async () => {
+      servePage('/abouts', 404);
+      ErrorTracker.init(BASE_CONFIG);
+      ErrorTracker.capturePageNotFound();
+      await ErrorTracker.flush();
+      expect(notFoundEvents()).toHaveLength(1);
+      expect(notFoundEvents()[0].context).toMatchObject({ source: 'http-status' });
+    });
+
+    it('works when called before init()', async () => {
+      ErrorTracker.capturePageNotFound('/early');
+      ErrorTracker.init(BASE_CONFIG);
+      await ErrorTracker.flush();
+      expect(notFoundEvents()[0].error).toMatchObject({ message: 'Page not found: /early' });
+    });
+  });
+
   it('sends captureMessage as a message event with its level', async () => {
     ErrorTracker.init(BASE_CONFIG);
     ErrorTracker.captureMessage('Checkout started', 'warning');

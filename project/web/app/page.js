@@ -103,7 +103,8 @@ export default function Home() {
       </Section>
 
       <Section title="Other pages">
-        <Link href="/wrong_path">Wrong path</Link>
+        <Link href="/wrong_path">Wrong path</Link> ·{' '}
+        <a href="/abouts">Typo URL (/abouts, full page load)</a> ·{' '}
         <Link href="/hydration">Hydration mismatch</Link> · <Link href="/csp">CSP violation</Link> ·{' '}
         <a href="/server-error">Server component error</a> ·{' '}
         <button onClick={() => fetch('/api/crash')}>Server API crash</button>

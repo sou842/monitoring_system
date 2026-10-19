@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.2.0';
+export const SDK_VERSION = '0.3.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -82,8 +82,15 @@ export const MASKED_TEXT = '[masked]';
 // ---------------------------------------------------------------------------
 // Performance
 // ---------------------------------------------------------------------------
+/** Default for `slowPageLoadMs`. */
 export const SLOW_PAGE_LOAD_MS = 3000;
+/** Default for `slowApiCallMs`. */
 export const SLOW_API_CALL_MS = 2000;
+/** Allowed range for `slowPageLoadMs` and `slowApiCallMs`. */
+export const SLOW_THRESHOLD_MIN_MS = 100;
+export const SLOW_THRESHOLD_MAX_MS = 600000;
+/** HTTP statuses of the page itself that are reported as PageNotFound (404 Not Found, 410 Gone). */
+export const PAGE_NOT_FOUND_STATUSES: readonly number[] = [404, 410];
 /** Responses at or above this status are reported as HttpError events. */
 export const HTTP_ERROR_STATUS_MIN = 400;
 /** Number of most recent API calls attached to every payload. */
@@ -97,8 +104,11 @@ export const CLS_SESSION_MAX_MS = 5000;
 // ---------------------------------------------------------------------------
 // Responsiveness (main-thread blocking and frame rate)
 // ---------------------------------------------------------------------------
-/** A single main-thread task longer than this is reported as a page freeze. */
+/** Default for `mainThreadBlockedMs`: a single main-thread task longer than this is reported as a page freeze. */
 export const LONG_TASK_FREEZE_MS = 1000;
+/** The Long Tasks API only reports tasks over 50 ms, so a lower threshold means nothing. */
+export const LONG_TASK_FREEZE_MIN_MS = 50;
+export const LONG_TASK_FREEZE_MAX_MS = 60000;
 /** Minimum gap between two freeze reports, so a sluggish page cannot flood events. */
 export const FREEZE_REPORT_INTERVAL_MS = 30000;
 /** Delay before the first frame-rate sample, so page-load work doesn't skew it. */
@@ -109,15 +119,27 @@ export const FPS_SAMPLE_INTERVAL_MS = 30000;
 export const FPS_SAMPLE_DURATION_MS = 1000;
 /** Sampled frame rates below this are reported as LowFrameRate. Kept well under 30 fps because low-power modes cap at 30. */
 export const LOW_FPS_THRESHOLD = 20;
+/** Allowed range for `lowFrameRateFps`. */
+export const LOW_FPS_THRESHOLD_MIN = 1;
+export const LOW_FPS_THRESHOLD_MAX = 60;
 export const MS_PER_SECOND = 1000;
 
 // ---------------------------------------------------------------------------
 // Memory
 // ---------------------------------------------------------------------------
+/** Default for `memoryPollIntervalMs`. */
 export const MEMORY_POLL_INTERVAL_MS = 30000;
+/** Polling faster than this would cost the host app CPU for no benefit. */
+export const MEMORY_POLL_INTERVAL_MIN_MS = 5000;
+export const MEMORY_POLL_INTERVAL_MAX_MS = 3600000;
+/** Default for `memoryLeakReadings`. */
 export const LEAK_CONSECUTIVE_READINGS = 3;
-/** Growth ratio across the consecutive readings that flags a leak (20%). */
+export const LEAK_CONSECUTIVE_READINGS_MIN = 2;
+export const LEAK_CONSECUTIVE_READINGS_MAX = 20;
+/** Default for `memoryLeakGrowth`: growth ratio across the consecutive readings that flags a leak (20%). */
 export const LEAK_GROWTH_THRESHOLD = 0.2;
+export const LEAK_GROWTH_THRESHOLD_MIN = 0.01;
+export const LEAK_GROWTH_THRESHOLD_MAX = 10;
 export const BYTES_PER_MB = 1024 * 1024;
 
 // ---------------------------------------------------------------------------

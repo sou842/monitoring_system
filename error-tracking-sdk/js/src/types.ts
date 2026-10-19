@@ -46,12 +46,31 @@ export interface ErrorTrackerConfig {
   captureNetworkErrors?: boolean;
   /** Report every `console.error(...)` call as an error event. Defaults to false (libraries log a lot of noise). */
   captureConsoleErrors?: boolean;
+  /**
+   * Report a `PageNotFound` event when the page itself was served with a 404 or
+   * 410 status (Chromium 109+ and Firefox). Defaults to true.
+   */
+  detectPageNotFound?: boolean;
   /** Attach a screenshot to error events. Defaults to true. */
   captureScreenshots?: boolean;
   /** Override where html2canvas is loaded from (self-hosting is recommended). */
   html2canvasUrl?: string;
   /** SRI hash for `html2canvasUrl`. Set to an empty string to disable the integrity check. */
   html2canvasIntegrity?: string;
+  /** A fetch/XHR call slower than this (ms) is reported as `SlowApiCall`. Defaults to 2000 (allowed 100–600000). */
+  slowApiCallMs?: number;
+  /** A page load slower than this (ms) is reported as `SlowPageLoad`. Defaults to 3000 (allowed 100–600000). */
+  slowPageLoadMs?: number;
+  /** A single main-thread task longer than this (ms) is reported as `MainThreadBlocked`. Defaults to 1000 (allowed 50–60000). */
+  mainThreadBlockedMs?: number;
+  /** A sampled frame rate below this (fps) is reported as `LowFrameRate`. Defaults to 20 (allowed 1–60). */
+  lowFrameRateFps?: number;
+  /** How often the JS heap is read (ms). Defaults to 30000 (allowed 5000–3600000). */
+  memoryPollIntervalMs?: number;
+  /** Heap growth ratio that flags `MemoryLeakSuspected`, e.g. 0.2 = 20%. Defaults to 0.2 (allowed 0.01–10). */
+  memoryLeakGrowth?: number;
+  /** Number of consecutive rising heap readings checked for a leak. Defaults to 3 (allowed 2–20). */
+  memoryLeakReadings?: number;
   /**
    * Last chance to scrub or drop an event before it is queued.
    * Return the (optionally modified) event, or `null` to drop it.

@@ -50,10 +50,18 @@ function toMb(bytes: number): number {
   return Math.round((bytes / BYTES_PER_MB) * 10) / 10;
 }
 
+/** Polling and leak-detection settings. */
+export interface MemoryOptions {
+  intervalMs: number;
+  /** Growth ratio, e.g. 0.2 = 20%. */
+  leakGrowth: number;
+  leakReadings: number;
+}
+
 /**
- * Polls JS heap usage every 30 s and flags a suspected leak when the heap
- * grows by more than 20% across 3 consecutive readings with no navigation in
- * between. Readings reset on every navigation.
+ * Polls JS heap usage (every 30 s by default) and flags a suspected leak when
+ * the heap grows by more than the growth ratio (20%) across N consecutive
+ * readings (3) with no navigation in between. Readings reset on every navigation.
  */
 export class MemoryCollector implements Collector {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -66,7 +74,11 @@ export class MemoryCollector implements Collector {
     private readonly sink: CollectorSink,
     logger: Logger,
     private readonly read: () => MemoryReading | null = readChromeMemory,
-    private readonly intervalMs: number = MEMORY_POLL_INTERVAL_MS,
+    private readonly options: MemoryOptions = {
+      intervalMs: MEMORY_POLL_INTERVAL_MS,
+      leakGrowth: LEAK_GROWTH_THRESHOLD,
+      leakReadings: LEAK_CONSECUTIVE_READINGS,
+    },
   ) {
     const self = this;
     this.poll = guard(logger, 'memory poll', function poll() {
@@ -77,7 +89,7 @@ export class MemoryCollector implements Collector {
   install(): void {
     if (this.timer !== null || this.read() === null) return;
     this.sample();
-    this.timer = setInterval(this.poll, this.intervalMs);
+    this.timer = setInterval(this.poll, this.options.intervalMs);
   }
 
   uninstall(): void {
@@ -97,14 +109,15 @@ export class MemoryCollector implements Collector {
     if (reading === null) return;
     this.latest = reading;
     this.readings.push(reading.usedBytes);
-    if (this.readings.length > LEAK_CONSECUTIVE_READINGS) this.readings.shift();
+    const leakReadings = this.options.leakReadings;
+    if (this.readings.length > leakReadings) this.readings.shift();
 
-    if (!this.leakSuspected && isLeakPattern(this.readings)) {
+    if (!this.leakSuspected && isLeakPattern(this.readings, leakReadings, this.options.leakGrowth)) {
       this.leakSuspected = true;
       this.sink.onPerformanceIssue(
         'MemoryLeakSuspected',
         'JS heap grew from ' + toMb(this.readings[0]) + 'MB to ' + toMb(reading.usedBytes) +
-          'MB across ' + LEAK_CONSECUTIVE_READINGS + ' readings without navigation',
+          'MB across ' + leakReadings + ' readings without navigation',
       );
     }
   }

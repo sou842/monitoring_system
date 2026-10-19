@@ -5,7 +5,26 @@ import {
   DEFAULT_MASK_SELECTORS,
   DEFAULT_MAX_BREADCRUMBS,
   DEFAULT_SAMPLE_RATE,
+  LEAK_CONSECUTIVE_READINGS,
+  LEAK_CONSECUTIVE_READINGS_MAX,
+  LEAK_CONSECUTIVE_READINGS_MIN,
+  LEAK_GROWTH_THRESHOLD,
+  LEAK_GROWTH_THRESHOLD_MAX,
+  LEAK_GROWTH_THRESHOLD_MIN,
+  LONG_TASK_FREEZE_MAX_MS,
+  LONG_TASK_FREEZE_MIN_MS,
+  LONG_TASK_FREEZE_MS,
+  LOW_FPS_THRESHOLD,
+  LOW_FPS_THRESHOLD_MAX,
+  LOW_FPS_THRESHOLD_MIN,
   MAX_BREADCRUMBS_LIMIT,
+  MEMORY_POLL_INTERVAL_MAX_MS,
+  MEMORY_POLL_INTERVAL_MIN_MS,
+  MEMORY_POLL_INTERVAL_MS,
+  SLOW_API_CALL_MS,
+  SLOW_PAGE_LOAD_MS,
+  SLOW_THRESHOLD_MAX_MS,
+  SLOW_THRESHOLD_MIN_MS,
 } from '../constants';
 import { ErrorTrackerConfig, TrackerEvent } from '../types';
 
@@ -23,15 +42,29 @@ export interface ResolvedConfig {
   captureNetworkErrors: boolean;
   captureConsoleErrors: boolean;
   captureScreenshots: boolean;
+  detectPageNotFound: boolean;
   html2canvasUrl: string;
   html2canvasIntegrity: string;
   beforeSend: ((event: TrackerEvent) => TrackerEvent | null) | null;
+  slowApiCallMs: number;
+  slowPageLoadMs: number;
+  mainThreadBlockedMs: number;
+  lowFrameRateFps: number;
+  memoryPollIntervalMs: number;
+  memoryLeakGrowth: number;
+  memoryLeakReadings: number;
 }
 
 export type ConfigResult = { ok: true; config: ResolvedConfig } | { ok: false; reason: string };
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/** A finite number clamped to [min, max], or the default when the value is missing or not a number. */
+function numberOption(value: unknown, fallback: number, min: number, max: number, integer: boolean): number {
+  if (typeof value !== 'number' || !isFinite(value)) return fallback;
+  return clamp(integer ? Math.round(value) : value, min, max);
 }
 
 function isValidUrl(value: string): boolean {
@@ -81,6 +114,7 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
       captureNetworkErrors: input.captureNetworkErrors !== false,
       captureConsoleErrors: input.captureConsoleErrors === true,
       captureScreenshots: input.captureScreenshots !== false,
+      detectPageNotFound: input.detectPageNotFound !== false,
       html2canvasUrl: typeof input.html2canvasUrl === 'string' && input.html2canvasUrl.length > 0 ? input.html2canvasUrl : DEFAULT_HTML2CANVAS_URL,
       html2canvasIntegrity:
         typeof input.html2canvasIntegrity === 'string'
@@ -89,6 +123,37 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
             ? '' // A custom URL cannot share the default file's hash.
             : DEFAULT_HTML2CANVAS_INTEGRITY,
       beforeSend: typeof input.beforeSend === 'function' ? input.beforeSend : null,
+      slowApiCallMs: numberOption(input.slowApiCallMs, SLOW_API_CALL_MS, SLOW_THRESHOLD_MIN_MS, SLOW_THRESHOLD_MAX_MS, false),
+      slowPageLoadMs: numberOption(input.slowPageLoadMs, SLOW_PAGE_LOAD_MS, SLOW_THRESHOLD_MIN_MS, SLOW_THRESHOLD_MAX_MS, false),
+      mainThreadBlockedMs: numberOption(
+        input.mainThreadBlockedMs,
+        LONG_TASK_FREEZE_MS,
+        LONG_TASK_FREEZE_MIN_MS,
+        LONG_TASK_FREEZE_MAX_MS,
+        false,
+      ),
+      lowFrameRateFps: numberOption(input.lowFrameRateFps, LOW_FPS_THRESHOLD, LOW_FPS_THRESHOLD_MIN, LOW_FPS_THRESHOLD_MAX, false),
+      memoryPollIntervalMs: numberOption(
+        input.memoryPollIntervalMs,
+        MEMORY_POLL_INTERVAL_MS,
+        MEMORY_POLL_INTERVAL_MIN_MS,
+        MEMORY_POLL_INTERVAL_MAX_MS,
+        false,
+      ),
+      memoryLeakGrowth: numberOption(
+        input.memoryLeakGrowth,
+        LEAK_GROWTH_THRESHOLD,
+        LEAK_GROWTH_THRESHOLD_MIN,
+        LEAK_GROWTH_THRESHOLD_MAX,
+        false,
+      ),
+      memoryLeakReadings: numberOption(
+        input.memoryLeakReadings,
+        LEAK_CONSECUTIVE_READINGS,
+        LEAK_CONSECUTIVE_READINGS_MIN,
+        LEAK_CONSECUTIVE_READINGS_MAX,
+        true,
+      ),
     },
   };
 }

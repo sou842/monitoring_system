@@ -19,16 +19,20 @@ export interface ResponsivenessDependencies {
   now?: () => number;
   requestFrame?: (callback: () => void) => void;
   sampleIntervalMs?: number;
+  /** Long tasks over this many ms are reported as `MainThreadBlocked`. */
+  freezeThresholdMs?: number;
+  /** Frame-rate samples under this are reported as `LowFrameRate`. */
+  lowFpsThreshold?: number;
 }
 
 /**
  * Watches main-thread responsiveness:
  * - **Freezes:** uses the Long Tasks API (Chromium browsers only) and reports
  *   a `MainThreadBlocked` performance event when one task blocks the page for
- *   longer than 1 s. At most one report per 30 s.
+ *   longer than the freeze threshold (1 s by default). At most one report per 30 s.
  * - **Frame rate:** 5 s after start and then every 30 s, while the page is
  *   visible, counts animation frames for 1 s. The latest value fills `performance.frame_rate_fps`, and a
- *   sample under 20 fps is reported as `LowFrameRate`.
+ *   sample under the low-fps threshold (20 by default) is reported as `LowFrameRate`.
  *
  * A page stuck in an infinite loop never finishes its task, so it cannot be
  * reported from inside the page.
@@ -44,6 +48,8 @@ export class ResponsivenessCollector implements Collector {
   private readonly now: () => number;
   private readonly requestFrame: ((callback: () => void) => void) | null;
   private readonly sampleIntervalMs: number;
+  private readonly freezeThresholdMs: number;
+  private readonly lowFpsThreshold: number;
   private readonly runSample: () => void;
 
   constructor(
@@ -61,6 +67,8 @@ export class ResponsivenessCollector implements Collector {
           }
         : null);
     this.sampleIntervalMs = deps.sampleIntervalMs !== undefined ? deps.sampleIntervalMs : FPS_SAMPLE_INTERVAL_MS;
+    this.freezeThresholdMs = deps.freezeThresholdMs !== undefined ? deps.freezeThresholdMs : LONG_TASK_FREEZE_MS;
+    this.lowFpsThreshold = deps.lowFpsThreshold !== undefined ? deps.lowFpsThreshold : LOW_FPS_THRESHOLD;
     const self = this;
     this.runSample = guard(logger, 'frame rate sample', function sample() {
       self.sampleFrameRate();
@@ -97,7 +105,7 @@ export class ResponsivenessCollector implements Collector {
 
   /** Handles one long task; exposed for tests. */
   recordLongTask(durationMs: number): void {
-    if (durationMs <= LONG_TASK_FREEZE_MS) return;
+    if (durationMs <= this.freezeThresholdMs) return;
     const now = this.now();
     if (now - this.lastFreezeReport < FREEZE_REPORT_INTERVAL_MS) return;
     this.lastFreezeReport = now;
@@ -134,7 +142,7 @@ export class ResponsivenessCollector implements Collector {
 
   private recordFrameRate(fps: number): void {
     this.fps = fps;
-    if (fps >= LOW_FPS_THRESHOLD) return;
+    if (fps >= this.lowFpsThreshold) return;
     const now = this.now();
     if (now - this.lastLowFpsReport < FREEZE_REPORT_INTERVAL_MS) return;
     this.lastLowFpsReport = now;

@@ -38,6 +38,46 @@ describe('MemoryCollector', () => {
     expect(collector.snapshot().leak_suspected).toBe(true);
   });
 
+  it('does not report growth below a custom leak threshold', () => {
+    const sink = new RecordingSink();
+    // +25% over 3 readings: a leak with the default 20%, not with 30%.
+    const queue = [100, 110, 125].map((mb): MemoryReading => ({ usedBytes: mb * MB, totalBytes: 256 * MB }));
+    const collector = new MemoryCollector(sink, logger, () => queue.shift() || null, {
+      intervalMs: 30000,
+      leakGrowth: 0.3,
+      leakReadings: 3,
+    });
+    for (let i = 0; i < 3; i++) collector.sample();
+    expect(sink.issues).toHaveLength(0);
+  });
+
+  it('reports a leak over a custom number of readings', () => {
+    const sink = new RecordingSink();
+    const queue = [100, 110, 120, 140].map((mb): MemoryReading => ({ usedBytes: mb * MB, totalBytes: 256 * MB }));
+    const collector = new MemoryCollector(sink, logger, () => queue.shift() || null, {
+      intervalMs: 30000,
+      leakGrowth: 0.3,
+      leakReadings: 4,
+    });
+    for (let i = 0; i < 3; i++) collector.sample();
+    expect(sink.issues).toHaveLength(0); // only 3 of 4 readings so far
+    collector.sample(); // +40%
+    expect(sink.issues).toHaveLength(1);
+    expect(sink.issues[0].message).toContain('across 4 readings');
+  });
+
+  it('polls at a custom interval when given', () => {
+    vi.useFakeTimers();
+    const read = vi.fn((): MemoryReading => ({ usedBytes: 50 * MB, totalBytes: 100 * MB }));
+    const collector = new MemoryCollector(new RecordingSink(), logger, read, { intervalMs: 10000, leakGrowth: 0.2, leakReadings: 3 });
+    collector.install();
+    const afterInstall = read.mock.calls.length;
+    vi.advanceTimersByTime(10000);
+    expect(read.mock.calls.length).toBe(afterInstall + 1);
+    collector.uninstall();
+    vi.useRealTimers();
+  });
+
   it('resets the baseline on navigation', () => {
     const r = (mb: number): MemoryReading => ({ usedBytes: mb * MB, totalBytes: 256 * MB });
     const { sink, collector } = collectorWith([r(100), r(110), r(130)]);
@@ -84,6 +124,23 @@ describe('PerformanceCollector', () => {
     expect(snap.api_calls).toHaveLength(2);
     expect(snap.slow_api_calls).toEqual([{ url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 }]);
     expect(sink.issues).toEqual([{ kind: 'SlowApiCall', message: 'Slow API call: GET /api/search took 2500ms' }]);
+  });
+
+  it('uses custom slow thresholds when given', () => {
+    const sink = new RecordingSink();
+    const collector = new PerformanceCollector(sink, new NetworkInterceptor('https://ingest.test', logger), logger, {
+      slowApiCallMs: 3000,
+      slowPageLoadMs: 5000,
+    });
+    collector.recordApiCall({ url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 });
+    collector.recordApiCall({ url: '/api/report', method: 'GET', status: 200, duration_ms: 3100 });
+    vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+      { startTime: 0, loadEventEnd: 4200, responseStart: 320 } as unknown as PerformanceEntry,
+    ]);
+    collector.measurePageLoad();
+
+    expect(collector.snapshot().slow_screen).toBe(false);
+    expect(sink.issues).toEqual([{ kind: 'SlowApiCall', message: 'Slow API call: GET /api/report took 3100ms' }]);
   });
 
   it('flags page loads over 3000ms as slow', () => {
