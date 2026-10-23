@@ -84,7 +84,7 @@ describe('BreadcrumbCollector', () => {
     expect(sink.breadcrumbs[0].message).toBe('Clicked [masked]');
   });
 
-  it('records pushState and popstate navigations and notifies the sink', () => {
+  it('records pushState and popstate navigations', () => {
     window.history.pushState(null, '', '/checkout?session=abc');
     expect(sink.breadcrumbs[0]).toEqual({
       type: 'navigation',
@@ -94,8 +94,7 @@ describe('BreadcrumbCollector', () => {
 
     window.history.replaceState(null, '', '/cart');
     window.dispatchEvent(new PopStateEvent('popstate'));
-    expect(sink.breadcrumbs.map((b) => b.data && (b.data as { trigger: string }).trigger)).toEqual(['pushState', 'replaceState']);
-    expect(sink.navigations).toBe(2);
+    expect(sink.breadcrumbs.map((b) => b.data && (b.data as { trigger: string }).trigger)).toEqual(['pushState', 'replaceState']);
   });
 
   it('records console.warn and console.error but still calls the original', () => {

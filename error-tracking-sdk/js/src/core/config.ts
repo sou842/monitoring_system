@@ -11,6 +11,9 @@ import {
   LEAK_GROWTH_THRESHOLD,
   LEAK_GROWTH_THRESHOLD_MAX,
   LEAK_GROWTH_THRESHOLD_MIN,
+  LEAK_MIN_GROWTH_MB,
+  LEAK_MIN_GROWTH_MB_MAX,
+  LEAK_MIN_GROWTH_MB_MIN,
   LONG_TASK_FREEZE_MAX_MS,
   LONG_TASK_FREEZE_MIN_MS,
   LONG_TASK_FREEZE_MS,
@@ -52,6 +55,7 @@ export interface ResolvedConfig {
   lowFrameRateFps: number;
   memoryPollIntervalMs: number;
   memoryLeakGrowth: number;
+  memoryLeakMinGrowthMb: number;
   memoryLeakReadings: number;
 }
 
@@ -145,6 +149,13 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
         LEAK_GROWTH_THRESHOLD,
         LEAK_GROWTH_THRESHOLD_MIN,
         LEAK_GROWTH_THRESHOLD_MAX,
+        false,
+      ),
+      memoryLeakMinGrowthMb: numberOption(
+        input.memoryLeakMinGrowthMb,
+        LEAK_MIN_GROWTH_MB,
+        LEAK_MIN_GROWTH_MB_MIN,
+        LEAK_MIN_GROWTH_MB_MAX,
         false,
       ),
       memoryLeakReadings: numberOption(

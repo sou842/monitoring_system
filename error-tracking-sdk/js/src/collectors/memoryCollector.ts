@@ -2,12 +2,16 @@ import {
   BYTES_PER_MB,
   LEAK_CONSECUTIVE_READINGS,
   LEAK_GROWTH_THRESHOLD,
+  LEAK_MIN_GROWTH_MB,
   MEMORY_POLL_INTERVAL_MS,
+  MEMORY_READINGS_PER_WINDOW,
+  MEMORY_WARMUP_MS,
+  MS_PER_SECOND,
 } from '../constants';
-import { getPerformance } from '../core/env';
+import { getPerformance, nowMs } from '../core/env';
 import { Logger } from '../core/logger';
 import { guard } from '../core/safe';
-import { MemoryPayload } from '../types';
+import { JsonObject, MemoryPayload } from '../types';
 import { Collector, CollectorSink } from './collector';
 
 /** One heap sample, in bytes. */
@@ -22,6 +26,9 @@ interface ChromeMemoryInfo {
   totalJSHeapSize: number;
 }
 
+const SECONDS_PER_MINUTE = 60;
+const PERCENT = 100;
+
 /** Reads `performance.memory`, which only Chromium-based browsers provide. */
 export function readChromeMemory(): MemoryReading | null {
   const perf = getPerformance() as (Performance & { memory?: ChromeMemoryInfo }) | null;
@@ -29,21 +36,33 @@ export function readChromeMemory(): MemoryReading | null {
   return { usedBytes: perf.memory.usedJSHeapSize, totalBytes: perf.memory.totalJSHeapSize };
 }
 
+/** Leak-detection settings. */
+export interface LeakRule {
+  /** How many floors in a row must each be higher than the one before. */
+  readings: number;
+  /** Required growth of the newest floor over the baseline, as a ratio (0.2 = 20%). */
+  growth: number;
+  /** Required growth of the newest floor over the baseline, in bytes. */
+  minGrowthBytes: number;
+}
+
 /**
- * True when the last N readings grow strictly and the newest is more than
- * the growth threshold above the oldest of the N.
+ * True when the last `rule.readings` heap floors each rise above the one
+ * before, and the newest floor is above `baseline` (the lowest floor seen) by
+ * both the growth ratio and the minimum number of bytes.
+ *
+ * A single jump (a heavy screen loading once) is not a leak: the floors after
+ * it stay level. Neither is a sawtooth of allocations that garbage collection
+ * clears: the floors don't move.
  */
-export function isLeakPattern(
-  usedBytes: readonly number[],
-  consecutive: number = LEAK_CONSECUTIVE_READINGS,
-  threshold: number = LEAK_GROWTH_THRESHOLD,
-): boolean {
-  if (usedBytes.length < consecutive) return false;
-  const recent = usedBytes.slice(-consecutive);
+export function isLeakTrend(floors: readonly number[], baseline: number, rule: LeakRule): boolean {
+  if (floors.length < rule.readings || !(baseline > 0)) return false;
+  const recent = floors.slice(-rule.readings);
   for (let i = 1; i < recent.length; i++) {
     if (recent[i] <= recent[i - 1]) return false;
   }
-  return recent[0] > 0 && (recent[recent.length - 1] - recent[0]) / recent[0] > threshold;
+  const growth = recent[recent.length - 1] - baseline;
+  return growth >= rule.minGrowthBytes && growth / baseline >= rule.growth;
 }
 
 function toMb(bytes: number): number {
@@ -55,19 +74,46 @@ export interface MemoryOptions {
   intervalMs: number;
   /** Growth ratio, e.g. 0.2 = 20%. */
   leakGrowth: number;
+  /** Minimum growth in MB. */
+  leakMinGrowthMb: number;
+  /** Number of floors in a row that must keep rising. */
   leakReadings: number;
 }
 
 /**
- * Polls JS heap usage (every 30 s by default) and flags a suspected leak when
- * the heap grows by more than the growth ratio (20%) across N consecutive
- * readings (3) with no navigation in between. Readings reset on every navigation.
+ * Polls JS heap usage (every 30 s by default) and reports a suspected leak
+ * when the memory the page keeps after garbage collection grows steadily.
+ *
+ * How a leak is told apart from normal memory use:
+ * - **Warm-up:** readings from the first minute after init are ignored, since
+ *   apps load most of their screens and caches at startup.
+ * - **Floors:** readings are grouped into windows of 4 polls, and only each
+ *   window's lowest reading (its floor) is used. Garbage the browser collects
+ *   later never lifts a floor, so normal allocation churn is ignored.
+ * - **Trend:** the last N floors (4 by default) must each be higher than the
+ *   one before. A screen that loads once and keeps its data raises one floor,
+ *   then the floors stay level.
+ * - **Size:** the newest floor must be above the lowest floor seen by 20% and
+ *   by 10 MB (both configurable), so small heaps can't trip the ratio.
+ *
+ * Navigation does not reset anything: the most common single-page-app leak is
+ * a screen that isn't cleaned up when the user leaves it. A full page load
+ * starts a new SDK instance anyway. One report per page load.
  */
 export class MemoryCollector implements Collector {
   private timer: ReturnType<typeof setInterval> | null = null;
-  private readings: number[] = [];
   private latest: MemoryReading | null = null;
   private leakSuspected = false;
+  private startedAt: number | null = null;
+  /** Window being filled: when it started and its lowest reading so far. */
+  private window: { start: number; min: number } | null = null;
+  /** Floors of the most recent closed windows, oldest first. */
+  private floors: number[] = [];
+  /** Lowest floor seen since warm-up, and when its window started. */
+  private baseline = Infinity;
+  private baselineAt = 0;
+  private readonly windowMs: number;
+  private readonly rule: LeakRule;
   private readonly poll: () => void;
 
   constructor(
@@ -77,9 +123,17 @@ export class MemoryCollector implements Collector {
     private readonly options: MemoryOptions = {
       intervalMs: MEMORY_POLL_INTERVAL_MS,
       leakGrowth: LEAK_GROWTH_THRESHOLD,
+      leakMinGrowthMb: LEAK_MIN_GROWTH_MB,
       leakReadings: LEAK_CONSECUTIVE_READINGS,
     },
+    private readonly now: () => number = nowMs,
   ) {
+    this.windowMs = options.intervalMs * MEMORY_READINGS_PER_WINDOW;
+    this.rule = {
+      readings: options.leakReadings,
+      growth: options.leakGrowth,
+      minGrowthBytes: options.leakMinGrowthMb * BYTES_PER_MB,
+    };
     const self = this;
     this.poll = guard(logger, 'memory poll', function poll() {
       self.sample();
@@ -88,6 +142,7 @@ export class MemoryCollector implements Collector {
 
   install(): void {
     if (this.timer !== null || this.read() === null) return;
+    if (this.startedAt === null) this.startedAt = this.now();
     this.sample();
     this.timer = setInterval(this.poll, this.options.intervalMs);
   }
@@ -97,29 +152,30 @@ export class MemoryCollector implements Collector {
     this.timer = null;
   }
 
-  /** Called on navigation: a new page means a new baseline. */
-  resetBaseline(): void {
-    this.readings = [];
-    this.leakSuspected = false;
-  }
-
   /** Takes one reading; exposed for tests. */
   sample(): void {
     const reading = this.read();
     if (reading === null) return;
+    const now = this.now();
+    if (this.startedAt === null) this.startedAt = now;
     this.latest = reading;
-    this.readings.push(reading.usedBytes);
-    const leakReadings = this.options.leakReadings;
-    if (this.readings.length > leakReadings) this.readings.shift();
+    if (now - this.startedAt < MEMORY_WARMUP_MS) return;
 
-    if (!this.leakSuspected && isLeakPattern(this.readings, leakReadings, this.options.leakGrowth)) {
-      this.leakSuspected = true;
-      this.sink.onPerformanceIssue(
-        'MemoryLeakSuspected',
-        'JS heap grew from ' + toMb(this.readings[0]) + 'MB to ' + toMb(reading.usedBytes) +
-          'MB across ' + leakReadings + ' readings without navigation',
-      );
+    const used = reading.usedBytes;
+    const current = this.window;
+    if (current === null) {
+      this.window = { start: now, min: used };
+      return;
     }
+    if (now - current.start < this.windowMs) {
+      if (used < current.min) current.min = used;
+      return;
+    }
+    // This reading starts a new window, so the current one is complete. Timers
+    // in background tabs can be throttled to one run a minute or less; a
+    // window then just covers a longer stretch of time.
+    this.window = { start: now, min: used };
+    this.addFloor(current.min, current.start, now);
   }
 
   snapshot(): MemoryPayload {
@@ -133,5 +189,34 @@ export class MemoryCollector implements Collector {
       // Browsers give pages no signal for OOM kills.
       oom_kill: null,
     };
+  }
+
+  private addFloor(floor: number, windowStart: number, now: number): void {
+    this.floors.push(floor);
+    if (this.floors.length > this.rule.readings) this.floors.shift();
+    if (floor < this.baseline) {
+      this.baseline = floor;
+      this.baselineAt = windowStart;
+    }
+    if (this.leakSuspected || !isLeakTrend(this.floors, this.baseline, this.rule)) return;
+
+    this.leakSuspected = true;
+    const growth = floor - this.baseline;
+    const context: JsonObject = {
+      baseline_mb: toMb(this.baseline),
+      current_mb: toMb(floor),
+      growth_mb: toMb(growth),
+      growth_percent: Math.round((growth / this.baseline) * PERCENT),
+      observed_minutes: Math.round(((now - this.baselineAt) / MS_PER_SECOND / SECONDS_PER_MINUTE) * 10) / 10,
+      floors_mb: this.floors.map(toMb),
+      heap_total_mb: this.latest !== null ? toMb(this.latest.totalBytes) : null,
+    };
+    // Numbers in the message are in MB, which the backend strips when grouping.
+    this.sink.onPerformanceIssue(
+      'MemoryLeakSuspected',
+      'JS heap is not being released: it grew from ' + toMb(this.baseline) + 'MB to ' + toMb(floor) +
+        'MB after garbage collection',
+      context,
+    );
   }
 }

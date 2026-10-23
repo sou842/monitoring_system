@@ -408,6 +408,45 @@ describe('ErrorTracker public API', () => {
     expect(sentEvents()).toHaveLength(RATE_LIMIT_MAX_EVENTS + 1);
   });
 
+  describe('memory leaks', () => {
+    const MB = 1024 * 1024;
+
+    /** Runs the SDK for `minutes` with a heap whose size is `usedMb(elapsedMs)`. */
+    async function runWithHeap(minutes: number, usedMb: (elapsedMs: number) => number): Promise<TrackerEvent[]> {
+      vi.useFakeTimers();
+      const start = Date.now();
+      vi.spyOn(performance, 'now').mockImplementation(() => Date.now() - start);
+      Object.defineProperty(performance, 'memory', {
+        configurable: true,
+        get: () => ({ usedJSHeapSize: usedMb(Date.now() - start) * MB, totalJSHeapSize: 512 * MB }),
+      });
+      ErrorTracker.init({ ...BASE_CONFIG, memoryPollIntervalMs: 5000 });
+      await vi.advanceTimersByTimeAsync(minutes * 60000);
+      await ErrorTracker.flush();
+      vi.useRealTimers();
+      delete (performance as unknown as Record<string, unknown>).memory;
+      return sentEvents().filter((e) => e.error !== null && e.error.type === 'MemoryLeakSuspected');
+    }
+
+    it('sends one MemoryLeakSuspected event, with measurements, for a heap that keeps growing', async () => {
+      // +6 MB a minute, with garbage-collection churn of up to 8 MB on top.
+      const leaks = await runWithHeap(6, (ms) => 50 + (ms / 60000) * 6 + ((ms / 5000) % 3) * 4);
+
+      expect(leaks).toHaveLength(1);
+      expect(leaks[0]).toMatchObject({ event_type: 'performance', level: 'warning', memory: { leak_suspected: true } });
+      expect(leaks[0].context).toMatchObject({ growth_percent: expect.any(Number), floors_mb: expect.any(Array) });
+      const context = leaks[0].context as { baseline_mb: number; current_mb: number; growth_mb: number };
+      expect(context.current_mb - context.baseline_mb).toBeCloseTo(context.growth_mb, 1);
+      expect(context.growth_mb).toBeGreaterThanOrEqual(10);
+    });
+
+    it('sends nothing for a heap that grows at startup and then holds steady', async () => {
+      // 8 MB to 40 MB in the first 90 s (screens loading), then level with churn.
+      const leaks = await runWithHeap(12, (ms) => Math.min(40, 8 + ms / 2800) + ((ms / 5000) % 3) * 4);
+      expect(leaks).toHaveLength(0);
+    });
+  });
+
   it('reports a failed request once, even when the app leaves the rejection uncaught', async () => {
     ErrorTracker.init(BASE_CONFIG);
     const failure = new TypeError('Failed to fetch');

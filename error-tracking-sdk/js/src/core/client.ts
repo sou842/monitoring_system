@@ -15,7 +15,7 @@ import { ScreenshotCollector } from '../collectors/screenshotCollector';
 import { WorkerCollector } from '../collectors/workerCollector';
 import { HttpTransport, Transport } from '../transport/httpTransport';
 import { LocalStorageStore, OfflineStore } from '../transport/offlineStore';
-import { Breadcrumb, BreadcrumbInput, EventLevel, TrackedUser, TrackerEvent } from '../types';
+import { Breadcrumb, BreadcrumbInput, EventLevel, JsonObject, TrackedUser, TrackerEvent } from '../types';
 import { CircularBuffer } from './circularBuffer';
 import { ResolvedConfig } from './config';
 import { DeviceInfo } from './device';
@@ -98,6 +98,7 @@ export class Client implements CollectorSink {
     this.memory = new MemoryCollector(this, this.logger, deps.readMemory, {
       intervalMs: config.memoryPollIntervalMs,
       leakGrowth: config.memoryLeakGrowth,
+      leakMinGrowthMb: config.memoryLeakMinGrowthMb,
       leakReadings: config.memoryLeakReadings,
     });
     this.responsiveness = new ResponsivenessCollector(this, this.logger, {
@@ -325,15 +326,17 @@ export class Client implements CollectorSink {
     });
   }
 
-  onPerformanceIssue(kind: PerformanceIssueKind, message: string): void {
+  onPerformanceIssue(kind: PerformanceIssueKind, message: string, context?: JsonObject): void {
     this.capture(
-      { eventType: 'performance', level: 'warning', error: { message: message, type: kind, handled: true }, stacktrace: [], context: null },
+      {
+        eventType: 'performance',
+        level: 'warning',
+        error: { message: message, type: kind, handled: true },
+        stacktrace: [],
+        context: context !== undefined ? context : null,
+      },
       false,
     );
-  }
-
-  onNavigation(): void {
-    this.memory.resetBaseline();
   }
 
   // -------------------------------------------------------------------------

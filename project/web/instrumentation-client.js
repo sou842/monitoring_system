@@ -9,6 +9,9 @@ ErrorTracker.init({
   appVersion: '0.1.0',
   maskSelectors: ['.private'],
   captureConsoleErrors: true,
+  // Demo: read the heap every 5 s (default 30 s) so the memory-leak button is
+  // reported within a few minutes instead of about 10.
+  memoryPollIntervalMs: 5000,
   debug: process.env.NODE_ENV !== 'production',
 });
 ErrorTracker.setUser({ id: 'demo_user', name: 'Demo User' });

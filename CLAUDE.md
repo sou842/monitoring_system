@@ -47,7 +47,9 @@ Three SDKs, all sending the **same shared payload schema**:
 - JS: TypeScript is **pinned to ~5.9** because TS 7 drops `target: ES5`. Don't upgrade it.
 
 ## JS SDK on npm
-- Package: **`@sourav732/error-tracker-js`**, public, from the user's own npm account. **0.1.0 and 0.2.0 are published**; **0.3.0** is prepared locally (configurable performance thresholds, `PageNotFound`) and the user still has to publish it. License stays `UNLICENSED`.
+- Package: **`@sourav732/error-tracker-js`**, public, from the user's own npm account. **0.1.0, 0.2.0, 0.3.0 and 0.3.1 are published** (plus a stray `0.0.0-stage`). **0.4.0** is prepared locally (memory-leak detector rewrite, background-tab FCP/LCP fix) and the user still has to publish it. License stays `UNLICENSED`.
+- **Memory-leak detection (2026-10-23, 0.4.0)**, after a false `MemoryLeakSuspected` (6.8 → 9.2 MB during login on an Appzillon app whose screens change without URL changes): 60 s warm-up → readings grouped in windows of 4 polls, each window's lowest reading = "floor" (≈ heap after GC) → leak only when the last `memoryLeakReadings` (default 4) floors each rise AND the newest floor is above the lowest floor seen by `memoryLeakGrowth` (20%) AND `memoryLeakMinGrowthMb` (new, default 10). No reset on navigation (SPA route leaks are the common case). One report per page, measurements in `context`. Real Chrome's `performance.memory` was measured precise and live (not bucketed) in headless Chrome. `CollectorSink.onNavigation` was removed; `onPerformanceIssue` takes an optional `context`.
+- **Background tabs:** FCP/LCP are null if the page was hidden before them (web-vitals rule, incl. `visibility-state` entries from before init), and `SlowPageLoad` isn't reported if the page was hidden before `loadEventEnd`.
 - **Configurable thresholds (2026-10-19, user chose flat options):** `init()` takes optional `slowApiCallMs`, `slowPageLoadMs`, `mainThreadBlockedMs`, `lowFrameRateFps`, `memoryPollIntervalMs`, `memoryLeakGrowth`, `memoryLeakReadings`. Defaults and min/max stay in `constants.ts`; `resolveConfig()` clamps out-of-range values and ignores non-numbers. Transport, rate-limit, dedup and screenshot limits are deliberately **not** configurable. iOS/Android should offer the same option names.
 - `prepublishOnly` runs typecheck + tests + build, so `npm publish` can't ship a broken build. The build is minified with `@rollup/plugin-terser` (ES5, ~55 KB per format, with source maps).
 - `SDK_VERSION` in `src/constants.ts` must equal the `package.json` version; a test enforces it. Bump both together.
@@ -58,7 +60,7 @@ Three SDKs, all sending the **same shared payload schema**:
 ```bash
 cd error-tracking-sdk/js
 npm run typecheck   # strict TS over src + tests
-npm test            # Vitest + jsdom (172 tests passing)
+npm test            # Vitest + jsdom (188 tests passing)
 npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 ```
 - `src/core/client.ts` drives the pipeline: sample → dedup → rate-limit → build → screenshot → beforeSend → queue.
@@ -88,10 +90,10 @@ npm run build       # dist/index.mjs, dist/index.cjs, dist/types
 
 ## Demo app: `project/web/`
 A basic Next.js 15 (App Router, plain JS) app that uses the JS SDK through `file:../../error-tracking-sdk/js`. `node_modules` symlinks to the SDK folder, so after an SDK change: run `npm run build` in the SDK, then restart `npm run dev` (delete `.next/` if the change doesn't show up).
-- Sends to the backend: `.env.local` has the "Web demo" project key and `NEXT_PUBLIC_ET_ENDPOINT` / `ET_SERVER_ENDPOINT` = `http://localhost:4000/api/v1/events`. The user edits this app too (blue background, a `/wrong_path` link), so don't overwrite their changes.
+- Sends to the backend: `.env.local` has the "Web demo" project key and `NEXT_PUBLIC_ET_ENDPOINT` / `ET_SERVER_ENDPOINT` = `https://monitoringsystem-backend.vercel.app/api/v1/events` (switched from localhost:4000 on 2026-10-23 at the user's request: the user doesn't need the local backend; Atlas blocks this machine's IP). The user edits this app too (blue background, a `/wrong_path` link), so don't overwrite their changes.
 - **Browser:** the SDK is initialized in `instrumentation-client.js`, which runs before React hydrates, so first-render and hydration errors are caught. `app/error.js` reports page render crashes, and `app/global-error.js` reports root-layout crashes. `app/not-found.js` calls `capturePageNotFound()`; the home page has an `<a href="/abouts">` typo link (full page load → automatic detection). In the production build Next hard-navigates the `<Link href="/wrong_path">` too, so it is also caught automatically.
 - **Server:** `instrumentation.js` → `onRequestError` → `lib/serverErrors.js` sends API-route, server-component and SSR errors through the SDK in Node, with `context.source: "server"`.
-- The home page has a button for every scenario. Other demo pages: `/hydration`, `/csp` (report-only CSP header from `next.config.mjs`, plus a broken `<img>` in the server HTML), `/server-error`.
+- The home page has a button for every scenario. **Memory** section (`components/MemoryLeakDemo.js`, 2026-10-23): start/stop a leak (+1 MB every 2 s, auto-stops at 300 MB), "Load heavy screen once" (30 MB, must NOT be reported), release all, live heap readout. `instrumentation-client.js` sets `memoryPollIntervalMs: 5000` so the leak is reported in ~2 min (verified in headless Chrome: 1 event for the leak tab, 0 for the heavy-screen tab). Other demo pages: `/hydration`, `/csp` (report-only CSP header from `next.config.mjs`, plus a broken `<img>` in the server HTML), `/server-error`.
 - APIs: `/api/products`, `/api/slow` (2.5 s), `/api/fail` (500), `/api/bad-json`, `/api/crash` (server throw).
 - **Viewing errors:** in the backend dashboard (local http://localhost:4000 or the Vercel URL). The old `/issues` page, `lib/issueStore.js` (`localStorage["web_issues"]`) and the `/api/events` local receiver were removed on 2026-10-18. The server SDK uses `ET_SERVER_ENDPOINT`, falling back to `NEXT_PUBLIC_ET_ENDPOINT`.
 - **Real-browser check:** build with `NEXT_DIST_DIR=.next-test npx next build` (a separate folder, so it doesn't clash with `npm run dev`), then drive headless Chrome (installed at `C:/Program Files/Google/Chrome/Application/chrome.exe`) over the DevTools protocol with a throwaway `--user-data-dir`. Done 2026-10-17: every scenario produced exactly one event in Chrome.

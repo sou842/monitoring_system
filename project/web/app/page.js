@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import ErrorTracker from '@sourav732/error-tracker-js';
 import { CRASH_LAYOUT_KEY } from '../components/LayoutCrashTrigger';
+import MemoryLeakDemo from '../components/MemoryLeakDemo';
 
 const FREEZE_MS = 1500;
 const STORM_SIZE = 150;
@@ -93,6 +94,10 @@ export default function Home() {
         <button onClick={() => {
           for (let i = 0; i < STORM_SIZE; i++) ErrorTracker.captureMessage(`Storm error #${i}`, 'error');
         }}>Error storm ({STORM_SIZE} errors)</button>
+      </Section>
+
+      <Section title="Memory">
+        <MemoryLeakDemo />
       </Section>
 
       <Section title="Resources & workers">

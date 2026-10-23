@@ -67,9 +67,22 @@ export interface ErrorTrackerConfig {
   lowFrameRateFps?: number;
   /** How often the JS heap is read (ms). Defaults to 30000 (allowed 5000–3600000). */
   memoryPollIntervalMs?: number;
-  /** Heap growth ratio that flags `MemoryLeakSuspected`, e.g. 0.2 = 20%. Defaults to 0.2 (allowed 0.01–10). */
+  /**
+   * Growth of the heap floor (the heap left after garbage collection) over the
+   * lowest floor seen, as a ratio, that flags `MemoryLeakSuspected`, e.g. 0.2 = 20%.
+   * Defaults to 0.2 (allowed 0.01–10).
+   */
   memoryLeakGrowth?: number;
-  /** Number of consecutive rising heap readings checked for a leak. Defaults to 3 (allowed 2–20). */
+  /**
+   * The heap floor must also grow by at least this many MB, so small heaps
+   * can't trip the ratio. Defaults to 10 (allowed 1–4096).
+   */
+  memoryLeakMinGrowthMb?: number;
+  /**
+   * How many heap floors in a row must each be higher than the one before.
+   * Each floor covers 4 polls, so the default of 4 spans 8 minutes at the
+   * default poll interval. Defaults to 4 (allowed 2–20).
+   */
   memoryLeakReadings?: number;
   /**
    * Last chance to scrub or drop an event before it is queued.

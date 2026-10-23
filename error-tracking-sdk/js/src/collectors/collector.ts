@@ -26,6 +26,6 @@ export type PerformanceIssueKind =
 export interface CollectorSink {
   onError(captured: CapturedError): void;
   onBreadcrumb(breadcrumb: BreadcrumbInput): void;
-  onPerformanceIssue(kind: PerformanceIssueKind, message: string): void;
-  onNavigation(): void;
+  /** `context` holds the measurements behind the report (e.g. heap sizes for a leak). */
+  onPerformanceIssue(kind: PerformanceIssueKind, message: string, context?: JsonObject): void;
 }

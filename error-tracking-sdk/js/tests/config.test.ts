@@ -19,7 +19,8 @@ describe('resolveConfig performance thresholds', () => {
       lowFrameRateFps: 20,
       memoryPollIntervalMs: 30000,
       memoryLeakGrowth: 0.2,
-      memoryLeakReadings: 3,
+      memoryLeakMinGrowthMb: 10,
+      memoryLeakReadings: 4,
     });
   });
 
@@ -32,6 +33,7 @@ describe('resolveConfig performance thresholds', () => {
         lowFrameRateFps: 30,
         memoryPollIntervalMs: 60000,
         memoryLeakGrowth: 0.5,
+        memoryLeakMinGrowthMb: 50,
         memoryLeakReadings: 5,
       }),
     ).toMatchObject({
@@ -41,6 +43,7 @@ describe('resolveConfig performance thresholds', () => {
       lowFrameRateFps: 30,
       memoryPollIntervalMs: 60000,
       memoryLeakGrowth: 0.5,
+      memoryLeakMinGrowthMb: 50,
       memoryLeakReadings: 5,
     });
   });
@@ -54,6 +57,7 @@ describe('resolveConfig performance thresholds', () => {
         lowFrameRateFps: 500,
         memoryPollIntervalMs: 1,
         memoryLeakGrowth: 0,
+        memoryLeakMinGrowthMb: 0,
         memoryLeakReadings: 1,
       }),
     ).toMatchObject({
@@ -63,6 +67,7 @@ describe('resolveConfig performance thresholds', () => {
       lowFrameRateFps: 60,
       memoryPollIntervalMs: 5000,
       memoryLeakGrowth: 0.01,
+      memoryLeakMinGrowthMb: 1,
       memoryLeakReadings: 2,
     });
   });

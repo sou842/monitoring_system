@@ -3,14 +3,13 @@ import { CapturedError, CollectorSink, PerformanceIssueKind } from '../src/colle
 import { emptyMemory, emptyPerformance, EventScope } from '../src/core/payloadBuilder';
 import { AttemptResult } from '../src/core/retryManager';
 import { Transport } from '../src/transport/httpTransport';
-import { BreadcrumbInput, TrackerEvent } from '../src/types';
+import { BreadcrumbInput, JsonObject, TrackerEvent } from '../src/types';
 
 /** Collector sink that records everything it receives. */
 export class RecordingSink implements CollectorSink {
   errors: CapturedError[] = [];
   breadcrumbs: BreadcrumbInput[] = [];
-  issues: Array<{ kind: PerformanceIssueKind; message: string }> = [];
-  navigations = 0;
+  issues: Array<{ kind: PerformanceIssueKind; message: string; context?: JsonObject }> = [];
 
   onError(captured: CapturedError): void {
     this.errors.push(captured);
@@ -18,11 +17,8 @@ export class RecordingSink implements CollectorSink {
   onBreadcrumb(breadcrumb: BreadcrumbInput): void {
     this.breadcrumbs.push(breadcrumb);
   }
-  onPerformanceIssue(kind: PerformanceIssueKind, message: string): void {
-    this.issues.push({ kind, message });
-  }
-  onNavigation(): void {
-    this.navigations++;
+  onPerformanceIssue(kind: PerformanceIssueKind, message: string, context?: JsonObject): void {
+    this.issues.push(context !== undefined ? { kind, message, context } : { kind, message });
   }
 }
 

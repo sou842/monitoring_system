@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.3.1';
+export const SDK_VERSION = '0.4.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -132,14 +132,26 @@ export const MEMORY_POLL_INTERVAL_MS = 30000;
 /** Polling faster than this would cost the host app CPU for no benefit. */
 export const MEMORY_POLL_INTERVAL_MIN_MS = 5000;
 export const MEMORY_POLL_INTERVAL_MAX_MS = 3600000;
-/** Default for `memoryLeakReadings`. */
-export const LEAK_CONSECUTIVE_READINGS = 3;
+/**
+ * Default for `memoryLeakReadings`: how many heap floors in a row must each be
+ * higher than the one before. A floor is the lowest reading in one window, so
+ * the default spans 4 windows (8 minutes at the default poll interval).
+ */
+export const LEAK_CONSECUTIVE_READINGS = 4;
 export const LEAK_CONSECUTIVE_READINGS_MIN = 2;
 export const LEAK_CONSECUTIVE_READINGS_MAX = 20;
-/** Default for `memoryLeakGrowth`: growth ratio across the consecutive readings that flags a leak (20%). */
+/** Default for `memoryLeakGrowth`: growth of the heap floor over the lowest floor seen, as a ratio (20%). */
 export const LEAK_GROWTH_THRESHOLD = 0.2;
 export const LEAK_GROWTH_THRESHOLD_MIN = 0.01;
 export const LEAK_GROWTH_THRESHOLD_MAX = 10;
+/** Default for `memoryLeakMinGrowthMb`: the floor must also grow by at least this many MB, so small heaps can't trip the ratio. */
+export const LEAK_MIN_GROWTH_MB = 10;
+export const LEAK_MIN_GROWTH_MB_MIN = 1;
+export const LEAK_MIN_GROWTH_MB_MAX = 4096;
+/** Readings per floor window. The window's lowest reading approximates the heap left after garbage collection. */
+export const MEMORY_READINGS_PER_WINDOW = 4;
+/** Readings this soon after init are not used for leak detection: apps load most of their screens and caches at startup. */
+export const MEMORY_WARMUP_MS = 60000;
 export const BYTES_PER_MB = 1024 * 1024;
 
 // ---------------------------------------------------------------------------
@@ -154,7 +166,6 @@ export const SCREENSHOT_MIME_TYPE = 'image/jpeg';
 export const SCREENSHOT_QUALITY = 0.5;
 /** Fallback quality used when the first encode is over the size budget. */
 export const SCREENSHOT_FALLBACK_QUALITY = 0.3;
-/** Max base64 length of a screenshot data URL (~750 KB). */
 /** Max base64 length of a screenshot data URL (~370 KB of image; the backend refuses > 400 KB). */
 export const MAX_SCREENSHOT_LENGTH = 500000;
 /** Library load + render must finish within this or the event is sent without it. */

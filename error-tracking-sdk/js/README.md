@@ -128,7 +128,8 @@ app.config.errorHandler = (err, instance, info) => {
 | `lowFrameRateFps` | `number` | `20` | See [Performance thresholds](#performance-thresholds). |
 | `memoryPollIntervalMs` | `number` | `30000` | See [Performance thresholds](#performance-thresholds). |
 | `memoryLeakGrowth` | `number` | `0.2` | See [Performance thresholds](#performance-thresholds). |
-| `memoryLeakReadings` | `number` | `3` | See [Performance thresholds](#performance-thresholds). |
+| `memoryLeakMinGrowthMb` | `number` | `10` | See [Performance thresholds](#performance-thresholds). |
+| `memoryLeakReadings` | `number` | `4` | See [Performance thresholds](#performance-thresholds). |
 
 An invalid `apiKey` or `endpoint` leaves the SDK disabled. It never throws.
 
@@ -154,8 +155,9 @@ Every option is optional. Leave one out to keep its default.
 | `mainThreadBlockedMs` | `1000` | 50 – 60000 | `MainThreadBlocked` | One main-thread task freezing the page longer than this many ms. Chromium only. |
 | `lowFrameRateFps` | `20` | 1 – 60 | `LowFrameRate` | A sampled frame rate below this many frames per second. |
 | `memoryPollIntervalMs` | `30000` | 5000 – 3600000 | — | How often the JS heap size is read. Chromium only. |
-| `memoryLeakGrowth` | `0.2` | 0.01 – 10 | `MemoryLeakSuspected` | Heap growth ratio that counts as a leak (`0.2` = 20%). |
-| `memoryLeakReadings` | `3` | 2 – 20 | `MemoryLeakSuspected` | How many readings in a row must keep rising, with the total growth above `memoryLeakGrowth`, for a leak to be reported. |
+| `memoryLeakGrowth` | `0.2` | 0.01 – 10 | `MemoryLeakSuspected` | How much the heap floor must grow over the lowest floor seen, as a ratio (`0.2` = 20%). See [How memory leaks are detected](#how-memory-leaks-are-detected). |
+| `memoryLeakMinGrowthMb` | `10` | 1 – 4096 | `MemoryLeakSuspected` | How much the heap floor must grow in MB, on top of the ratio, so small heaps can't trip it. *Added in 0.4.0.* |
+| `memoryLeakReadings` | `4` | 2 – 20 | `MemoryLeakSuspected` | How many heap floors in a row must each be higher than the one before. Each floor covers 4 polls, so the default spans 8 minutes. |
 
 A value outside the allowed range is moved to the nearest limit, so `slowApiCallMs: 10` behaves like `100`. A value that isn't a number (a string, `NaN`, `Infinity`) is ignored and the default is used. Neither case throws.
 
@@ -210,14 +212,29 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. Violations caused by the SDK's own screenshot library are ignored. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
 | **Console** | Opt-in (`captureConsoleErrors: true`): each `console.error(...)` becomes a `ConsoleError` event, or the passed Error's own type. Errors the SDK has already reported are skipped. |
 | **Breadcrumbs** | Clicks (tag, visible text, CSS path; form values are never read), `pushState`/`replaceState`/`popstate` navigation, page visibility changes, `console.warn`/`console.error`, and every `fetch`/XHR call (URL, method, status or failure, duration). |
-| **Performance** | Page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS (via `PerformanceObserver`), plus the last 20 API calls. A page load over 3000 ms or an API call over 2000 ms is flagged and also sent as its own `performance` event (adjustable with `slowPageLoadMs` / `slowApiCallMs`). |
+| **Performance** | Page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS (via `PerformanceObserver`), plus the last 20 API calls. A page load over 3000 ms or an API call over 2000 ms is flagged and also sent as its own `performance` event (adjustable with `slowPageLoadMs` / `slowApiCallMs`). Browsers hold back background tabs, so when the page was hidden before its first paint, FCP and LCP are `null`, and a load that finished after the page was hidden is not reported as slow. |
 | **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. Adjustable with `mainThreadBlockedMs` / `lowFrameRateFps`. |
-| **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `performance` event when the heap grows by more than 20% across 3 consecutive rising readings with no navigation in between. Adjustable with `memoryPollIntervalMs`, `memoryLeakGrowth` and `memoryLeakReadings`. |
+| **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `MemoryLeakSuspected` event when the memory kept after garbage collection grows steadily. See [How memory leaks are detected](#how-memory-leaks-are-detected). |
 | **Screenshots** | The visible viewport as a compressed JPEG: at most 1280 px wide, quality 0.5, typically around 50 KB, capped at ~370 KB. Only taken when the page is visible, at most one every 10 s, with a 3 s time budget. |
 
 Query strings and fragments are stripped from every recorded URL, because they often carry tokens.
 
 **One failure, one event.** Error objects the SDK has reported are remembered. For example, a failed `fetch` reported as `NetworkError` is not reported again when the app leaves the rejected promise uncaught, or when a framework logs it with `console.error`.
+
+### How memory leaks are detected
+
+*Changed in 0.4.0.* Memory going up is not a leak by itself: apps load screens and caches, and garbage piles up until the browser collects it. The SDK reports `MemoryLeakSuspected` only when the memory the page **keeps after garbage collection** grows steadily:
+
+1. **Warm-up.** Readings from the first minute after `init()` are ignored, since apps load most of their screens at startup.
+2. **Floors.** Readings are grouped into windows of 4 polls (2 minutes by default). Only each window's lowest reading, its *floor*, is used, so garbage the browser clears later doesn't count.
+3. **Trend.** The last `memoryLeakReadings` floors (4) must each be higher than the one before. A screen that loads once raises one floor, and the floors after it stay level.
+4. **Size.** The newest floor must be above the lowest floor seen by `memoryLeakGrowth` (20%) **and** by `memoryLeakMinGrowthMb` (10 MB).
+
+With the defaults, the earliest possible report comes about 10 minutes after the page opens. Navigation doesn't reset anything, because a screen that isn't cleaned up when the user leaves it is the most common single-page-app leak. One event is sent per page load, and its `context` holds the measurements:
+
+```json
+{ "baseline_mb": 50, "current_mb": 65, "growth_mb": 15, "growth_percent": 30, "observed_minutes": 8, "floors_mb": [50, 55, 60, 65], "heap_total_mb": 512 }
+```
 
 ### Start the SDK as early as possible
 
