@@ -1,4 +1,4 @@
-import { DROPPED_EVENTS_REPORT_DELAY_MS, MAX_MESSAGE_LENGTH } from '../constants';
+import { DROPPED_EVENTS_REPORT_DELAY_MS, MAX_MESSAGE_LENGTH, RATE_LIMIT_WINDOW_MS, TRANSACTION_RATE_LIMIT_MAX } from '../constants';
 import { BreadcrumbCollector } from '../collectors/breadcrumbCollector';
 import { CapturedError, Collector, CollectorSink, PerformanceIssueKind } from '../collectors/collector';
 import { CspCollector } from '../collectors/cspCollector';
@@ -8,6 +8,7 @@ import { JsonResponseCollector } from '../collectors/jsonResponseCollector';
 import { MemoryCollector, MemoryReading } from '../collectors/memoryCollector';
 import { NetworkInterceptor } from '../collectors/networkInterceptor';
 import { PageNotFoundCollector, PageNotFoundDetails } from '../collectors/pageNotFoundCollector';
+import { PageViewCollector } from '../collectors/pageViewCollector';
 import { PerformanceCollector } from '../collectors/performanceCollector';
 import { ResourceCollector } from '../collectors/resourceCollector';
 import { ResponsivenessCollector } from '../collectors/responsivenessCollector';
@@ -15,7 +16,7 @@ import { ScreenshotCollector } from '../collectors/screenshotCollector';
 import { WorkerCollector } from '../collectors/workerCollector';
 import { HttpTransport, Transport } from '../transport/httpTransport';
 import { LocalStorageStore, OfflineStore } from '../transport/offlineStore';
-import { Breadcrumb, BreadcrumbInput, EventLevel, JsonObject, TrackedUser, TrackerEvent } from '../types';
+import { Breadcrumb, BreadcrumbInput, EventLevel, JsonObject, TrackedUser, TrackerEvent, TransactionPayload } from '../types';
 import { CircularBuffer } from './circularBuffer';
 import { ResolvedConfig } from './config';
 import { DeviceInfo } from './device';
@@ -23,9 +24,10 @@ import { absoluteUrl, getDocument, getWindow, nowIso, stripQuery } from './env';
 import { Deduplicator, fingerprint, RateLimiter } from './eventFilters';
 import { EventQueue } from './eventQueue';
 import { Logger } from './logger';
-import { buildEvent, EventInput, EventScope } from './payloadBuilder';
+import { buildEvent, emptyPerformance, EventInput, EventScope } from './payloadBuilder';
 import { guard, safely, safelyRun } from './safe';
 import { normalizeObject, truncate } from './serialize';
+import { VisibilityTracker } from './visibility';
 
 /** Dependency overrides, used by tests. */
 export interface ClientDependencies {
@@ -55,6 +57,10 @@ export class Client implements CollectorSink {
   private readonly deduplicator: Deduplicator;
   private readonly network: NetworkInterceptor;
   private readonly performance: PerformanceCollector;
+  private readonly visibility: VisibilityTracker;
+  private readonly pageViews: PageViewCollector;
+  /** Separate from the error budget, so page views can never crowd out errors. */
+  private readonly transactionLimiter = new RateLimiter(TRANSACTION_RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   private readonly memory: MemoryCollector;
   private readonly responsiveness: ResponsivenessCollector;
   private readonly screenshot: ScreenshotCollector;
@@ -91,10 +97,22 @@ export class Client implements CollectorSink {
     });
 
     this.network = new NetworkInterceptor(config.endpoint, this.logger);
-    this.performance = new PerformanceCollector(this, this.network, this.logger, {
-      slowPageLoadMs: config.slowPageLoadMs,
-      slowApiCallMs: config.slowApiCallMs,
-    });
+    this.visibility = new VisibilityTracker(this.logger);
+    this.performance = new PerformanceCollector(
+      this,
+      this.network,
+      this.logger,
+      { slowPageLoadMs: config.slowPageLoadMs, slowApiCallMs: config.slowApiCallMs, reportSlowEvents: config.captureSlowEvents },
+      this.visibility,
+    );
+    this.pageViews = new PageViewCollector(
+      (payload: TransactionPayload) => this.captureTransaction(payload),
+      this.network,
+      this.performance,
+      this.visibility,
+      this.logger,
+      { sampleRate: config.performanceSampleRate, random: this.random },
+    );
     this.memory = new MemoryCollector(this, this.logger, deps.readMemory, {
       intervalMs: config.memoryPollIntervalMs,
       leakGrowth: config.memoryLeakGrowth,
@@ -112,9 +130,14 @@ export class Client implements CollectorSink {
         this.logger,
       );
     this.collectors = [
+      // First: everything below asks it whether the tab was hidden.
+      this.visibility,
       new ErrorCollector(this, this.logger),
       new BreadcrumbCollector(this, this.network, config.maskSelectors, this.logger, config.captureConsoleErrors),
       this.performance,
+      // Before the client's own visibility listener (added in start()), so a view
+      // ended by the tab being hidden is queued before the queue is flushed.
+      this.pageViews,
       this.memory,
       this.responsiveness,
       new CspCollector(this, this.logger, [config.html2canvasUrl]),
@@ -151,8 +174,8 @@ export class Client implements CollectorSink {
       }
     });
     this.handlePageHide = guard(this.logger, 'pagehide handler', function onPageHide() {
-      // The page may be unloading; anything not yet sent is kept for next time.
-      self.queue.persistPending();
+      // The page may be unloading: send what fits in a keepalive request, keep the rest for next time.
+      self.queue.sendBeforeUnload();
     });
   }
 
@@ -184,6 +207,11 @@ export class Client implements CollectorSink {
   /** Removes every hook from the page. Unsent events are persisted. */
   close(): Promise<void> {
     const self = this;
+    // End the open page view first, so it is sent with the final flush.
+    safelyRun(this.logger, 'finish page view', function finishView() {
+      self.pageViews.flushDeferred();
+      self.pageViews.finish();
+    });
     return this.flush().then(function teardown() {
       for (let i = 0; i < self.collectors.length; i++) {
         const collector = self.collectors[i];
@@ -208,6 +236,11 @@ export class Client implements CollectorSink {
   /** Waits for events still awaiting a screenshot, then sends everything queued. */
   flush(): Promise<void> {
     const queue = this.queue;
+    const pageViews = this.pageViews;
+    // Page views that ended a moment ago wait briefly for timing entries; send them now.
+    safelyRun(this.logger, 'send finished page views', function sendViews() {
+      pageViews.flushDeferred();
+    });
     return Promise.all(this.pendingCaptures.slice())
       .then(function send() {
         return queue.flush();
@@ -339,6 +372,32 @@ export class Client implements CollectorSink {
     );
   }
 
+  onNavigation(url: string): void {
+    this.pageViews.onNavigation(url);
+  }
+
+  /**
+   * Queues one page view's performance data. Page views skip `sampleRate`,
+   * dedup and the error rate limit (they were sampled with
+   * `performanceSampleRate` when the page loaded) and have their own budget.
+   */
+  private captureTransaction(payload: TransactionPayload): void {
+    if (!this.transactionLimiter.tryAcquire()) {
+      this.logger.info('page view dropped by the transaction rate limit');
+      return;
+    }
+    const scope = this.scope();
+    // The page view carries its own timings; the error-oriented blocks stay empty to keep it small.
+    scope.breadcrumbs = [];
+    scope.performance = emptyPerformance();
+    const event = buildEvent(
+      { eventType: 'transaction', level: 'info', error: null, stacktrace: [], context: null, transaction: payload },
+      scope,
+      nowIso(),
+    );
+    this.finish(event, this.config.beforeSendTransaction, 'beforeSendTransaction');
+  }
+
   // -------------------------------------------------------------------------
   // Pipeline: sample → dedup → rate limit → build → screenshot → beforeSend → queue
   // -------------------------------------------------------------------------
@@ -421,18 +480,21 @@ export class Client implements CollectorSink {
     );
   }
 
-  private finish(event: TrackerEvent): void {
+  private finish(
+    event: TrackerEvent,
+    hook: ((event: TrackerEvent) => TrackerEvent | null) | null = this.config.beforeSend,
+    hookName = 'beforeSend',
+  ): void {
     safelyRun(this.logger, 'enqueue event', () => {
-      const beforeSend = this.config.beforeSend;
       let final: TrackerEvent | null = event;
-      if (beforeSend !== null) {
+      if (hook !== null) {
         // A throwing hook must not lose the event or break the app; send it unmodified.
-        final = safely(this.logger, 'beforeSend', function run() {
-          return beforeSend(event);
+        final = safely(this.logger, hookName, function run() {
+          return hook(event);
         }, event);
       }
       if (final === null || final === undefined) {
-        this.logger.info('event dropped by beforeSend');
+        this.logger.info('event dropped by ' + hookName);
         return;
       }
       this.queue.enqueue(final);

@@ -5,6 +5,7 @@ import { Transport } from '../transport/httpTransport';
 import { isOnline } from './env';
 import { Logger } from './logger';
 import { retryWithBackoff, Scheduler } from './retryManager';
+import { safely } from './safe';
 
 export interface EventQueueOptions {
   transport: Transport;
@@ -116,6 +117,31 @@ export class EventQueue {
     if (this.queue.length === 0) return;
     this.store.append(this.queue);
     this.queue = [];
+  }
+
+  /**
+   * The page is unloading. Queued events go out in one keepalive request when
+   * the transport supports it and they fit; otherwise they are persisted for
+   * the next visit, as before. (Unloading by navigation fires no
+   * visibilitychange, so this is the last chance to send them.)
+   */
+  sendBeforeUnload(): void {
+    this.cancelTimer();
+    if (this.queue.length === 0) return;
+    const transport = this.transport;
+    const events = this.queue;
+    const sent =
+      typeof transport.sendOnUnload === 'function' &&
+      this.online() &&
+      safely(this.logger, 'send on unload', function handOff() {
+        return transport.sendOnUnload !== undefined && transport.sendOnUnload(events);
+      }, false);
+    if (sent) {
+      this.logger.info('sent ' + events.length + ' event(s) with keepalive while unloading');
+      this.queue = [];
+      return;
+    }
+    this.persistPending();
   }
 
   /** Stops accepting events. Pending events are persisted for the next session. */

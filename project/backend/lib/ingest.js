@@ -1,5 +1,6 @@
 import { MONGO_DUPLICATE_KEY, SCREENSHOT_UPLOAD_CONCURRENCY } from './constants.js';
 import { culprit, fingerprint } from './grouping.js';
+import { endpointOf, mergeUpdates, normalizePath, rollupUpdates } from './performance.js';
 import { validateEvent } from './validate.js';
 
 /**
@@ -12,15 +13,20 @@ import { validateEvent } from './validate.js';
  *
  * @returns {Promise<{ accepted: number, rejected: Array<{ index: number, reason: string }> }>}
  */
-export async function ingestEvents({ db, project, rawEvents, uploadScreenshot, now = new Date() }) {
+export async function ingestEvents({ db, project, rawEvents, uploadScreenshot, now = new Date(), acceptTransactions = true }) {
   const rejected = [];
   const valid = [];
+  const pageViews = [];
   rawEvents.forEach((raw, index) => {
     const result = validateEvent(raw, now);
-    if (result.ok) valid.push(result.event);
-    else rejected.push({ index, reason: result.reason });
+    if (!result.ok) rejected.push({ index, reason: result.reason });
+    else if (result.event.event_type !== 'transaction') valid.push(result.event);
+    else if (acceptTransactions) pageViews.push(result.event);
+    else rejected.push({ index, reason: 'rate_limited' });
   });
-  if (valid.length === 0) return { accepted: 0, rejected };
+  // Page views never become issues: they feed the Performance view.
+  const storedViews = pageViews.length > 0 ? await ingestPageViews(db, project._id, pageViews, now) : 0;
+  if (valid.length === 0) return { accepted: storedViews, rejected };
 
   const projectId = project._id;
   const screenshots = await mapLimit(valid, SCREENSHOT_UPLOAD_CONCURRENCY, (event) =>
@@ -34,7 +40,52 @@ export async function ingestEvents({ db, project, rawEvents, uploadScreenshot, n
     docs.push(eventDocument(projectId, issue._id, event, screenshots[i], now));
   }
   await db.collection('events').insertMany(docs, { ordered: false });
-  return { accepted: docs.length, rejected };
+  return { accepted: docs.length + storedViews, rejected };
+}
+
+/**
+ * Stores page views (for "slowest samples", kept a few days) and adds them to
+ * the hourly rollups the Performance view reads. Returns how many were stored.
+ */
+async function ingestPageViews(db, projectId, views, now) {
+  await db.collection('transactions').insertMany(views.map((view) => pageViewDocument(projectId, view, now)), { ordered: false });
+  const updates = mergeUpdates(views.flatMap((view) => rollupUpdates(projectId, view, now)));
+  await db.collection('perf_rollups').bulkWrite(
+    updates.map((update) => ({
+      updateOne: {
+        filter: update.filter,
+        update: { $inc: update.inc, $setOnInsert: update.insert },
+        upsert: true,
+      },
+    })),
+    { ordered: false },
+  );
+  return views.length;
+}
+
+/** Page view as stored: the route it is grouped under, its timings, and each span's endpoint key. */
+function pageViewDocument(projectId, view, now) {
+  const t = view.transaction;
+  return {
+    projectId,
+    receivedAt: now,
+    environment: view.environment,
+    appVersion: view.app_version,
+    userId: view.user.id,
+    browser: view.device.browser,
+    browserVersion: view.device.browser_version,
+    os: view.device.os,
+    route: normalizePath(t.name),
+    name: t.name,
+    kind: t.kind,
+    start: t.start,
+    duration_ms: t.duration_ms,
+    background: t.background,
+    vitals: t.vitals,
+    long_tasks: t.long_tasks,
+    spans: t.spans.map((span) => ({ ...span, key: endpointOf(span.method, span.url).key })),
+    dropped_spans: t.dropped_spans,
+  };
 }
 
 /**

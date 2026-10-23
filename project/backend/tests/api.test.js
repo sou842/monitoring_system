@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 import { promisify } from 'node:util';
 import { ObjectId } from 'mongodb';
-import { hasDatabase, request, sampleEvent, useTestDatabase } from './helpers.js';
+import { hasDatabase, request, sampleEvent, samplePageView, useTestDatabase } from './helpers.js';
 
 const enabled = hasDatabase();
 const PASSWORD = 'correct horse battery';
@@ -308,6 +308,54 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal((await api.stats.GET(authed('/api/stats?range=1y'))).status, 400);
       assert.equal((await api.stats.GET(request('/api/stats'))).status, 401);
     });
+
+    it('stores page views as performance data, never as issues, and serves the Performance view', async () => {
+      const created = await (await api.projects.POST(authed('/api/projects', { method: 'POST', body: { name: 'Perf app' } }))).json();
+      const id = created.project.id;
+      const res = await ingest(created.apiKey, [samplePageView(), samplePageView({ kind: 'navigation', name: '/settings' }), sampleEvent()]);
+      assert.deepEqual(await res.json(), { accepted: 3, rejected: [] });
+
+      const issues = await (await api.issues.GET(authed(`/api/issues?projectId=${id}`))).json();
+      assert.equal(issues.issues.length, 1, 'only the error became an issue');
+      assert.equal(await db.collection('transactions').countDocuments({ projectId: new ObjectId(id) }), 2);
+      const overview = await (await api.stats.GET(authed(`/api/stats?projectId=${id}&range=24h`))).json();
+      assert.equal(overview.total, 1, 'page views are not counted as events in the overview');
+
+      const perf = await (await api.stats.GET(authed(`/api/stats?view=performance&projectId=${id}&range=24h`))).json();
+      assert.equal(perf.totals.views, 2);
+      assert.equal(perf.totals.loads, 1);
+      assert.equal(perf.totals.requests, 6);
+      assert.deepEqual(perf.environments, ['production']);
+      assert.equal(perf.vitals.lcp.rating, 'good');
+      assert.deepEqual(perf.pages.map((p) => p.name).sort(), ['/ai/vault/{id}', '/settings']);
+      const vault = perf.endpoints.find((e) => e.key === 'GET https://app.test/api/vault/{id}');
+      assert.equal(vault.count, 4);
+      assert.equal(vault.errorRate, 0.5);
+      const session = perf.endpoints.find((e) => e.key === 'GET https://app.test/api/session');
+      assert.equal(session.background, 2);
+      assert.equal(session.p75, null, 'hidden-tab timings stay out of percentiles');
+
+      const endpoint = await (await api.stats.GET(authed(`/api/stats?view=performance&projectId=${id}&endpoint=${encodeURIComponent(vault.key)}`))).json();
+      assert.equal(endpoint.summary.count, 4);
+      assert.equal(endpoint.series.length, 24);
+      assert.equal(endpoint.samples[0].duration_ms, 600, 'slowest call first');
+      assert.equal(endpoint.samples[0].server_ms, 500);
+
+      const page = await (await api.stats.GET(authed(`/api/stats?view=performance&projectId=${id}&page=${encodeURIComponent('/ai/vault/{id}')}`))).json();
+      assert.equal(page.summary.views, 1);
+      assert.equal(page.samples.length, 1);
+      assert.equal(page.samples[0].vitals.page_load_ms, 1900);
+
+      const staging = await (await api.stats.GET(authed(`/api/stats?view=performance&projectId=${id}&environment=staging`))).json();
+      assert.equal(staging.totals.views, 0);
+      assert.deepEqual(staging.environments, ['production'], 'the environment list ignores the filter');
+      assert.equal((await api.stats.GET(authed(`/api/stats?view=performance&projectId=${id}&endpoint=nope`))).status, 404);
+      assert.equal((await api.stats.GET(authed('/api/stats?view=bogus'))).status, 400);
+
+      await api.projects.DELETE(authed(`/api/projects?id=${id}`, { method: 'DELETE' }));
+      assert.equal(await db.collection('transactions').countDocuments({ projectId: new ObjectId(id) }), 0);
+      assert.equal(await db.collection('perf_rollups').countDocuments({ projectId: new ObjectId(id) }), 0);
+    });
   });
 
   describe('privacy between users', () => {
@@ -331,6 +379,7 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal((await api.issue.GET(asBob(`/api/issue?id=${issueId}`))).status, 404);
       assert.equal((await api.event.GET(asBob(`/api/event?id=${eventId}`))).status, 404);
       assert.equal((await api.stats.GET(asBob(`/api/stats?projectId=${projectId}`))).status, 404);
+      assert.equal((await api.stats.GET(asBob(`/api/stats?view=performance&projectId=${projectId}`))).status, 404);
       const own = await (await api.stats.GET(asBob('/api/stats'))).json();
       assert.equal(own.total, 0, "Bob's overview doesn't count Alice's events");
       assert.deepEqual(own.topIssues, []);

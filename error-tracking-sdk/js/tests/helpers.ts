@@ -17,6 +17,11 @@ export class RecordingSink implements CollectorSink {
   onBreadcrumb(breadcrumb: BreadcrumbInput): void {
     this.breadcrumbs.push(breadcrumb);
   }
+  navigations: string[] = [];
+
+  onNavigation(url: string): void {
+    this.navigations.push(url);
+  }
   onPerformanceIssue(kind: PerformanceIssueKind, message: string, context?: JsonObject): void {
     this.issues.push(context !== undefined ? { kind, message, context } : { kind, message });
   }
@@ -91,7 +96,7 @@ export function mockFetch(status = 202) {
  * separately so any accidental drift from the shared contract is visible.
  */
 const SHARED_SCHEMA = {
-  root: ['sdk', 'api_key', 'event_type', 'timestamp', 'environment', 'app_version', 'user', 'error', 'stacktrace', 'breadcrumbs', 'screenshot', 'performance', 'memory', 'device'],
+  root: ['sdk', 'api_key', 'event_type', 'timestamp', 'environment', 'app_version', 'user', 'error', 'stacktrace', 'breadcrumbs', 'screenshot', 'performance', 'memory', 'device', 'transaction'],
   sdk: ['name', 'version'],
   user: ['id', 'email', 'name'],
   error: ['message', 'type', 'handled'],

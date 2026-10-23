@@ -10,7 +10,7 @@
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-export type EventType = 'error' | 'message' | 'performance' | 'crash';
+export type EventType = 'error' | 'message' | 'performance' | 'crash' | 'transaction';
 export type EventLevel = 'info' | 'warning' | 'error';
 export type BreadcrumbType = 'navigation' | 'click' | 'api' | 'log' | 'lifecycle' | (string & {});
 
@@ -85,10 +85,26 @@ export interface ErrorTrackerConfig {
    */
   memoryLeakReadings?: number;
   /**
+   * Fraction of page views whose performance data (a `transaction` event with
+   * timings for the page and every request) is sent, 0.0–1.0. Independent of
+   * `sampleRate`, which applies to errors and messages. Defaults to 1.0.
+   */
+  performanceSampleRate?: number;
+  /**
+   * Also report each slow API call and slow page load as its own issue
+   * (`SlowApiCall` / `SlowPageLoad` events) using `slowApiCallMs` /
+   * `slowPageLoadMs`. Slow requests and pages are already visible in the
+   * Performance view, so this defaults to false.
+   */
+  captureSlowEvents?: boolean;
+  /**
    * Last chance to scrub or drop an event before it is queued.
    * Return the (optionally modified) event, or `null` to drop it.
+   * Not called for `transaction` events; see `beforeSendTransaction`.
    */
   beforeSend?: (event: TrackerEvent) => TrackerEvent | null;
+  /** Like `beforeSend`, for `transaction` (performance) events. Return `null` to drop one. */
+  beforeSendTransaction?: (event: TrackerEvent) => TrackerEvent | null;
 }
 
 /** User attached to every subsequent event. */
@@ -185,6 +201,65 @@ export interface DevicePayload {
   locale: string | null;
 }
 
+/** One timed operation inside a page view. Only HTTP requests for now. */
+export interface Span {
+  op: 'http';
+  method: string;
+  /** Query string and fragment removed. */
+  url: string;
+  /** HTTP status; 0 when no response arrived. */
+  status: number;
+  /** Why no response arrived (`offline`, `timeout`, `aborted`, `network`), or null. */
+  failure: string | null;
+  /** When the request started, in ms after the page view started. */
+  start_ms: number;
+  duration_ms: number;
+  /**
+   * From Resource Timing, when the browser exposes it (same-origin, or a
+   * `Timing-Allow-Origin` header): time from sending the request to the first
+   * response byte (server work plus one round trip), time to download the
+   * body, and the response size. Null otherwise.
+   */
+  server_ms: number | null;
+  download_ms: number | null;
+  size_bytes: number | null;
+  /** True when the tab was hidden at some point during the request; such timings are not used for percentiles. */
+  background: boolean;
+}
+
+/** Core Web Vitals and load timings of one page view; null when not measured or not trustworthy. */
+export interface TransactionVitals {
+  ttfb_ms: number | null;
+  fcp_ms: number | null;
+  lcp_ms: number | null;
+  cls: number | null;
+  /** Interaction to Next Paint: how long the page took to respond to clicks and key presses. */
+  inp_ms: number | null;
+  page_load_ms: number | null;
+}
+
+/** Performance data of one page view, sent as a `transaction` event. */
+export interface TransactionPayload {
+  /** URL path of the page (query string and fragment removed). */
+  name: string;
+  /**
+   * `pageload`: the first view after the page loaded. `navigation`: a
+   * single-page-app route change. `continued`: the same page after the tab
+   * came back from the background, or after a very long view was split.
+   */
+  kind: 'pageload' | 'navigation' | 'continued';
+  /** When the view started (ISO 8601). */
+  start: string;
+  duration_ms: number;
+  /** True when the tab was hidden at some point during the view. */
+  background: boolean;
+  vitals: TransactionVitals;
+  long_tasks: { count: number; blocking_ms: number };
+  spans: Span[];
+  /** Spans left out because the view had more than the per-view limit. */
+  dropped_spans: number;
+}
+
 /** A single event as sent to the ingestion endpoint. */
 export interface TrackerEvent {
   sdk: SdkInfo;
@@ -205,6 +280,8 @@ export interface TrackerEvent {
   device: DevicePayload;
   /** Extra data passed to `captureError(error, context)`. JS-only extension. */
   context: JsonObject | null;
+  /** Page-view performance data; set only on `transaction` events, null on all others. */
+  transaction: TransactionPayload | null;
 }
 
 /** Body of a batched POST to the endpoint. */

@@ -75,7 +75,7 @@ Optional, recommended: in Cloudinary → Settings → Upload presets → your pr
 
 | Endpoint | Auth | Purpose |
 | --- | --- | --- |
-| `POST /api/v1/events` | `X-API-Key` | Ingest `{ events: [...] }` (max 50 events, 4 MB). CORS open to any origin. Returns `202 { accepted, rejected }`. 429 when over 1000 events/min per project, 403 when the owner's account is disabled. |
+| `POST /api/v1/events` | `X-API-Key` | Ingest `{ events: [...] }` (max 50 events, 4 MB). CORS open to any origin. Returns `202 { accepted, rejected }`. 429 when over 1000 events/min per project, 403 when the owner's account is disabled. Page views (`transaction` events) have their own budget of 1000/min; over it they are rejected as `rate_limited` (not retried), while errors in the same batch are still stored. |
 | `GET /api/health` | none | Database status, for uptime monitors. |
 | `GET /api/auth` | – | `{ authenticated, user }`. |
 | `POST /api/auth?action=signup` · `?action=login` · `?action=logout` | – | Create an account `{ name, email, password }` / log in `{ email, password }` / log out. Sets an HttpOnly, SameSite=Strict cookie (7 days). |
@@ -87,6 +87,7 @@ Optional, recommended: in Cloudinary → Settings → Upload presets → your pr
 | `GET /api/issue?id=…` · `PATCH /api/issue?id=…` | session | Issue with its latest events / set `status` (open, resolved, ignored). |
 | `GET /api/event?id=…` | session | One event in full. |
 | `GET /api/stats?range=24h\|7d&projectId=` | session | Dashboard charts for your projects (or one of them). |
+| `GET /api/stats?view=performance&range=&projectId=&environment=` | session | Web Vitals (p75 + rating), request latency per bucket, and the pages and endpoints tables. Add `&endpoint=<key>` or `&page=<route>` for one endpoint or route over time, with its slowest recent samples. |
 | `DELETE /api/issue?id=…` | session | Delete an issue and all its events. |
 | `DELETE /api/issues?projectId=…` | session | With body `{ "ids": [...] }` (max 500) deletes those issues; with `&status=open\|resolved\|ignored\|all` deletes every issue with that status. Events go too. |
 | `DELETE /api/projects?id=…` | session | Delete a project, its issues, events and API key. |
@@ -102,7 +103,8 @@ Every dashboard endpoint only returns or changes data in projects you own. Anyth
 - **Regressions:** a resolved issue that happens again is reopened and marked *regressed*.
 - **Screenshots:** uploaded to Cloudinary under `error-tracker/<projectId>/`. Images over 400 KB are refused rather than uploaded, so raw full-size images never reach Cloudinary (the SDK already sends ~50 KB JPEGs). The dashboard loads them through Cloudinary's low-quality, auto-format delivery.
 - **API keys:** only a SHA-256 hash is stored.
-- **Retention:** MongoDB TTL indexes delete events after 30 days and issues not seen for 90 days. Cloudinary images are not deleted automatically, nor when you delete issues, projects or accounts: that needs the Cloudinary API secret, and is a possible follow-up.
+- **Performance:** `transaction` events (one per page view, SDK 0.5.0+) never become issues. Each is stored in `transactions` (kept 7 days, for "slowest samples") and added to hourly rollups in `perf_rollups` (kept 90 days): one row per project, hour, environment and page route or endpoint, with counts and a logarithmic latency histogram (1.15× steps, so percentiles are within ~7%). Percentiles for any range come from adding histograms, so storage stays small however much traffic there is. IDs in paths are grouped (`/orders/42` → `/orders/{id}`), and timings measured while the tab was hidden are counted but kept out of histograms. Logic: `lib/performance.js` (pure, unit-tested) and `lib/performanceStats.js` (queries).
+- **Retention:** MongoDB TTL indexes delete events after 30 days, issues not seen for 90 days, page views after 7 days and performance rollups after 90. Cloudinary images are not deleted automatically, nor when you delete issues, projects or accounts: that needs the Cloudinary API secret, and is a possible follow-up.
 
 ### Accounts and security
 

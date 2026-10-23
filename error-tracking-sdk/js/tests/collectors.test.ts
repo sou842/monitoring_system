@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isLeakTrend, MemoryCollector, MemoryOptions, MemoryReading } from '../src/collectors/memoryCollector';
-import { ClsTracker, initialHiddenTime, PerformanceCollector, readPageTimings } from '../src/collectors/performanceCollector';
+import { ClsTracker, PerformanceCollector, readPageTimings } from '../src/collectors/performanceCollector';
+import { VisibilityTracker } from '../src/core/visibility';
 import { NetworkInterceptor } from '../src/collectors/networkInterceptor';
 import { parseUserAgent } from '../src/core/device';
 import { Logger } from '../src/core/logger';
@@ -228,7 +229,13 @@ describe('PerformanceCollector', () => {
     const snap = collector.snapshot();
     expect(snap.api_calls).toHaveLength(2);
     expect(snap.slow_api_calls).toEqual([{ url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 }]);
-    expect(sink.issues).toEqual([{ kind: 'SlowApiCall', message: 'Slow API call: GET /api/search took 2500ms' }]);
+    expect(sink.issues).toEqual([
+      {
+        kind: 'SlowApiCall',
+        message: 'Slow API call: GET /api/search',
+        context: { url: '/api/search', method: 'GET', status: 200, duration_ms: 2500, threshold_ms: 2000 },
+      },
+    ]);
   });
 
   it('uses custom slow thresholds when given', () => {
@@ -245,7 +252,7 @@ describe('PerformanceCollector', () => {
     collector.measurePageLoad();
 
     expect(collector.snapshot().slow_screen).toBe(false);
-    expect(sink.issues).toEqual([{ kind: 'SlowApiCall', message: 'Slow API call: GET /api/report took 3100ms' }]);
+    expect(sink.issues.map((i) => i.message)).toEqual(['Slow API call: GET /api/report']);
   });
 
   it('flags page loads over 3000ms as slow', () => {
@@ -256,7 +263,9 @@ describe('PerformanceCollector', () => {
     collector.measurePageLoad();
 
     expect(collector.snapshot()).toMatchObject({ page_load_ms: 4200, ttfb_ms: 320, slow_screen: true });
-    expect(sink.issues).toEqual([{ kind: 'SlowPageLoad', message: 'Slow page load: 4200ms' }]);
+    expect(sink.issues).toEqual([
+      { kind: 'SlowPageLoad', message: 'Slow page load', context: { page_load_ms: 4200, ttfb_ms: 320, threshold_ms: 3000 } },
+    ]);
   });
 
   it('does not flag fast page loads', () => {
@@ -306,24 +315,54 @@ describe('PerformanceCollector', () => {
       );
     }
 
-    it('works out when the page was first hidden', () => {
-      const visibleEntries = { getEntriesByType: () => [] } as unknown as Performance;
-      setVisibility('visible');
-      expect(initialHiddenTime(document, visibleEntries)).toBe(Infinity);
-      setVisibility('hidden');
-      expect(initialHiddenTime(document, visibleEntries)).toBe(0);
-      setVisibility('hidden', true); // prerendering pages are hidden until shown
-      expect(initialHiddenTime(document, visibleEntries)).toBe(Infinity);
+    it('works out when the page was hidden, including before the SDK started', () => {
+      const tracker = (now: number) => new VisibilityTracker(logger, () => now);
+      const entries = vi.spyOn(performance, 'getEntriesByType').mockReturnValue([]);
 
       setVisibility('visible');
-      const earlier = {
-        getEntriesByType: () => [
-          { name: 'visible', startTime: 0 },
-          { name: 'hidden', startTime: 1500 },
-          { name: 'visible', startTime: 9000 },
-        ],
-      } as unknown as Performance;
-      expect(initialHiddenTime(document, earlier)).toBe(1500); // hidden before the SDK loaded
+      let t = tracker(500);
+      t.install();
+      expect(t.firstHiddenTime()).toBe(Infinity);
+      t.uninstall();
+
+      setVisibility('hidden');
+      t = tracker(500);
+      t.install();
+      expect(t.firstHiddenTime()).toBe(0);
+      expect(t.wasHiddenBetween(100, 200)).toBe(true);
+      t.uninstall();
+
+      setVisibility('hidden', true); // prerendering pages are hidden until shown
+      t = tracker(500);
+      t.install();
+      expect(t.firstHiddenTime()).toBe(Infinity);
+      t.uninstall();
+
+      setVisibility('visible');
+      entries.mockReturnValue([
+        { name: 'visible', startTime: 0 },
+        { name: 'hidden', startTime: 1500 },
+        { name: 'visible', startTime: 9000 },
+      ] as unknown as PerformanceEntry[]);
+      t = tracker(10000);
+      t.install();
+      expect(t.firstHiddenTime()).toBe(1500); // hidden before the SDK loaded
+      expect(t.wasHiddenBetween(2000, 3000)).toBe(true);
+      expect(t.wasHiddenBetween(9500, 9800)).toBe(false);
+      expect(t.wasHiddenBetween(0, 1000)).toBe(false);
+      t.uninstall();
+    });
+
+    it('tracks hidden periods as they happen', () => {
+      const t = new VisibilityTracker(logger);
+      t.record(true, 100);
+      t.record(false, 300);
+      expect(t.wasHiddenBetween(50, 99)).toBe(false);
+      expect(t.wasHiddenBetween(250, 400)).toBe(true);
+      expect(t.wasHiddenBetween(301, 900)).toBe(false);
+      t.record(true, 1000); // still hidden: the period is open-ended
+      expect(t.wasHiddenBetween(5000, 6000)).toBe(true);
+      expect(t.firstHiddenTime()).toBe(100);
     });
 
     it('drops FCP and does not judge the load of a page opened in a background tab', () => {
@@ -373,7 +412,9 @@ describe('PerformanceCollector', () => {
       collector.measurePageLoad();
 
       expect(collector.snapshot()).toMatchObject({ page_load_ms: 4200, fcp_ms: 900, slow_screen: true });
-      expect(sink.issues).toEqual([{ kind: 'SlowPageLoad', message: 'Slow page load: 4200ms' }]);
+      expect(sink.issues).toEqual([
+      { kind: 'SlowPageLoad', message: 'Slow page load', context: { page_load_ms: 4200, ttfb_ms: 300, threshold_ms: 3000 } },
+    ]);
       collector.uninstall();
     });
   });

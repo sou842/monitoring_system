@@ -179,8 +179,11 @@ export type {
   JsonValue,
   MemoryPayload,
   PerformancePayload,
+  Span,
   StackFrame,
   TrackedUser,
   TrackerEvent,
+  TransactionPayload,
+  TransactionVitals,
   UserPayload,
 } from './types';

@@ -11,6 +11,7 @@ import {
   StackFrame,
   TrackedUser,
   TrackerEvent,
+  TransactionPayload,
   UserPayload,
 } from '../types';
 
@@ -21,6 +22,8 @@ export interface EventInput {
   error: ErrorPayload | null;
   stacktrace: StackFrame[];
   context: JsonObject | null;
+  /** Page-view data, for transaction events only. */
+  transaction?: TransactionPayload | null;
 }
 
 /** Ambient state captured at the moment of the event. */
@@ -117,6 +120,7 @@ export function buildEvent(input: EventInput, scope: EventScope, timestamp: stri
       locale: scope.device.locale,
     },
     context: input.context,
+    transaction: input.transaction !== undefined ? input.transaction : null,
   };
 }
 

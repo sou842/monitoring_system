@@ -1,6 +1,6 @@
 import { ownedProject } from '../lib/access.js';
 import { requireUser } from '../lib/auth.js';
-import { EVENT_TYPES, ISSUES_PAGE_SIZE, ISSUE_STATUSES } from '../lib/constants.js';
+import { ISSUE_EVENT_TYPES as EVENT_TYPES, ISSUES_PAGE_SIZE, ISSUE_STATUSES } from '../lib/constants.js';
 import { deleteIssues } from '../lib/deletion.js';
 import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
 import { issueView } from '../lib/views.js';

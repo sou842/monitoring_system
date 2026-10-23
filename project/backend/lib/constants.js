@@ -27,7 +27,9 @@ export const MAX_API_CALLS = 50;
 export const MAX_JSON_FIELD_BYTES = 16 * 1024;
 /** Events whose timestamp is further than this from server time use the server time instead. */
 export const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
-export const EVENT_TYPES = ['error', 'message', 'performance', 'crash'];
+export const EVENT_TYPES = ['error', 'message', 'performance', 'crash', 'transaction'];
+/** Event types that become issues; `transaction` (page views) feeds the Performance view instead. */
+export const ISSUE_EVENT_TYPES = EVENT_TYPES.filter((type) => type !== 'transaction');
 export const LEVELS = ['info', 'warning', 'error'];
 
 // ---------------------------------------------------------------------------
@@ -107,3 +109,38 @@ export const STATS_RANGES = {
 };
 export const DEFAULT_STATS_RANGE = '24h';
 export const TOP_ISSUES_LIMIT = 6;
+
+// ---------------------------------------------------------------------------
+// Performance (transaction events → api/stats.js?view=performance)
+// ---------------------------------------------------------------------------
+/** Page views (transaction events) accepted per project per minute, separate from the error budget. */
+export const RATE_LIMIT_TRANSACTIONS_PER_MINUTE = 1000;
+/** Spans kept per page view (the SDK sends at most 100). */
+export const MAX_SPANS = 100;
+/** Raw page views are kept this long for "slowest samples"; hourly rollups much longer. */
+export const TRANSACTION_RETENTION_DAYS = 7;
+export const ROLLUP_RETENTION_DAYS = 90;
+export const ROLLUP_BUCKET_MS = HOUR_MS;
+/**
+ * Latency histograms use logarithmic buckets: bucket i (i ≥ 1) holds values in
+ * [BASE^(i-1), BASE^i) ms, bucket 0 holds values under 1 ms. With 1.15 every
+ * percentile is within ±7% of the exact value, using at most ~120 buckets.
+ */
+export const HISTOGRAM_BASE = 1.15;
+export const HISTOGRAM_MAX_BUCKET = 120;
+/** CLS is unitless (0.1 is "good"); it is stored ×1000 in the same histograms. */
+export const CLS_SCALE = 1000;
+/** Rows returned in the pages and endpoints tables, and slowest samples in a detail view. */
+export const PERFORMANCE_TABLE_LIMIT = 100;
+export const SLOWEST_SAMPLES_LIMIT = 10;
+/**
+ * Google's Core Web Vitals thresholds: ≤ good is "good", > poor is "poor",
+ * anything between "needs improvement". Rated at the 75th percentile.
+ */
+export const VITAL_THRESHOLDS = {
+  lcp: { good: 2500, poor: 4000 },
+  fcp: { good: 1800, poor: 3000 },
+  inp: { good: 200, poor: 500 },
+  cls: { good: 0.1, poor: 0.25 },
+  ttfb: { good: 800, poor: 1800 },
+};

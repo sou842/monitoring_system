@@ -194,6 +194,7 @@ export class BreadcrumbCollector implements Collector {
     const from = this.lastUrl;
     this.lastUrl = to;
     this.sink.onBreadcrumb({ type: 'navigation', message: 'Navigated to ' + to, data: { from: from, to: to, trigger: trigger } });
+    this.sink.onNavigation(to);
   }
 
   private wrapHistory(win: Window): void {

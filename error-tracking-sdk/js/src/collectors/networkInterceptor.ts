@@ -23,7 +23,18 @@ export interface RequestDetails {
   error: unknown;
   /** Where in the app the request was made (SDK frames removed). Parsed lazily. */
   callSite(): StackFrame[];
+  /** When the request started and ended, as `performance.now()` values. */
+  startTime: number;
+  endTime: number;
+  /**
+   * The absolute URL including its query string. Only used to find the
+   * request's Resource Timing entry; never recorded or sent.
+   */
+  rawUrl: string;
 }
+
+/** What the fetch/XHR wrappers know about a finished request; the interceptor adds the timing fields. */
+type WrapperDetails = Pick<RequestDetails, 'failure' | 'error' | 'callSite'>;
 
 export type NetworkListener = (call: ApiCall, details: RequestDetails) => void;
 
@@ -128,13 +139,23 @@ export class NetworkInterceptor implements Collector {
     this.installed = false;
   }
 
-  private emit(method: string, rawUrl: string, status: number, startedAt: number, details: RequestDetails): void {
+  private emit(method: string, rawUrl: string, status: number, startedAt: number, wrapper: WrapperDetails): void {
     if (this.isSdkUrl(rawUrl)) return;
+    const endTime = nowMs();
+    const absolute = absoluteUrl(rawUrl);
     const call: ApiCall = {
-      url: stripQuery(absoluteUrl(rawUrl)),
+      url: stripQuery(absolute),
       method: method.toUpperCase(),
       status: status,
-      duration_ms: Math.max(0, Math.round(nowMs() - startedAt)),
+      duration_ms: Math.max(0, Math.round(endTime - startedAt)),
+    };
+    const details: RequestDetails = {
+      failure: wrapper.failure,
+      error: wrapper.error,
+      callSite: wrapper.callSite,
+      startTime: startedAt,
+      endTime: endTime,
+      rawUrl: absolute,
     };
     for (let i = 0; i < this.listeners.length; i++) {
       const listener = this.listeners[i];

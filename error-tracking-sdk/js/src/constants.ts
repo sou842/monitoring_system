@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.4.0';
+export const SDK_VERSION = '0.5.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +34,8 @@ export const FLUSH_DELAY_MS = 2000;
 /** Backoff before each retry; length of this array is the retry count. */
 export const RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
 export const REQUEST_TIMEOUT_MS = 30000;
+/** Largest body sent with fetch keepalive while the page is hidden (browsers allow 64 KB in flight in total). */
+export const KEEPALIVE_MAX_BYTES = 60000;
 /** In-memory queue cap; oldest events are dropped beyond this. */
 export const MAX_QUEUE_SIZE = 100;
 export const OFFLINE_STORAGE_KEY = '_et_queue';
@@ -91,6 +93,8 @@ export const SLOW_THRESHOLD_MIN_MS = 100;
 export const SLOW_THRESHOLD_MAX_MS = 600000;
 /** HTTP statuses of the page itself that are reported as PageNotFound (404 Not Found, 410 Gone). */
 export const PAGE_NOT_FOUND_STATUSES: readonly number[] = [404, 410];
+/** With `captureSlowEvents`, one endpoint is reported as SlowApiCall at most once per this interval. */
+export const SLOW_EVENT_COOLDOWN_MS = 5 * 60 * 1000;
 /** Responses at or above this status are reported as HttpError events. */
 export const HTTP_ERROR_STATUS_MIN = 400;
 /** Number of most recent API calls attached to every payload. */
@@ -100,6 +104,33 @@ export const PAGE_LOAD_SETTLE_MS = 0;
 /** CLS session window rules (per the web-vitals definition). */
 export const CLS_SESSION_GAP_MS = 1000;
 export const CLS_SESSION_MAX_MS = 5000;
+
+// ---------------------------------------------------------------------------
+// Page views (transaction events)
+// ---------------------------------------------------------------------------
+export const DEFAULT_PERFORMANCE_SAMPLE_RATE = 1.0;
+/** Requests recorded per page view; more are counted in `dropped_spans`. */
+export const MAX_SPANS_PER_VIEW = 100;
+/** A view still open after this long is sent and continued as a new one, so a tab left open all day still reports. */
+export const MAX_VIEW_DURATION_MS = 30 * 60 * 1000;
+/** How often an open view is checked against MAX_VIEW_DURATION_MS. */
+export const VIEW_CHECK_INTERVAL_MS = 60 * 1000;
+/** Transaction events accepted per rolling minute, separate from the error budget. */
+export const TRANSACTION_RATE_LIMIT_MAX = 30;
+/** Event Timing entries shorter than this are ignored (16 ms is the API minimum; web-vitals uses 40). */
+export const EVENT_TIMING_THRESHOLD_MS = 40;
+/** INP ignores one worst interaction per this many, so one outlier on a busy page doesn't define it. */
+export const INP_INTERACTIONS_PER_OUTLIER = 50;
+/** Longest interactions kept per view to compute INP. */
+export const INP_MAX_TRACKED = 10;
+/** Main-thread time beyond this per long task counts as blocking time (Total Blocking Time definition). */
+export const LONG_TASK_BLOCKING_THRESHOLD_MS = 50;
+/** Resource Timing entries kept for matching to requests. */
+export const MAX_PENDING_RESOURCE_ENTRIES = 300;
+/** A Resource Timing entry belongs to a request when their start times are this close. */
+export const RESOURCE_MATCH_TOLERANCE_MS = 50;
+/** A view ended by a route change is sent this much later, so late Resource Timing entries (~60 ms in Chrome) can be matched. */
+export const BREAKDOWN_SETTLE_MS = 250;
 
 // ---------------------------------------------------------------------------
 // Responsiveness (main-thread blocking and frame rate)

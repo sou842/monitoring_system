@@ -3,7 +3,8 @@ import { OFFLINE_STORAGE_KEY } from '../src/constants';
 import { Logger } from '../src/core/logger';
 import { buildEvent } from '../src/core/payloadBuilder';
 import { classifyStatus, HttpTransport } from '../src/transport/httpTransport';
-import { LocalStorageStore } from '../src/transport/offlineStore';
+import { EventQueue } from '../src/core/eventQueue';
+import { LocalStorageStore, MemoryStore } from '../src/transport/offlineStore';
 import { TrackerEvent } from '../src/types';
 import { makeScope, mockFetch } from './helpers';
 
@@ -59,6 +60,66 @@ describe('HttpTransport', () => {
     const t401 = new HttpTransport('https://ingest.test', 'k', logger, mockFetch(401).fn as unknown as typeof fetch);
     expect((await t500.send([event('a')])).retryable).toBe(true);
     expect((await t401.send([event('a')])).retryable).toBe(false);
+  });
+
+  describe('keepalive', () => {
+    function setVisibility(state: DocumentVisibilityState): void {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    }
+    afterEach(() => {
+      delete (document as unknown as Record<string, unknown>).visibilityState;
+    });
+
+    it('uses keepalive only while the page is hidden, and only for small batches', async () => {
+      const { fn, calls } = mockFetch(202);
+      const transport = new HttpTransport('https://ingest.test', 'k', logger, fn as unknown as typeof fetch);
+      await transport.send([event('visible')]);
+      setVisibility('hidden');
+      await transport.send([event('hidden')]);
+      await transport.send([event('big', 'data:image/jpeg;base64,' + 'A'.repeat(70000))]);
+      expect(calls.map((c) => c.init.keepalive === true)).toEqual([false, true, false]);
+    });
+
+    it('hands a batch to a keepalive request while the page unloads, unless it is too big', () => {
+      const { fn, calls } = mockFetch(202);
+      const transport = new HttpTransport('https://ingest.test', 'k', logger, fn as unknown as typeof fetch);
+      expect(transport.sendOnUnload([event('bye')])).toBe(true);
+      expect(calls[0].init.keepalive).toBe(true);
+      expect(calls[0].body.events[0].api_key).toBe('k');
+      expect(transport.sendOnUnload([event('big', 'data:image/jpeg;base64,' + 'A'.repeat(70000))])).toBe(false);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('unloading: the queue sends what it holds with keepalive, or persists it when that is not possible', () => {
+      const sent: TrackerEvent[][] = [];
+      const store = new MemoryStore();
+      const transport = { send: () => Promise.resolve({ ok: true, retryable: false, status: 202 }), sendOnUnload: (events: TrackerEvent[]) => (sent.push(events), true) };
+      const queue = new EventQueue({ transport, store, logger, isOnline: () => true });
+      queue.enqueue(event('a'));
+      queue.enqueue(event('b'));
+      queue.sendBeforeUnload();
+      expect(sent.map((batch) => batch.length)).toEqual([2]);
+      expect(queue.size).toBe(0);
+      expect(store.takeAll()).toEqual([]);
+
+      const refusing = new EventQueue({ transport: { ...transport, sendOnUnload: () => false }, store, logger, isOnline: () => true });
+      refusing.enqueue(event('c'));
+      refusing.sendBeforeUnload();
+      expect(store.takeAll().map((e) => e.error && e.error.message)).toEqual(['c']);
+    });
+
+    it('resends without keepalive when the browser refuses it, and stops using it', async () => {
+      setVisibility('hidden');
+      const seen: boolean[] = [];
+      const fn = vi.fn((_url: string, init: RequestInit) => {
+        seen.push(init.keepalive === true);
+        return init.keepalive ? Promise.reject(new TypeError('keepalive with preflight is not supported')) : Promise.resolve(new Response(null, { status: 202 }));
+      });
+      const transport = new HttpTransport('https://ingest.test', 'k', logger, fn as unknown as typeof fetch);
+      expect(await transport.send([event('a')])).toEqual({ ok: true, retryable: false, status: 202 });
+      await transport.send([event('b')]);
+      expect(seen).toEqual([true, false, false]);
+    });
   });
 });
 

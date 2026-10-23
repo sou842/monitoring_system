@@ -4,6 +4,7 @@ import {
   MAX_API_CALLS_TRACKED,
   PAGE_LOAD_SETTLE_MS,
   SLOW_API_CALL_MS,
+  SLOW_EVENT_COOLDOWN_MS,
   SLOW_PAGE_LOAD_MS,
 } from '../constants';
 import { CircularBuffer } from '../core/circularBuffer';
@@ -11,6 +12,7 @@ import { emptyPerformance } from '../core/payloadBuilder';
 import { getDocument, getPerformance, getWindow, nowMs, toMs } from '../core/env';
 import { Logger } from '../core/logger';
 import { guard, safelyRun } from '../core/safe';
+import { VisibilityTracker } from '../core/visibility';
 import { ApiCall, PerformancePayload } from '../types';
 import { Collector, CollectorSink } from './collector';
 import { NetworkInterceptor } from './networkInterceptor';
@@ -57,22 +59,6 @@ export function readPageTimings(perf: Performance): PageTimings {
   return { pageLoadMs: null, ttfbMs: null };
 }
 
-/**
- * When the page was first hidden, in ms since navigation start, or Infinity if
- * it has been visible the whole time. Uses `visibility-state` entries
- * (Chromium 115+) to also see a hidden period from before the SDK loaded.
- * A page that is prerendering is hidden but will be shown, so it doesn't count.
- */
-export function initialHiddenTime(doc: Document, perf: Performance | null): number {
-  if (doc.visibilityState === 'hidden' && (doc as Document & { prerendering?: boolean }).prerendering !== true) return 0;
-  if (perf === null || typeof perf.getEntriesByType !== 'function') return Infinity;
-  const entries = perf.getEntriesByType('visibility-state');
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].name === 'hidden') return entries[i].startTime;
-  }
-  return Infinity;
-}
-
 /** Tracks CLS using the web-vitals "session window" definition. */
 export class ClsTracker {
   private sessionValue = 0;
@@ -103,21 +89,37 @@ export class ClsTracker {
   }
 }
 
+
 /** When a page load or API call counts as slow (ms). */
 export interface PerformanceThresholds {
   slowPageLoadMs: number;
   slowApiCallMs: number;
 }
 
+export interface PerformanceOptions extends PerformanceThresholds {
+  /** Send `SlowApiCall` / `SlowPageLoad` issue events (`captureSlowEvents`). */
+  reportSlowEvents: boolean;
+}
+
+/** Timing of one request on the `performance.now()` clock, so it can be checked against hidden periods. */
+export interface RequestWindow {
+  startTime: number;
+  endTime: number;
+}
+
+const DEFAULT_OPTIONS: PerformanceOptions = { slowPageLoadMs: SLOW_PAGE_LOAD_MS, slowApiCallMs: SLOW_API_CALL_MS, reportSlowEvents: true };
+
 /**
  * Collects page-load metrics (load time, TTFB, FCP, LCP, CLS) and the duration
- * of every fetch/XHR call. Reports a `performance` event when the page load or
- * an API call exceeds its threshold (3 s and 2 s by default).
+ * of every fetch/XHR call for error payloads. Marks the page as `slow_screen`
+ * and keeps a list of slow calls when they exceed their thresholds (3 s and
+ * 2 s by default), and, when `reportSlowEvents` is on, also reports each one
+ * as a `performance` event (at most one per endpoint every few minutes).
  *
- * Browsers don't paint pages in background tabs and slow down their work, so
+ * Browsers don't paint pages in background tabs and hold back their work, so
  * (as in web-vitals) FCP and LCP are left null when the page was hidden before
- * they happened, and a load that finished after the page was hidden is not
- * reported as slow.
+ * they happened, and loads or requests that overlapped a hidden period are
+ * never judged as slow.
  */
 export class PerformanceCollector implements Collector {
   private installed = false;
@@ -127,18 +129,30 @@ export class PerformanceCollector implements Collector {
   private readonly cls = new ClsTracker();
   private observers: PerformanceObserver[] = [];
   private lcpFinal = false;
-  /** When the page was first hidden (ms since navigation start); Infinity while it has stayed visible. */
-  private firstHiddenTime = Infinity;
+  /** Last SlowApiCall report per endpoint, so one slow backend can't flood events. */
+  private lastSlowReport: Record<string, number> = {};
+  private readonly options: PerformanceOptions;
+  private readonly visibility: VisibilityTracker;
+  /** True when this collector created the tracker and so must install it. */
+  private readonly ownsVisibility: boolean;
   private readonly handleLoad: () => void;
   private readonly finalizeLcp: () => void;
-  private readonly handleVisibility: () => void;
 
   constructor(
     private readonly sink: CollectorSink,
     private readonly network: NetworkInterceptor,
     private readonly logger: Logger,
-    private readonly thresholds: PerformanceThresholds = { slowPageLoadMs: SLOW_PAGE_LOAD_MS, slowApiCallMs: SLOW_API_CALL_MS },
+    options: Partial<PerformanceOptions> = {},
+    visibility?: VisibilityTracker,
+    private readonly now: () => number = nowMs,
   ) {
+    this.options = {
+      slowPageLoadMs: options.slowPageLoadMs !== undefined ? options.slowPageLoadMs : DEFAULT_OPTIONS.slowPageLoadMs,
+      slowApiCallMs: options.slowApiCallMs !== undefined ? options.slowApiCallMs : DEFAULT_OPTIONS.slowApiCallMs,
+      reportSlowEvents: options.reportSlowEvents !== undefined ? options.reportSlowEvents : DEFAULT_OPTIONS.reportSlowEvents,
+    };
+    this.ownsVisibility = visibility === undefined;
+    this.visibility = visibility !== undefined ? visibility : new VisibilityTracker(logger);
     const self = this;
     this.handleLoad = guard(logger, 'page load metrics', function onLoad() {
       setTimeout(
@@ -152,10 +166,6 @@ export class PerformanceCollector implements Collector {
       // LCP stops being reported once the user interacts with the page.
       self.lcpFinal = true;
     };
-    this.handleVisibility = guard(logger, 'visibility tracking', function onVisibility() {
-      const doc = getDocument();
-      if (doc !== null && doc.visibilityState === 'hidden') self.firstHiddenTime = Math.min(self.firstHiddenTime, nowMs());
-    });
   }
 
   install(): void {
@@ -163,21 +173,19 @@ export class PerformanceCollector implements Collector {
     const doc = getDocument();
     if (this.installed || win === null || doc === null) return;
     this.installed = true;
+    // Installed before the observers below, which deliver buffered entries.
+    if (this.ownsVisibility) this.visibility.install();
 
     const self = this;
-    this.network.subscribe(function onApiCall(call) {
-      self.recordApiCall(call);
+    this.network.subscribe(function onApiCall(call, details) {
+      self.recordApiCall(call, details);
     });
-
-    // Read before the observers below, which deliver buffered entries.
-    this.firstHiddenTime = initialHiddenTime(doc, getPerformance());
-    doc.addEventListener('visibilitychange', this.handleVisibility, true);
 
     this.observe('paint', function onPaint(entry) {
       if (entry.name === 'first-contentful-paint') self.recordFcp(entry.startTime);
     });
     this.observe('largest-contentful-paint', function onLcp(entry) {
-      if (self.lcpFinal || entry.startTime >= self.firstHiddenTime) return;
+      if (self.lcpFinal || entry.startTime >= self.visibility.firstHiddenTime()) return;
       const lcp = entry as LcpEntry;
       self.metrics.lcp_ms = toMs(lcp.renderTime || lcp.loadTime || lcp.startTime);
     });
@@ -203,8 +211,7 @@ export class PerformanceCollector implements Collector {
       safelyRun(this.logger, 'disconnect observer', disconnect(this.observers[i]));
     }
     this.observers = [];
-    const doc = getDocument();
-    if (doc !== null) doc.removeEventListener('visibilitychange', this.handleVisibility, true);
+    if (this.ownsVisibility) this.visibility.uninstall();
     win.removeEventListener('load', this.handleLoad);
     win.removeEventListener('keydown', this.finalizeLcp, true);
     win.removeEventListener('pointerdown', this.finalizeLcp, true);
@@ -229,15 +236,26 @@ export class PerformanceCollector implements Collector {
   }
 
   /** Records a completed request; exposed so it can be unit-tested without patching fetch. */
-  recordApiCall(call: ApiCall): void {
+  recordApiCall(call: ApiCall, timing?: RequestWindow): void {
     this.apiCalls.push(call);
-    if (call.duration_ms > this.thresholds.slowApiCallMs) {
-      this.slowApiCalls.push(call);
-      this.sink.onPerformanceIssue(
-        'SlowApiCall',
-        'Slow API call: ' + call.method + ' ' + call.url + ' took ' + call.duration_ms + 'ms',
-      );
-    }
+    if (call.duration_ms <= this.options.slowApiCallMs) return;
+    if (timing !== undefined && this.visibility.wasHiddenBetween(timing.startTime, timing.endTime)) return;
+    this.slowApiCalls.push(call);
+    if (!this.options.reportSlowEvents) return;
+
+    const key = call.method + ' ' + call.url;
+    const now = this.now();
+    const last = this.lastSlowReport[key];
+    if (last !== undefined && now - last < SLOW_EVENT_COOLDOWN_MS) return;
+    this.lastSlowReport[key] = now;
+    // The duration goes in context, not the message, so repeats of one slow endpoint group together.
+    this.sink.onPerformanceIssue('SlowApiCall', 'Slow API call: ' + key, {
+      url: call.url,
+      method: call.method,
+      status: call.status,
+      duration_ms: call.duration_ms,
+      threshold_ms: this.options.slowApiCallMs,
+    });
   }
 
   /** Reads navigation timings; exposed for tests. */
@@ -254,18 +272,24 @@ export class PerformanceCollector implements Collector {
     }
 
     // A background tab loads slowly because the browser holds it back, not because the page is slow.
-    const hiddenDuringLoad = timings.pageLoadMs !== null && this.firstHiddenTime < timings.pageLoadMs;
-    if (hiddenDuringLoad) {
-      this.logger.info('page was hidden while loading; not judging load time');
-    } else if (timings.pageLoadMs !== null && timings.pageLoadMs > this.thresholds.slowPageLoadMs) {
-      this.metrics.slow_screen = true;
-      this.sink.onPerformanceIssue('SlowPageLoad', 'Slow page load: ' + timings.pageLoadMs + 'ms');
+    if (timings.pageLoadMs === null || this.visibility.wasHiddenBetween(0, timings.pageLoadMs)) {
+      if (timings.pageLoadMs !== null) this.logger.info('page was hidden while loading; not judging load time');
+      return;
+    }
+    if (timings.pageLoadMs <= this.options.slowPageLoadMs) return;
+    this.metrics.slow_screen = true;
+    if (this.options.reportSlowEvents) {
+      this.sink.onPerformanceIssue('SlowPageLoad', 'Slow page load', {
+        page_load_ms: timings.pageLoadMs,
+        ttfb_ms: timings.ttfbMs,
+        threshold_ms: this.options.slowPageLoadMs,
+      });
     }
   }
 
   /** Records FCP unless the page was hidden first (a background tab paints only once it is shown). */
   private recordFcp(startTime: number): void {
-    if (startTime < this.firstHiddenTime) this.metrics.fcp_ms = toMs(startTime);
+    if (startTime < this.visibility.firstHiddenTime()) this.metrics.fcp_ms = toMs(startTime);
   }
 
   private observe(type: string, onEntry: (entry: PerformanceEntry) => void): void {

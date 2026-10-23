@@ -28,4 +28,6 @@ export interface CollectorSink {
   onBreadcrumb(breadcrumb: BreadcrumbInput): void;
   /** `context` holds the measurements behind the report (e.g. heap sizes for a leak). */
   onPerformanceIssue(kind: PerformanceIssueKind, message: string, context?: JsonObject): void;
+  /** The app changed route (pushState, replaceState with a new path, popstate); `url` is the new location. */
+  onNavigation(url: string): void;
 }

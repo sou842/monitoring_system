@@ -12,6 +12,12 @@ ErrorTracker.init({
   // Demo: read the heap every 5 s (default 30 s) so the memory-leak button is
   // reported within a few minutes instead of about 10.
   memoryPollIntervalMs: 5000,
+  // Demo: also report slow API calls and page loads as issues (off by default
+  // since 0.5.0; every request and page is timed in the Performance view anyway).
+  captureSlowEvents: true,
+  // `next dev` compiles each page on its first request, which can take several
+  // seconds. Only judge page-load speed strictly in production builds.
+  slowPageLoadMs: process.env.NODE_ENV === 'development' ? 7000 : 3000,
   debug: process.env.NODE_ENV !== 'production',
 });
 ErrorTracker.setUser({ id: 'demo_user', name: 'Demo User' });

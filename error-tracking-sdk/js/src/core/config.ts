@@ -4,6 +4,7 @@ import {
   DEFAULT_HTML2CANVAS_URL,
   DEFAULT_MASK_SELECTORS,
   DEFAULT_MAX_BREADCRUMBS,
+  DEFAULT_PERFORMANCE_SAMPLE_RATE,
   DEFAULT_SAMPLE_RATE,
   LEAK_CONSECUTIVE_READINGS,
   LEAK_CONSECUTIVE_READINGS_MAX,
@@ -49,6 +50,9 @@ export interface ResolvedConfig {
   html2canvasUrl: string;
   html2canvasIntegrity: string;
   beforeSend: ((event: TrackerEvent) => TrackerEvent | null) | null;
+  beforeSendTransaction: ((event: TrackerEvent) => TrackerEvent | null) | null;
+  performanceSampleRate: number;
+  captureSlowEvents: boolean;
   slowApiCallMs: number;
   slowPageLoadMs: number;
   mainThreadBlockedMs: number;
@@ -127,6 +131,9 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
             ? '' // A custom URL cannot share the default file's hash.
             : DEFAULT_HTML2CANVAS_INTEGRITY,
       beforeSend: typeof input.beforeSend === 'function' ? input.beforeSend : null,
+      beforeSendTransaction: typeof input.beforeSendTransaction === 'function' ? input.beforeSendTransaction : null,
+      performanceSampleRate: numberOption(input.performanceSampleRate, DEFAULT_PERFORMANCE_SAMPLE_RATE, 0, 1, false),
+      captureSlowEvents: input.captureSlowEvents === true,
       slowApiCallMs: numberOption(input.slowApiCallMs, SLOW_API_CALL_MS, SLOW_THRESHOLD_MIN_MS, SLOW_THRESHOLD_MAX_MS, false),
       slowPageLoadMs: numberOption(input.slowPageLoadMs, SLOW_PAGE_LOAD_MS, SLOW_THRESHOLD_MIN_MS, SLOW_THRESHOLD_MAX_MS, false),
       mainThreadBlockedMs: numberOption(

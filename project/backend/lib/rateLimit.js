@@ -3,6 +3,7 @@ import {
   LOGIN_ATTEMPTS_PER_IP,
   LOGIN_WINDOW_MS,
   RATE_LIMIT_EVENTS_PER_MINUTE,
+  RATE_LIMIT_TRANSACTIONS_PER_MINUTE,
   RATE_LIMIT_WINDOW_MS,
   SIGNUPS_PER_IP,
   SIGNUP_WINDOW_MS,
@@ -28,6 +29,11 @@ export async function consume(db, key, amount, limit, windowMs, now = Date.now()
 /** Per-project event budget per minute. */
 export function consumeEventBudget(db, projectId, eventCount, now = Date.now()) {
   return consume(db, String(projectId), eventCount, RATE_LIMIT_EVENTS_PER_MINUTE, RATE_LIMIT_WINDOW_MS, now);
+}
+
+/** Per-project page-view (transaction event) budget per minute, separate from the event budget. */
+export function consumeTransactionBudget(db, projectId, count, now = Date.now()) {
+  return consume(db, `${projectId}:transactions`, count, RATE_LIMIT_TRANSACTIONS_PER_MINUTE, RATE_LIMIT_WINDOW_MS, now);
 }
 
 /** One login attempt: limited per IP and per account+IP, so guessing one password or many accounts is slow. */

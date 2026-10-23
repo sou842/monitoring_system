@@ -6,6 +6,7 @@ import {
   MAX_CLOCK_SKEW_MS,
   MAX_JSON_FIELD_BYTES,
   MAX_MESSAGE_LENGTH,
+  MAX_SPANS,
   MAX_STACK_FRAMES,
   MAX_STRING_LENGTH,
   MAX_URL_LENGTH,
@@ -94,6 +95,55 @@ function breadcrumb(value) {
   };
 }
 
+const TRANSACTION_KINDS = ['pageload', 'navigation', 'continued'];
+
+function nonNegative(value) {
+  const n = num(value);
+  return n !== null && n >= 0 ? n : null;
+}
+
+function span(value) {
+  const s = isObject(value) ? value : {};
+  return {
+    op: 'http',
+    method: (str(s.method) || 'GET').toUpperCase(),
+    url: str(s.url, MAX_URL_LENGTH) || '',
+    status: num(s.status) ?? 0,
+    failure: str(s.failure),
+    start_ms: nonNegative(s.start_ms) ?? 0,
+    duration_ms: nonNegative(s.duration_ms) ?? 0,
+    server_ms: nonNegative(s.server_ms),
+    download_ms: nonNegative(s.download_ms),
+    size_bytes: nonNegative(s.size_bytes),
+    background: bool(s.background) ?? false,
+  };
+}
+
+/** The `transaction` block of a page-view event; null for other event types or when missing. */
+function transaction(value, eventType) {
+  if (eventType !== 'transaction' || !isObject(value)) return null;
+  const vitals = isObject(value.vitals) ? value.vitals : {};
+  const longTasks = isObject(value.long_tasks) ? value.long_tasks : {};
+  return {
+    name: str(value.name, MAX_URL_LENGTH) || '/',
+    kind: TRANSACTION_KINDS.includes(value.kind) ? value.kind : 'navigation',
+    start: typeof value.start === 'string' && Number.isFinite(Date.parse(value.start)) ? new Date(value.start) : null,
+    duration_ms: nonNegative(value.duration_ms) ?? 0,
+    background: bool(value.background) ?? false,
+    vitals: {
+      ttfb_ms: nonNegative(vitals.ttfb_ms),
+      fcp_ms: nonNegative(vitals.fcp_ms),
+      lcp_ms: nonNegative(vitals.lcp_ms),
+      cls: nonNegative(vitals.cls),
+      inp_ms: nonNegative(vitals.inp_ms),
+      page_load_ms: nonNegative(vitals.page_load_ms),
+    },
+    long_tasks: { count: nonNegative(longTasks.count) ?? 0, blocking_ms: nonNegative(longTasks.blocking_ms) ?? 0 },
+    spans: list(value.spans, MAX_SPANS).map(span),
+    dropped_spans: nonNegative(value.dropped_spans) ?? 0,
+  };
+}
+
 /** Client timestamp, or server time when missing/invalid/too far off. */
 function timestamp(value, now) {
   const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
@@ -111,6 +161,8 @@ export function validateEvent(raw, now = new Date()) {
   if (!EVENT_TYPES.includes(raw.event_type)) return { ok: false, reason: `event_type must be one of ${EVENT_TYPES.join(', ')}` };
   const sdk = isObject(raw.sdk) ? raw.sdk : {};
   if (typeof sdk.name !== 'string' || sdk.name.length === 0) return { ok: false, reason: 'sdk.name is required' };
+  const pageView = transaction(raw.transaction, raw.event_type);
+  if (raw.event_type === 'transaction' && pageView === null) return { ok: false, reason: 'transaction events need a transaction object' };
 
   const error = isObject(raw.error)
     ? { message: str(raw.error.message, MAX_MESSAGE_LENGTH) || '', type: str(raw.error.type) || 'Error', handled: bool(raw.error.handled) ?? false }
@@ -119,7 +171,8 @@ export function validateEvent(raw, now = new Date()) {
   const perf = isObject(raw.performance) ? raw.performance : {};
   const memory = isObject(raw.memory) ? raw.memory : {};
   const device = isObject(raw.device) ? raw.device : {};
-  const defaultLevel = raw.event_type === 'performance' ? 'warning' : raw.event_type === 'message' ? 'info' : 'error';
+  const defaultLevel =
+    raw.event_type === 'performance' ? 'warning' : raw.event_type === 'message' || raw.event_type === 'transaction' ? 'info' : 'error';
 
   return {
     ok: true,
@@ -169,6 +222,7 @@ export function validateEvent(raw, now = new Date()) {
         locale: str(device.locale),
       },
       context: freeObject(raw.context),
+      transaction: pageView,
     },
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "@sourav732/error-tracker-js",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Lightweight, zero-dependency error, performance and crash tracking SDK for browser apps (React, Vue, Next.js, vanilla JS).",
   "keywords": [
     "error-tracking",

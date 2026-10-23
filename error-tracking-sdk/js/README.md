@@ -121,7 +121,10 @@ app.config.errorHandler = (err, instance, info) => {
 | `detectPageNotFound` | `boolean` | `true` | Report a `PageNotFound` event when the page itself was served with a 404 or 410 status. See [Missing pages](#missing-pages-404). |
 | `html2canvasUrl` | `string` | cdnjs html2canvas 1.4.1 | Where the screenshot library is loaded from. |
 | `html2canvasIntegrity` | `string` | SRI hash of the default URL | SRI hash for `html2canvasUrl`. Defaults to `''` (no check) when you set a custom URL. |
-| `beforeSend` | `(event) => event \| null` | — | Scrub or drop events before they are queued. If the hook throws, the original event is sent. |
+| `beforeSend` | `(event) => event \| null` | — | Scrub or drop events before they are queued. If the hook throws, the original event is sent. Not called for page views; see `beforeSendTransaction`. |
+| `performanceSampleRate` | `number` | `1.0` | 0–1. Share of page loads whose page views are recorded. See [Performance monitoring](#performance-monitoring). *Added in 0.5.0.* |
+| `beforeSendTransaction` | `(event) => event \| null` | — | Like `beforeSend`, for page-view (`transaction`) events, e.g. to scrub URLs. *Added in 0.5.0.* |
+| `captureSlowEvents` | `boolean` | `false` | Also report each slow API call and slow page load as its own issue. *Changed in 0.5.0:* off by default, since slow requests and pages show up in the Performance view. |
 | `slowApiCallMs` | `number` | `2000` | See [Performance thresholds](#performance-thresholds). |
 | `slowPageLoadMs` | `number` | `3000` | See [Performance thresholds](#performance-thresholds). |
 | `mainThreadBlockedMs` | `number` | `1000` | See [Performance thresholds](#performance-thresholds). |
@@ -150,8 +153,8 @@ Every option is optional. Leave one out to keep its default.
 
 | Option | Default | Allowed range | Reported as | Meaning |
 | --- | --- | --- | --- | --- |
-| `slowApiCallMs` | `2000` | 100 – 600000 | `SlowApiCall` | A fetch/XHR call that takes longer than this many ms. |
-| `slowPageLoadMs` | `3000` | 100 – 600000 | `SlowPageLoad` | A page load (navigation start → `load` event) longer than this many ms. |
+| `slowApiCallMs` | `2000` | 100 – 600000 | `SlowApiCall`\* | A fetch/XHR call that takes longer than this many ms. |
+| `slowPageLoadMs` | `3000` | 100 – 600000 | `SlowPageLoad`\* | A page load (navigation start → `load` event) longer than this many ms. |
 | `mainThreadBlockedMs` | `1000` | 50 – 60000 | `MainThreadBlocked` | One main-thread task freezing the page longer than this many ms. Chromium only. |
 | `lowFrameRateFps` | `20` | 1 – 60 | `LowFrameRate` | A sampled frame rate below this many frames per second. |
 | `memoryPollIntervalMs` | `30000` | 5000 – 3600000 | — | How often the JS heap size is read. Chromium only. |
@@ -162,6 +165,8 @@ Every option is optional. Leave one out to keep its default.
 A value outside the allowed range is moved to the nearest limit, so `slowApiCallMs: 10` behaves like `100`. A value that isn't a number (a string, `NaN`, `Infinity`) is ignored and the default is used. Neither case throws.
 
 `MainThreadBlocked` and `LowFrameRate` are each reported at most once every 30 s, whatever thresholds you set.
+
+\* *Changed in 0.5.0:* slow calls and slow pages are reported as issues only with `captureSlowEvents: true`, and then at most once per endpoint every 5 minutes, with the duration in `context` so repeats group together. Without it, the two thresholds still mark `performance.slow_api_calls` and `slow_screen` in error payloads, and every request and page is timed in the [Performance view](#performance-monitoring). Calls and loads that overlapped a hidden tab are never judged slow.
 
 ### Missing pages (404)
 
@@ -199,6 +204,27 @@ export default function NotFound() {
 
 `capturePageNotFound(url?)` uses the current page URL when called without an argument. On a page the SDK already reported automatically, the second report is dropped, so you get exactly one event. Turn off automatic detection with `detectPageNotFound: false`. Manual calls still work.
 
+### Performance monitoring
+
+*Added in 0.5.0.* Every page view is recorded and sent as one `transaction` event. The dashboard's **Performance** page turns them into Web Vitals at the 75th percentile (rated good / needs improvement / poor, as Google does), p50/p75/p95 latency per endpoint, timings per route, and the slowest recent calls and page loads. Nothing is reported as an issue: performance is judged from percentiles, not from single slow requests.
+
+A page view holds:
+
+- **The route** (`location.pathname`). The dashboard groups IDs in paths, so `/orders/42` and `/orders/97` are both `/orders/{id}`.
+- **Web Vitals** for the first view after a page load: TTFB, FCP, LCP, CLS and load time, plus **INP** (how fast the page responds to clicks and key presses) for every view.
+- **Every fetch/XHR request** as a span: method, URL, status, start and duration. From the browser's Resource Timing it also gets **server time** (request sent → first response byte), **download time** and **size**. That splits "the server was slow" from "the network was slow". For APIs on another origin the browser shares these only if the API sends a `Timing-Allow-Origin` header naming your site; otherwise they are `null`.
+- **Long tasks:** how many, and the total blocking time.
+
+A view ends when the app changes route (`pushState`, `replaceState`, `popstate`), when the tab is hidden or closed, or after 30 minutes (it then continues as a new view). Time in a hidden tab is never part of a view, and requests that overlapped a hidden period are flagged `background` and kept out of percentiles: browsers hold background tabs back, so those timings say nothing about your app.
+
+Sampling is decided once per page load with `performanceSampleRate` (default `1.0`, every page view), so a visitor's views are either all recorded or none are. It is separate from `sampleRate`, which applies to errors. Lower it for high-traffic apps:
+
+```ts
+ErrorTracker.init({ apiKey, endpoint, performanceSampleRate: 0.2 }); // record 1 page load in 5
+```
+
+Page views have their own budget (30 per minute in the SDK, separate limits on the server), so they never crowd out errors. They include `device`, `user` and `app_version` but no breadcrumbs or screenshots.
+
 Other public methods: `flush(): Promise<void>` sends everything now (and never rejects). `close(): Promise<void>` flushes, removes every hook and persists anything unsent. `isInitialized(): boolean`.
 
 ## What is collected
@@ -212,7 +238,7 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. Violations caused by the SDK's own screenshot library are ignored. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
 | **Console** | Opt-in (`captureConsoleErrors: true`): each `console.error(...)` becomes a `ConsoleError` event, or the passed Error's own type. Errors the SDK has already reported are skipped. |
 | **Breadcrumbs** | Clicks (tag, visible text, CSS path; form values are never read), `pushState`/`replaceState`/`popstate` navigation, page visibility changes, `console.warn`/`console.error`, and every `fetch`/XHR call (URL, method, status or failure, duration). |
-| **Performance** | Page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS (via `PerformanceObserver`), plus the last 20 API calls. A page load over 3000 ms or an API call over 2000 ms is flagged and also sent as its own `performance` event (adjustable with `slowPageLoadMs` / `slowApiCallMs`). Browsers hold back background tabs, so when the page was hidden before its first paint, FCP and LCP are `null`, and a load that finished after the page was hidden is not reported as slow. |
+| **Performance** | One `transaction` event per page view with Web Vitals, INP and every request's timing (see [Performance monitoring](#performance-monitoring)). Error payloads also carry page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS, plus the last 20 API calls. Browsers hold back background tabs, so when the page was hidden before its first paint, FCP and LCP are `null`, and a load or request that overlapped a hidden period is not judged slow. |
 | **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. Adjustable with `mainThreadBlockedMs` / `lowFrameRateFps`. |
 | **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `MemoryLeakSuspected` event when the memory kept after garbage collection grows steadily. See [How memory leaks are detected](#how-memory-leaks-are-detected). |
 | **Screenshots** | The visible viewport as a compressed JPEG: at most 1280 px wide, quality 0.5, typically around 50 KB, capped at ~370 KB. Only taken when the page is visible, at most one every 10 s, with a 3 s time budget. |
@@ -265,6 +291,7 @@ Masking works in two layers. Masked elements are painted black in html2canvas's 
 - The request is `POST <endpoint>`, with headers `Content-Type: application/json` and `X-API-Key: <apiKey>`, and the body `{ "events": [ ... ] }`.
 - **Retries:** network errors, 5xx, 408 and 429 are retried 3 times, after 1 s, 2 s and 4 s. Other 4xx responses (bad payload, invalid key) are dropped without retrying, since resending can't succeed.
 - **Offline:** when `navigator.onLine === false`, or once retries are exhausted, events are stored in `localStorage["_et_queue"]` (newest 50, with the API key removed). The stored queue is flushed on the `online` event, when the tab becomes visible again, and on the next `init()`. If storage is full, screenshots are dropped first, then the oldest events.
+- **Leaving the page:** when the tab is hidden or the page unloads, queued events are sent with `fetch(…, { keepalive: true })`, which the browser finishes after the page is gone. Only batches up to ~60 KB use it (browsers cap keepalive bodies); larger ones, and browsers that refuse keepalive, fall back to `localStorage` and the next visit. *Added in 0.5.0.*
 - **Error storms:** identical events (same type, message and top frame) are deduplicated within 5 s. After that, at most 100 events per rolling minute are accepted. When the limit drops events, one `EventsDropped` summary (`context.dropped_count`) is sent 10 s later, so a storm is never silent.
 
 ## Payload
@@ -297,16 +324,33 @@ Every event follows the shared cross-platform schema. Every field is always pres
     "browser": "Chrome", "browser_version": "124.0", "screen_width": 1920, "screen_height": 1080,
     "url": "https://app.example.com/checkout", "referrer": null, "locale": "en-IN"
   },
-  "context": null
+  "context": null,
+  "transaction": null
 }
 ```
 
-**JS-specific fields** that are not part of the shared schema: `level` (severity of `captureMessage`), `context` (the second argument to `captureError`), `performance.cls`, and `device.referrer`.
+A page view (`event_type: "transaction"`, level `info`) has `error: null`, empty `stacktrace` and `breadcrumbs`, an empty `performance` block, and its data in `transaction`:
+
+```json
+"transaction": {
+  "name": "/orders/42", "kind": "pageload", "start": "2026-10-23T10:00:00.000Z", "duration_ms": 5000, "background": false,
+  "vitals": { "ttfb_ms": 120, "fcp_ms": 800, "lcp_ms": 1400, "cls": 0.05, "inp_ms": 96, "page_load_ms": 1900 },
+  "long_tasks": { "count": 2, "blocking_ms": 80 },
+  "spans": [{ "op": "http", "method": "GET", "url": "https://app.example.com/api/orders/42", "status": 200, "failure": null,
+              "start_ms": 100, "duration_ms": 600, "server_ms": 500, "download_ms": 80, "size_bytes": 2048, "background": false }],
+  "dropped_spans": 0
+}
+```
+
+`kind` is `pageload` (first view after a page load), `navigation` (route change) or `continued` (the same page after the tab came back, or a view split after 30 minutes). At most 100 spans are kept per view; the rest are counted in `dropped_spans`.
+
+**JS-specific fields** that are not part of the shared schema: `level` (severity of `captureMessage`), `context` (the second argument to `captureError`), `performance.cls`, and `device.referrer`. `transaction` is part of the shared schema from 0.5.0.
 
 **Event types:**
 - `error` covers uncaught and captured errors, plus `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError` and `PageNotFound` in `error.type`.
 - `message` comes from `captureMessage`, and also carries the `EventsDropped` summary.
-- `performance` carries `SlowPageLoad`, `SlowApiCall`, `MemoryLeakSuspected`, `MainThreadBlocked` and `LowFrameRate` in `error.type`.
+- `performance` carries `MemoryLeakSuspected`, `MainThreadBlocked` and `LowFrameRate` in `error.type`, and `SlowPageLoad` / `SlowApiCall` with `captureSlowEvents`.
+- `transaction` is one page view (see [Performance monitoring](#performance-monitoring)). It never becomes an issue.
 - `crash` is unused on the web.
 
 **`handled`:** `false` when something broke without app code getting a chance to react (uncaught exceptions and rejections, failed resources, CSP blocks, worker errors). `true` when the problem was handed back to the app: an HTTP error status, a rejected request, a JSON parse error thrown to the caller, `console.error`, performance issues, and `captureError`. Most events built by the SDK put extra detail in `context`.

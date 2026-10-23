@@ -163,7 +163,7 @@ All three SDKs must send events in this exact JSON shape. Any field not availabl
     "version": "1.0.0"
   },
   "api_key": "string",
-  "event_type": "error" | "message" | "performance" | "crash",
+  "event_type": "error" | "message" | "performance" | "crash" | "transaction",
   "timestamp": "2026-10-17T10:42:15.000Z",
   "environment": "production",
   "app_version": "2.1.4",
@@ -211,9 +211,33 @@ All three SDKs must send events in this exact JSON shape. Any field not availabl
     "screen_height": 1080,
     "url": "https://app.example.com/checkout",
     "locale": "en-IN"
-  }
+  },
+  "transaction": null
 }
 ```
+
+### Addition (2026-10-23, JS 0.5.0): page views as `transaction` events
+Added after the original spec, for Sentry-style performance monitoring. Every SDK sends `"transaction": null` on all other events, and one `transaction` event per **page view** (web route, iOS view controller, Android Activity or Fragment). A transaction event has `error: null`, `stacktrace: []`, `breadcrumbs: []`, `screenshot: null`, an empty `performance` block (nulls / empty arrays), level `info`, and:
+```json
+"transaction": {
+  "name": "/orders/42",                 // route path, or the screen's class/route name on mobile
+  "kind": "pageload" | "navigation" | "continued",
+  "start": "ISO8601",
+  "duration_ms": 5000,
+  "background": false,                  // the app/tab was in the background at some point during the view
+  "vitals": { "ttfb_ms": null, "fcp_ms": null, "lcp_ms": null, "cls": null, "inp_ms": null, "page_load_ms": null },
+  "long_tasks": { "count": 0, "blocking_ms": 0 },
+  "spans": [{ "op": "http", "method": "GET", "url": "https://api.example.com/orders/42", "status": 200, "failure": null,
+              "start_ms": 100, "duration_ms": 600, "server_ms": 500, "download_ms": 80, "size_bytes": 2048, "background": false }],
+  "dropped_spans": 0
+}
+```
+- **kind:** `pageload` = first view after launch/page load (mobile: cold start; `page_load_ms` = startup time), `navigation` = moved to another screen, `continued` = same screen after returning from the background, or a view split after 30 minutes.
+- **A view ends** on navigation, when the app goes to the background, or after 30 minutes. Background time is never part of a view; spans that overlapped the background are flagged `background: true` and excluded from percentiles by the backend.
+- **spans:** every HTTP request (max 100 per view, the rest counted in `dropped_spans`). `server_ms` = request sent → first response byte, `download_ms` = first → last byte (iOS: `URLSessionTaskMetrics`; Android: OkHttp `EventListener` when present, else null). Query strings are stripped from URLs.
+- **vitals** are web metrics; mobile SDKs send null for those without an equivalent (`inp_ms` may map to the slowest touch-to-frame latency; `long_tasks` to main-thread hangs over 50 ms).
+- **Sampling:** `performanceSampleRate` (default 1.0), decided once per app launch / page load. Separate from `sampleRate`. Use `beforeSendTransaction` to scrub or drop.
+- Per-request `SlowApiCall` / `SlowPageLoad` issue events are opt-in (`captureSlowEvents`, default false).
 
 ---
 

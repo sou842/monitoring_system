@@ -1,5 +1,5 @@
 import { MongoClient } from 'mongodb';
-import { EVENT_RETENTION_DAYS, ISSUE_RETENTION_DAYS, SECONDS_PER_DAY } from './constants.js';
+import { EVENT_RETENTION_DAYS, ISSUE_RETENTION_DAYS, ROLLUP_RETENTION_DAYS, SECONDS_PER_DAY, TRANSACTION_RETENTION_DAYS } from './constants.js';
 import { requireEnv } from './env.js';
 
 /**
@@ -57,6 +57,16 @@ export async function ensureIndexes(db) {
     db.collection('events').createIndex({ projectId: 1, receivedAt: -1 }),
     // Events older than 30 days are removed automatically.
     db.collection('events').createIndex({ receivedAt: 1 }, { expireAfterSeconds: EVENT_RETENTION_DAYS * SECONDS_PER_DAY }),
+
+    // Page views: newest first per project, and "slowest calls to this endpoint".
+    db.collection('transactions').createIndex({ projectId: 1, receivedAt: -1 }),
+    db.collection('transactions').createIndex({ projectId: 1, route: 1, receivedAt: -1 }),
+    db.collection('transactions').createIndex({ projectId: 1, 'spans.key': 1, receivedAt: -1 }),
+    db.collection('transactions').createIndex({ receivedAt: 1 }, { expireAfterSeconds: TRANSACTION_RETENTION_DAYS * SECONDS_PER_DAY }),
+    // One rollup row per (project, hour, environment, page or endpoint).
+    db.collection('perf_rollups').createIndex({ projectId: 1, kind: 1, key: 1, environment: 1, hour: 1 }, { unique: true }),
+    db.collection('perf_rollups').createIndex({ projectId: 1, hour: 1 }),
+    db.collection('perf_rollups').createIndex({ hour: 1 }, { expireAfterSeconds: ROLLUP_RETENTION_DAYS * SECONDS_PER_DAY }),
 
     // Rate-limit counters expire right after their minute is over.
     db.collection('rate_limits').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),

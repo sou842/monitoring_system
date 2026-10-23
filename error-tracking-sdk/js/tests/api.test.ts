@@ -11,6 +11,8 @@ const BASE_CONFIG = {
   environment: 'staging',
   appVersion: '2.1.4',
   captureScreenshots: false,
+  // Page views have their own tests below; here they would add to every event count.
+  performanceSampleRate: 0,
 };
 
 let fetchMock: ReturnType<typeof mockFetch>;
@@ -74,7 +76,7 @@ describe('ErrorTracker public API', () => {
   it('applies slowApiCallMs from init() to real fetch calls', async () => {
     let clock = 0;
     vi.spyOn(performance, 'now').mockImplementation(() => clock);
-    ErrorTracker.init({ ...BASE_CONFIG, slowApiCallMs: 3000 });
+    ErrorTracker.init({ ...BASE_CONFIG, slowApiCallMs: 3000, captureSlowEvents: true });
     // The mock fetch parses every body, so app calls send an empty batch too.
     const call = (url: string, ms: number) => {
       const pending = window.fetch(url, { method: 'POST', body: '{"events":[]}' });
@@ -88,7 +90,8 @@ describe('ErrorTracker public API', () => {
 
     const slow = sentEvents().filter((e) => e.error !== null && e.error.type === 'SlowApiCall');
     expect(slow).toHaveLength(1);
-    expect(slow[0].error).toMatchObject({ message: 'Slow API call: POST https://app.test/api/report took 3500ms', handled: true });
+    expect(slow[0].error).toMatchObject({ message: 'Slow API call: POST https://app.test/api/report', handled: true });
+    expect(slow[0].context).toMatchObject({ duration_ms: 3500, threshold_ms: 3000 });
   });
 
   describe('PageNotFound', () => {
@@ -406,6 +409,61 @@ describe('ErrorTracker public API', () => {
     expect(summary).toHaveLength(1);
     expect(summary[0]).toMatchObject({ event_type: 'message', level: 'warning', context: { dropped_count: 50 } });
     expect(sentEvents()).toHaveLength(RATE_LIMIT_MAX_EVENTS + 1);
+  });
+
+  describe('page views (transaction events)', () => {
+    it('sends each page view with its request spans, in the shared schema shape', async () => {
+      ErrorTracker.init({ ...BASE_CONFIG, performanceSampleRate: 1 });
+      await window.fetch('https://app.test/api/cart?session=abc', { method: 'POST', body: '{"events":[]}' });
+      window.history.pushState(null, '', '/checkout?step=2');
+      await ErrorTracker.close();
+
+      const views = sentEvents().filter((e) => e.event_type === 'transaction');
+      expect(views.map((e) => e.transaction !== null && e.transaction.kind)).toEqual(['pageload', 'navigation']);
+      views.forEach(expectSchemaShape);
+      const [load, nav] = views;
+      expect(load).toMatchObject({ level: 'info', error: null, breadcrumbs: [], screenshot: null, context: null });
+      expect(load.transaction).toMatchObject({ name: '/', background: false });
+      expect(load.transaction && load.transaction.spans).toEqual([
+        expect.objectContaining({ op: 'http', method: 'POST', url: 'https://app.test/api/cart', status: 202 }),
+      ]);
+      expect(nav.transaction).toMatchObject({ name: '/checkout', kind: 'navigation', spans: [] });
+      window.history.replaceState(null, '', '/');
+    });
+
+    it('samples page views with performanceSampleRate, independently of sampleRate', async () => {
+      ErrorTracker.init({ ...BASE_CONFIG, performanceSampleRate: 1, sampleRate: 0 });
+      ErrorTracker.captureError(new Error('dropped by sampleRate'));
+      await ErrorTracker.close();
+      expect(sentEvents().map((e) => e.event_type)).toEqual(['transaction']);
+    });
+
+    it('lets beforeSendTransaction drop page views, and keeps beforeSend for errors only', async () => {
+      const beforeSend = vi.fn((event: TrackerEvent) => event);
+      ErrorTracker.init({ ...BASE_CONFIG, performanceSampleRate: 1, beforeSend, beforeSendTransaction: () => null });
+      ErrorTracker.captureError(new Error('kept'));
+      await ErrorTracker.close();
+      expect(sentEvents().map((e) => e.event_type)).toEqual(['error']);
+      expect(beforeSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('sets transaction: null on every other event', async () => {
+      ErrorTracker.init(BASE_CONFIG);
+      ErrorTracker.captureMessage('hello');
+      await ErrorTracker.flush();
+      expect(sentEvents()[0].transaction).toBeNull();
+    });
+
+    it('sends no SlowApiCall issue unless captureSlowEvents is on', async () => {
+      let clock = 0;
+      vi.spyOn(performance, 'now').mockImplementation(() => clock);
+      ErrorTracker.init(BASE_CONFIG);
+      const pending = window.fetch('https://app.test/api/report', { method: 'POST', body: '{"events":[]}' });
+      clock += 9000;
+      await pending;
+      await ErrorTracker.flush();
+      expect(sentEvents().filter((e) => e.error !== null && e.error.type === 'SlowApiCall')).toHaveLength(0);
+    });
   });
 
   describe('memory leaks', () => {

@@ -31,6 +31,9 @@ export async function deleteProject(db, projectId) {
   const removed = await deleteIssues(db, { projectId });
   // Events whose issue is already gone (e.g. sent while the delete was running).
   removed.events += (await db.collection('events').deleteMany({ projectId })).deletedCount;
+  // Performance data has no issues; it goes with the project.
+  await db.collection('transactions').deleteMany({ projectId });
+  await db.collection('perf_rollups').deleteMany({ projectId });
   await db.collection('projects').deleteOne({ _id: projectId });
   // The deleted key must stop working right away in this instance.
   clearProjectCache();

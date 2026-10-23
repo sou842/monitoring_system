@@ -4,7 +4,7 @@ import { getDb } from '../../lib/db.js';
 import { errorResponse, handle, json, readJson } from '../../lib/http.js';
 import { ingestEvents } from '../../lib/ingest.js';
 import { findProjectByApiKey } from '../../lib/projects.js';
-import { consumeEventBudget } from '../../lib/rateLimit.js';
+import { consumeEventBudget, consumeTransactionBudget } from '../../lib/rateLimit.js';
 
 /**
  * POST /api/v1/events — ingestion endpoint used by the SDKs.
@@ -56,11 +56,18 @@ async function ingest(request) {
   if (project === null) return errorResponse(401, 'invalid_api_key', 'Unknown API key');
   if (project.disabled) return errorResponse(403, 'project_disabled', 'This project belongs to a disabled account');
 
-  const budget = await consumeEventBudget(db, project._id, events.length);
-  if (!budget.allowed) {
-    return errorResponse(429, 'rate_limited', 'Too many events this minute', { 'Retry-After': String(budget.retryAfterSeconds) });
+  // Errors and page views have separate budgets, so heavy traffic can't crowd out errors.
+  const pageViewCount = events.filter((event) => event && event.event_type === 'transaction').length;
+  const otherCount = events.length - pageViewCount;
+  if (otherCount > 0) {
+    const budget = await consumeEventBudget(db, project._id, otherCount);
+    if (!budget.allowed) {
+      return errorResponse(429, 'rate_limited', 'Too many events this minute', { 'Retry-After': String(budget.retryAfterSeconds) });
+    }
   }
+  // Over the page-view budget, page views are dropped (not retried): they are samples, not reports.
+  const acceptTransactions = pageViewCount === 0 || (await consumeTransactionBudget(db, project._id, pageViewCount)).allowed;
 
-  const result = await ingestEvents({ db, project, rawEvents: events, uploadScreenshot });
+  const result = await ingestEvents({ db, project, rawEvents: events, uploadScreenshot, acceptTransactions });
   return json(result, 202);
 }

@@ -3,6 +3,7 @@
  *
  *   #/login, #/signup  accounts (anyone can sign up; each user sees only their own projects)
  *   #/dashboard        overview charts (all projects or one; ?range=24h|7d&project=<id>)
+ *   #/performance      Web Vitals, endpoints and pages (&env=, &endpoint=<key> or &page=<route> for a detail view)
  *   #/projects         projects, create project / API key
  *   #/p/<projectId>    issues of a project (filters in the hash query)
  *   #/i/<issueId>      one issue with its events
@@ -1075,6 +1076,268 @@ function welcome() {
       step(3, 'Watch errors arrive', 'Errors, slow pages, failed requests and crashes show up grouped into issues, with stack traces and breadcrumbs.')));
 }
 
+// ---------------------------------------------------------------------------
+// Performance (page views sent by SDK 0.5.0+ as transaction events)
+// ---------------------------------------------------------------------------
+
+/** Web Vitals in display order, with how to show their value. */
+const PERF_VITALS = [
+  { key: 'lcp', label: 'LCP', name: 'Largest Contentful Paint', format: 'ms' },
+  { key: 'inp', label: 'INP', name: 'Interaction to Next Paint', format: 'ms' },
+  { key: 'cls', label: 'CLS', name: 'Cumulative Layout Shift', format: 'cls' },
+  { key: 'fcp', label: 'FCP', name: 'First Contentful Paint', format: 'ms' },
+  { key: 'ttfb', label: 'TTFB', name: 'Time to First Byte', format: 'ms' },
+  { key: 'load', label: 'Load', name: 'Page load (load event)', format: 'ms' },
+];
+const RATING_TEXT = { good: 'Good', 'needs-improvement': 'Needs work', poor: 'Poor' };
+/** [good up to, poor above] for table dots; mirrors VITAL_THRESHOLDS in lib/constants.js. */
+const VITAL_LIMITS = { lcp: [2500, 4000], inp: [200, 500], cls: [0.1, 0.25] };
+const MS_PER_SECOND = 1000;
+/** Durations from this many ms up are shown in seconds. */
+const SECONDS_FROM_MS = 1000;
+/** Charts that span the full content width. */
+const CHART_WIDE = { width: 1100, height: 240 };
+const ENDPOINT_SORTS = ['count', 'p50', 'p75', 'p95', 'errorRate', 'avgServer'];
+const PAGE_SORTS = ['views', 'load', 'lcp', 'inp', 'cls'];
+
+function formatMs(value) {
+  if (value === null || value === undefined) return '–';
+  return value >= SECONDS_FROM_MS ? `${(value / MS_PER_SECOND).toFixed(value >= 10 * SECONDS_FROM_MS ? 0 : 1)} s` : `${Math.round(value)} ms`;
+}
+
+function formatVital(vital, value) {
+  if (value === null || value === undefined) return '–';
+  return vital.format === 'cls' ? value.toFixed(3) : formatMs(value);
+}
+
+function formatPercent(ratio) {
+  return `${(ratio * 100).toFixed(ratio > 0 && ratio < 0.01 ? 1 : 0)}%`;
+}
+
+function formatBytes(bytes) {
+  if (bytes === null || bytes === undefined) return '–';
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
+}
+
+function ratingBadge(rating) {
+  return rating ? el('span', { class: `rating ${rating}`, text: RATING_TEXT[rating] }) : null;
+}
+
+function vitalCard(vital, summary) {
+  return el('section', { class: 'panel kpi', title: vital.name },
+    el('div', { class: 'panel-head' }, el('span', { text: vital.label }), ratingBadge(summary.rating)),
+    el('div', { class: 'big', text: formatVital(vital, summary.p75) }),
+    el('div', { class: 'delta neutral', text: summary.samples === 0 ? 'No samples yet' : `p75 · ${summary.samples.toLocaleString()} page view(s)` }));
+}
+
+/** A sortable table header cell: clicking it re-sorts by that column (largest first). */
+function sortHeader(text, key, current, onSort, numeric = true) {
+  return el('th', { class: numeric ? 'num' : '' },
+    el('button', { class: `th-sort${current === key ? ' active' : ''}`, text: `${text}${current === key ? ' ↓' : ''}`, onclick: () => onSort(key) }));
+}
+
+function sortRows(rows, key) {
+  return rows.slice().sort((a, b) => (b[key] ?? -1) - (a[key] ?? -1));
+}
+
+async function performancePage(query) {
+  setNav('performance');
+  loading();
+  const range = query.get('range') === '7d' ? '7d' : '24h';
+  const projects = await getProjects();
+  const projectId = projects.some((p) => p.id === query.get('project')) ? query.get('project') : '';
+  const environment = query.get('env') || '';
+  const endpoint = query.get('endpoint');
+  const page = query.get('page');
+
+  const state = { range, project: projectId, env: environment };
+  const link = (changes) => {
+    const next = new URLSearchParams({ ...state, ...changes });
+    for (const [key, value] of [...next]) if (value === '' || value === null) next.delete(key);
+    return `#/performance?${next}`;
+  };
+  const base = `/api/stats?view=performance&range=${range}${projectId ? `&projectId=${projectId}` : ''}${environment ? `&environment=${encodeURIComponent(environment)}` : ''}`;
+
+  if (projects.length === 0) {
+    setCrumbs(el('span', { text: 'Performance' }));
+    show(welcome());
+    return;
+  }
+
+  const overview = await cachedGet(base);
+  const toolbar = el('div', { class: 'toolbar' },
+    el('div', { class: 'seg', attrs: { role: 'group', 'aria-label': 'Time range' } },
+      Object.entries(RANGE_LABELS).map(([key, text]) => el('button', { class: range === key ? 'active' : '', text, onclick: () => go(link({ range: key, endpoint, page })) }))),
+    el('select', { attrs: { 'aria-label': 'Project' }, onchange: (e) => go(link({ project: e.target.value })) },
+      el('option', { value: '', text: 'All projects' }),
+      projects.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === projectId }))),
+    el('select', { attrs: { 'aria-label': 'Environment' }, onchange: (e) => go(link({ env: e.target.value, endpoint, page })) },
+      el('option', { value: '', text: 'All environments' }),
+      overview.environments.map((env) => el('option', { value: env, text: env, selected: env === environment }))),
+  );
+
+  if (endpoint) return endpointDetail(toolbar, link, `${base}&endpoint=${encodeURIComponent(endpoint)}`, endpoint);
+  if (page) return pageDetail(toolbar, link, `${base}&page=${encodeURIComponent(page)}`, page);
+
+  setCrumbs(el('span', { text: 'Performance' }));
+  if (overview.totals.views === 0 && overview.totals.requests === 0) {
+    show(toolbar, emptyState('inbox', 'No performance data yet',
+      `Page views appear here once your app runs ${SDK_PACKAGE} 0.5.0 or later. Each page view sends its Web Vitals and the timing of every request.`));
+    return;
+  }
+
+  const labels = overview.series.map((b) => bucketLabel(b.start, range));
+  const sideLabel = RANGE_LABELS[range];
+  const endpointSort = ENDPOINT_SORTS.includes(query.get('sort')) ? query.get('sort') : 'count';
+  const pageSort = PAGE_SORTS.includes(query.get('psort')) ? query.get('psort') : 'views';
+
+  const requests = panel('span-2', 'Request latency · p75', sideLabel,
+    el('div', { class: 'big' }, formatMs(overview.totals.p75), el('small', { text: `p95 ${formatMs(overview.totals.p95)}` })),
+    el('div', { class: 'delta neutral', text: `${overview.totals.requests.toLocaleString()} request(s) · ${formatPercent(overview.totals.errorRate)} failed` }),
+    el('div', { class: 'section' }, columnChart(overview.series.map((b) => b.p75 || 0), labels, { size: CHART_LARGE, axis: true })));
+  const views = panel('', 'Page views', sideLabel,
+    el('div', { class: 'big' }, overview.totals.views.toLocaleString(), el('small', { text: `${overview.totals.loads.toLocaleString()} full load(s)` })),
+    el('div', { class: 'section' }, columnChart(overview.series.map((b) => b.views), labels, { size: CHART_SMALL })));
+
+  const endpointRows = sortRows(overview.endpoints, endpointSort).map((e) =>
+    el('tr', {},
+      el('td', { class: 'wrap' }, el('a', { href: link({ endpoint: e.key }), title: e.key },
+        el('span', { class: 'method', text: e.method }), el('span', { class: 'muted', text: e.origin }), el('span', { text: e.path }))),
+      el('td', { class: 'num', text: e.count.toLocaleString() }),
+      el('td', { class: 'num', text: formatMs(e.p50) }),
+      el('td', { class: 'num', text: formatMs(e.p75) }),
+      el('td', { class: `num${e.p95 !== null && e.p95 >= SECONDS_FROM_MS ? ' warn' : ''}`, text: formatMs(e.p95) }),
+      el('td', { class: `num${e.errorRate > 0 ? ' warn' : ''}`, text: formatPercent(e.errorRate) }),
+      el('td', { class: 'num muted', text: formatMs(e.avgServer) }),
+      el('td', { class: 'num muted', text: formatMs(e.avgDownload) })));
+  const endpointsTable = el('section', { class: 'card table-wrap section' },
+    el('div', { class: 'table-title' }, el('h3', { text: 'Endpoints' }),
+      el('span', { class: 'muted small', text: 'Server = time to first byte, from the browser. Requests made while the tab was hidden are counted but not timed.' })),
+    el('table', { class: 'table' },
+      el('thead', {}, el('tr', {},
+        el('th', { text: 'Endpoint' }),
+        sortHeader('Calls', 'count', endpointSort, (s) => go(link({ sort: s, psort: pageSort }))),
+        sortHeader('p50', 'p50', endpointSort, (s) => go(link({ sort: s, psort: pageSort }))),
+        sortHeader('p75', 'p75', endpointSort, (s) => go(link({ sort: s, psort: pageSort }))),
+        sortHeader('p95', 'p95', endpointSort, (s) => go(link({ sort: s, psort: pageSort }))),
+        sortHeader('Failed', 'errorRate', endpointSort, (s) => go(link({ sort: s, psort: pageSort }))),
+        sortHeader('Server', 'avgServer', endpointSort, (s) => go(link({ sort: s, psort: pageSort }))),
+        el('th', { class: 'num', text: 'Download' }))),
+      el('tbody', {}, endpointRows)));
+
+  const pageRows = sortRows(overview.pages, pageSort).map((p) =>
+    el('tr', {},
+      el('td', { class: 'wrap' }, el('a', { href: link({ page: p.name }), text: p.name })),
+      el('td', { class: 'num', text: p.views.toLocaleString() }),
+      el('td', { class: 'num', text: formatMs(p.load) }),
+      el('td', { class: 'num' }, formatMs(p.lcp), ' ', ratingDot('lcp', p.lcp)),
+      el('td', { class: 'num' }, formatMs(p.inp), ' ', ratingDot('inp', p.inp)),
+      el('td', { class: 'num' }, p.cls === null ? '–' : p.cls.toFixed(3), ' ', ratingDot('cls', p.cls)),
+      el('td', { class: 'num muted', text: formatMs(p.ttfb) })));
+  const pagesTable = el('section', { class: 'card table-wrap section' },
+    el('div', { class: 'table-title' }, el('h3', { text: 'Pages' }), el('span', { class: 'muted small', text: 'p75 per route. IDs in paths are grouped as {id}.' })),
+    el('table', { class: 'table' },
+      el('thead', {}, el('tr', {},
+        el('th', { text: 'Route' }),
+        sortHeader('Views', 'views', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
+        sortHeader('Load', 'load', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
+        sortHeader('LCP', 'lcp', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
+        sortHeader('INP', 'inp', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
+        sortHeader('CLS', 'cls', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
+        el('th', { class: 'num', text: 'TTFB' }))),
+      el('tbody', {}, pageRows)));
+
+  show(toolbar,
+    el('div', { class: 'vitals-grid' }, PERF_VITALS.map((vital) => vitalCard(vital, overview.vitals[vital.key]))),
+    el('div', { class: 'dash-grid section' }, requests, views),
+    endpointsTable,
+    pagesTable);
+}
+
+/** A small coloured dot for a table cell, using the same thresholds as the server. */
+function ratingDot(vital, value) {
+  if (value === null || value === undefined) return null;
+  const limits = VITAL_LIMITS[vital];
+  const rating = value <= limits[0] ? 'good' : value > limits[1] ? 'poor' : 'needs-improvement';
+  return el('i', { class: `dot ${rating}`, title: RATING_TEXT[rating] });
+}
+
+async function endpointDetail(toolbar, link, path, key) {
+  setCrumbs(el('a', { href: link({}), text: 'Performance' }), el('span', { text: key }));
+  const data = await cachedGet(path);
+  const s = data.summary;
+  const labels = data.series.map((b) => bucketLabel(b.start, data.range));
+  const kpi = (label, value, note) => el('section', { class: 'panel kpi' },
+    el('div', { class: 'panel-head' }, el('span', { text: label })), el('div', { class: 'big', text: value }), note ? el('div', { class: 'delta neutral', text: note }) : null);
+
+  const samples = data.samples.map((row) =>
+    el('tr', {},
+      el('td', { class: 'num', text: formatMs(row.duration_ms) }),
+      el('td', { class: 'num muted', text: formatMs(row.server_ms) }),
+      el('td', { class: 'num muted', text: formatMs(row.download_ms) }),
+      el('td', { class: 'num muted', text: formatBytes(row.size_bytes) }),
+      el('td', {}, badge(row.failure || String(row.status), row.status >= 400 || row.status === 0 ? 'error' : 'info')),
+      el('td', { class: 'wrap' }, el('a', { href: link({ page: row.page }), text: row.page })),
+      el('td', { class: 'muted', text: [row.browser, row.os].filter(Boolean).join(' · ') || '–' }),
+      el('td', { class: 'muted', text: timeAgo(row.receivedAt), title: formatDate(row.receivedAt) })));
+
+  show(toolbar,
+    el('div', { class: 'page-head perf-head' }, el('h1', { class: 'endpoint-title' }, el('span', { class: 'method', text: s.method }), el('span', { text: `${s.origin}${s.path}` }))),
+    el('div', { class: 'kpi-grid' },
+      kpi('p50 · p75', `${formatMs(s.p50)} · ${formatMs(s.p75)}`, null),
+      kpi('p95', formatMs(s.p95), null),
+      kpi('Calls', s.count.toLocaleString(), `${formatPercent(s.errorRate)} failed`),
+      kpi('Server · download (avg)', `${formatMs(s.avgServer)} · ${formatMs(s.avgDownload)}`, s.avgServer === null ? 'Not exposed by the browser (cross-origin)' : 'Time to first byte · body')),
+    panel('section', 'Latency per bucket', RANGE_LABELS[data.range],
+      el('div', { class: 'legend' }, el('span', {}, el('i'), `p75 per ${data.range === '7d' ? 'day' : 'hour'}`)),
+      columnChart(data.series.map((b) => b.p75 || 0), labels, { size: CHART_WIDE, axis: true })),
+    el('section', { class: 'card table-wrap section' },
+      el('div', { class: 'table-title' }, el('h3', { text: 'Slowest calls' }), el('span', { class: 'muted small', text: 'From the last 7 days at most; hidden-tab calls are left out.' })),
+      data.samples.length === 0
+        ? el('p', { class: 'muted pad', text: 'No recent calls kept for this endpoint.' })
+        : el('table', { class: 'table' },
+            el('thead', {}, el('tr', {}, ['Duration', 'Server', 'Download', 'Size', 'Status', 'Page', 'Browser', 'When'].map((h, i) =>
+              el('th', { class: i < 4 ? 'num' : '', text: h })))),
+            el('tbody', {}, samples))));
+}
+
+async function pageDetail(toolbar, link, path, route) {
+  setCrumbs(el('a', { href: link({}), text: 'Performance' }), el('span', { text: route }));
+  const data = await cachedGet(path);
+  const labels = data.series.map((b) => bucketLabel(b.start, data.range));
+  const samples = data.samples.map((row) =>
+    el('tr', {},
+      el('td', { class: 'num', text: formatMs(row.vitals.page_load_ms) }),
+      el('td', { class: 'num', text: formatMs(row.vitals.lcp_ms) }),
+      el('td', { class: 'num', text: formatMs(row.vitals.fcp_ms) }),
+      el('td', { class: 'num muted', text: formatMs(row.vitals.ttfb_ms) }),
+      el('td', { class: 'num muted', text: (row.long_tasks && row.long_tasks.blocking_ms) ? formatMs(row.long_tasks.blocking_ms) : '–' }),
+      el('td', { class: 'num muted', text: String(row.spanCount) }),
+      el('td', { class: 'wrap muted', text: row.name }),
+      el('td', { class: 'muted', text: [row.browser, row.os].filter(Boolean).join(' · ') || '–' }),
+      el('td', { class: 'muted', text: timeAgo(row.receivedAt), title: formatDate(row.receivedAt) })));
+
+  show(toolbar,
+    el('div', { class: 'page-head perf-head' }, el('h1', { class: 'endpoint-title', text: route })),
+    el('div', { class: 'vitals-grid' }, PERF_VITALS.map((vital) => vitalCard(vital, data.vitals[vital.key]))),
+    // Routes reached only by in-app navigation have no full page loads: chart their views instead.
+    data.summary.loads > 0
+      ? panel('section', 'Page load · p75', RANGE_LABELS[data.range],
+          el('div', { class: 'delta neutral', text: `${data.summary.views.toLocaleString()} view(s), ${data.summary.loads.toLocaleString()} full load(s)` }),
+          el('div', { class: 'section' }, columnChart(data.series.map((b) => b.load || 0), labels, { size: CHART_WIDE, axis: true })))
+      : panel('section', 'Views', RANGE_LABELS[data.range],
+          el('div', { class: 'delta neutral', text: `${data.summary.views.toLocaleString()} view(s), all from in-app navigation (no full page loads)` }),
+          el('div', { class: 'section' }, columnChart(data.series.map((b) => b.views), labels, { size: CHART_WIDE, axis: true }))),
+    el('section', { class: 'card table-wrap section' },
+      el('div', { class: 'table-title' }, el('h3', { text: 'Slowest page loads' }), el('span', { class: 'muted small', text: 'From the last 7 days at most; loads in a hidden tab are left out.' })),
+      data.samples.length === 0
+        ? el('p', { class: 'muted pad', text: 'No recent full page loads kept for this route.' })
+        : el('table', { class: 'table' },
+            el('thead', {}, el('tr', {}, ['Load', 'LCP', 'FCP', 'TTFB', 'Blocking', 'Requests', 'URL path', 'Browser', 'When'].map((h, i) =>
+              el('th', { class: i < 6 ? 'num' : '', text: h })))),
+            el('tbody', {}, samples))));
+}
+
 async function projectsPage(query) {
   setNav('projects');
   setCrumbs(el('span', { text: 'Projects' }));
@@ -1544,6 +1807,7 @@ async function render() {
     if (parts[0] === 'projects') return await projectsPage(query);
     if (parts[0] === 'p' && parts[1]) return await issuesPage(parts[1], query);
     if (parts[0] === 'i' && parts[1]) return await issuePage(parts[1], query);
+    if (parts[0] === 'performance') return await performancePage(query);
     if (parts[0] === 'account') return await accountPage();
     if (parts[0] === 'admin') return await adminPage(query);
     return await dashboardPage(query);

@@ -1,4 +1,4 @@
-import { EVENT_TYPES, STATS_RANGES, TOP_ISSUES_LIMIT } from './constants.js';
+import { ISSUE_EVENT_TYPES as EVENT_TYPES, STATS_RANGES, TOP_ISSUES_LIMIT } from './constants.js';
 
 /**
  * Numbers for the dashboard overview: events per time bucket (split by type),

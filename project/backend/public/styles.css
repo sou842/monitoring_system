@@ -584,6 +584,34 @@ button.busy:disabled { opacity: 0.85; cursor: progress; }
 .user-cell b { font-weight: 600; margin-right: 6px; }
 .row.nowrap { flex-wrap: nowrap; }
 
+/* ---------- Performance ---------- */
+.vitals-grid { display: grid; gap: 14px; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 14px; }
+.vitals-grid .big { font-size: 22px; }
+.rating { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 6px; border: 1px solid currentColor; border-radius: 3px; }
+.rating.good { color: var(--green); }
+.rating.needs-improvement { color: var(--amber); }
+.rating.poor { color: var(--danger); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: middle; }
+.dot.good { background: var(--green); }
+.dot.needs-improvement { background: var(--amber); }
+.dot.poor { background: var(--danger); }
+.table-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 16px 10px; }
+.table-title h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.table td.wrap { white-space: normal; word-break: break-all; min-width: 220px; }
+.table td.warn { color: var(--amber); }
+.table td a { color: var(--fg); }
+.table td a .muted { margin-right: 2px; }
+.method { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; padding: 1px 5px; margin-right: 8px; border: 1px solid var(--line-strong); border-radius: 3px; }
+.endpoint-title { font-size: 18px; word-break: break-all; }
+.th-sort { background: none; border: 0; padding: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.th-sort.active { color: var(--fg); font-weight: 700; }
+.pad { padding: 4px 16px 18px; margin: 0; }
+.perf-head { margin: 2px 0 16px; }
+.delta.neutral { color: var(--muted); }
+:root[data-theme='light'] .delta.neutral { color: var(--muted); font-weight: 400; }
+@media (max-width: 1200px) { .vitals-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .vitals-grid, .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 /* ---------- Light theme for the above ---------- */
 :root[data-theme='light'] .auth-hero {
   --fg: #ffffff; --fg-2: #dfe7ff; --muted: #a9bce8; --line: rgba(255, 255, 255, 0.12); --line-strong: rgba(255, 255, 255, 0.24);
