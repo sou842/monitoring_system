@@ -2,7 +2,10 @@ import {
   BYTES_PER_MB,
   LEAK_CONSECUTIVE_READINGS,
   LEAK_GROWTH_THRESHOLD,
+  LEAK_MAX_STEP_SHARE,
   LEAK_MIN_GROWTH_MB,
+  LEAK_MIN_STEP_MB,
+  LEAK_MIN_STEP_SHARE_OF_AVERAGE,
   MEMORY_POLL_INTERVAL_MS,
   MEMORY_READINGS_PER_WINDOW,
   MEMORY_WARMUP_MS,
@@ -44,29 +47,48 @@ export interface LeakRule {
   growth: number;
   /** Required growth of the newest floor over the baseline, in bytes. */
   minGrowthBytes: number;
+  /** Each floor must be at least this many bytes above the one before. */
+  minStepBytes: number;
+  /** Largest allowed share (0–1) of the trend's total rise in a single step, when there are 2+ steps. */
+  maxStepShare: number;
 }
 
 /**
  * True when the last `rule.readings` heap floors each rise above the one
- * before, and the newest floor is above `baseline` (the lowest floor seen) by
- * both the growth ratio and the minimum number of bytes.
+ * before by at least `minStepBytes`, no single step makes up more than
+ * `maxStepShare` of the total rise, and the newest floor is above `baseline`
+ * (the lowest floor seen) by both the growth ratio and the minimum number of bytes.
  *
- * A single jump (a heavy screen loading once) is not a leak: the floors after
- * it stay level. Neither is a sawtooth of allocations that garbage collection
- * clears: the floors don't move.
+ * A single jump (a heavy screen loading once) is not a leak: the floors around
+ * it stay level, or barely creep. Neither is a sawtooth of allocations that
+ * garbage collection clears: the floors don't move.
  */
 export function isLeakTrend(floors: readonly number[], baseline: number, rule: LeakRule): boolean {
   if (floors.length < rule.readings || !(baseline > 0)) return false;
   const recent = floors.slice(-rule.readings);
+  let largestStep = 0;
   for (let i = 1; i < recent.length; i++) {
-    if (recent[i] <= recent[i - 1]) return false;
+    const step = recent[i] - recent[i - 1];
+    if (step < rule.minStepBytes) return false;
+    if (step > largestStep) largestStep = step;
   }
+  const totalRise = recent[recent.length - 1] - recent[0];
+  if (recent.length > 2 && largestStep > totalRise * rule.maxStepShare) return false;
   const growth = recent[recent.length - 1] - baseline;
   return growth >= rule.minGrowthBytes && growth / baseline >= rule.growth;
 }
 
 function toMb(bytes: number): number {
   return Math.round((bytes / BYTES_PER_MB) * 10) / 10;
+}
+
+/**
+ * Smallest step between floors that counts as rising: LEAK_MIN_STEP_MB, or
+ * less when the configured growth spread over the configured steps is small.
+ */
+export function minLeakStepBytes(minGrowthBytes: number, readings: number): number {
+  const averageStep = minGrowthBytes / Math.max(1, readings - 1);
+  return Math.min(LEAK_MIN_STEP_MB * BYTES_PER_MB, averageStep * LEAK_MIN_STEP_SHARE_OF_AVERAGE);
 }
 
 /** Polling and leak-detection settings. */
@@ -91,8 +113,9 @@ export interface MemoryOptions {
  *   window's lowest reading (its floor) is used. Garbage the browser collects
  *   later never lifts a floor, so normal allocation churn is ignored.
  * - **Trend:** the last N floors (4 by default) must each be higher than the
- *   one before. A screen that loads once and keeps its data raises one floor,
- *   then the floors stay level.
+ *   one before, by at least 0.5 MB (less for slow-leak settings), and no single step may be more than 70% of
+ *   the total rise. A screen that loads once and keeps its data raises one
+ *   floor in one big step, then the floors stay level.
  * - **Size:** the newest floor must be above the lowest floor seen by 20% and
  *   by 10 MB (both configurable), so small heaps can't trip the ratio.
  *
@@ -133,6 +156,8 @@ export class MemoryCollector implements Collector {
       readings: options.leakReadings,
       growth: options.leakGrowth,
       minGrowthBytes: options.leakMinGrowthMb * BYTES_PER_MB,
+      minStepBytes: minLeakStepBytes(options.leakMinGrowthMb * BYTES_PER_MB, options.leakReadings),
+      maxStepShare: LEAK_MAX_STEP_SHARE,
     };
     const self = this;
     this.poll = guard(logger, 'memory poll', function poll() {

@@ -165,7 +165,14 @@ Every option is optional. Leave one out to keep its default.
 
 A value outside the allowed range is moved to the nearest limit, so `slowApiCallMs: 10` behaves like `100`. A value that isn't a number (a string, `NaN`, `Infinity`) is ignored and the default is used. Neither case throws.
 
-`MainThreadBlocked` and `LowFrameRate` are each reported at most once every 30 s, whatever thresholds you set.
+`MainThreadBlocked` and `LowFrameRate` are each reported at most once every 30 s, whatever thresholds you set. *Since 0.6.1* their `context` says how bad it was and whether the page was still loading, so startup freezes can be told apart from freezes during use:
+
+```json
+{ "duration_ms": 1570, "threshold_ms": 1000, "started_at_ms": 2101, "during_page_load": true }
+{ "fps": 12, "threshold_fps": 20, "during_page_load": false }
+```
+
+`started_at_ms` is milliseconds since the page started loading; `during_page_load` is `true` when the freeze began before the window `load` event ended.
 
 \* *Changed in 0.5.0:* slow calls and slow pages are reported as issues only with `captureSlowEvents: true`, and then at most once per endpoint every 5 minutes, with the duration in `context` so repeats group together. Without it, the two thresholds still mark `performance.slow_api_calls` and `slow_screen` in error payloads, and every request and page is timed in the [Performance view](#performance-monitoring). Calls and loads that overlapped a hidden tab are never judged slow.
 
@@ -274,7 +281,7 @@ Query strings and fragments are stripped from every recorded URL, because they o
 
 1. **Warm-up.** Readings from the first minute after `init()` are ignored, since apps load most of their screens at startup.
 2. **Floors.** Readings are grouped into windows of 4 polls (2 minutes by default). Only each window's lowest reading, its *floor*, is used, so garbage the browser clears later doesn't count.
-3. **Trend.** The last `memoryLeakReadings` floors (4) must each be higher than the one before. A screen that loads once raises one floor, and the floors after it stay level.
+3. **Trend.** The last `memoryLeakReadings` floors (4) must each be higher than the one before **by at least 0.5 MB** (or half the average step that `memoryLeakMinGrowthMb` spread over `memoryLeakReadings` implies, if that is smaller), and **no single step may be more than 70%** of their total rise. A screen that loads once raises one floor in one big step, and the floors around it stay level or only creep by a few KB. *(Changed in 0.6.1: before, tiny creep counted as "rising", so creep plus one big step was reported as a leak.)*
 4. **Size.** The newest floor must be above the lowest floor seen by `memoryLeakGrowth` (20%) **and** by `memoryLeakMinGrowthMb` (10 MB).
 
 With the defaults, the earliest possible report comes about 10 minutes after the page opens. Navigation doesn't reset anything, because a screen that isn't cleaned up when the user leaves it is the most common single-page-app leak. One event is sent per page load, and its `context` holds the measurements:

@@ -1276,7 +1276,7 @@ async function endpointDetail(toolbar, link, path, key) {
       el('td', { class: 'num muted', text: formatMs(row.server_ms) }),
       el('td', { class: 'num muted', text: formatMs(row.download_ms) }),
       el('td', { class: 'num muted', text: formatBytes(row.size_bytes) }),
-      el('td', {}, badge(row.failure || String(row.status), row.status >= 400 || row.status === 0 ? 'error' : 'info')),
+      el('td', {}, badge(row.failure || String(row.status), row.failed ? 'error' : 'info')),
       el('td', { class: 'wrap' }, el('a', { href: link({ page: row.page }), text: row.page })),
       el('td', { class: 'muted', text: [row.browser, row.os].filter(Boolean).join(' · ') || '–' }),
       el('td', { class: 'muted', text: timeAgo(row.receivedAt), title: formatDate(row.receivedAt) })));

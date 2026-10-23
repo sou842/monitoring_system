@@ -7,10 +7,12 @@ import {
   LOW_FPS_THRESHOLD,
   MS_PER_SECOND,
 } from '../constants';
-import { getWindow, isPageVisible, nowMs } from '../core/env';
+import { getDocument, getPerformance, getWindow, isPageVisible, nowMs } from '../core/env';
 import { Logger } from '../core/logger';
 import { guard, safelyRun } from '../core/safe';
+import { JsonObject } from '../types';
 import { Collector, CollectorSink } from './collector';
+import { readPageTimings } from './performanceCollector';
 
 /** A sample is discarded if it took this many times longer than planned (tab was hidden mid-sample). */
 const MAX_SAMPLE_STRETCH = 2;
@@ -23,6 +25,13 @@ export interface ResponsivenessDependencies {
   freezeThresholdMs?: number;
   /** Frame-rate samples under this are reported as `LowFrameRate`. */
   lowFpsThreshold?: number;
+  /** When the page's load event ended (ms since navigation start), or null while it is still loading. */
+  pageLoadEndMs?: () => number | null;
+}
+
+function readPageLoadEnd(): number | null {
+  const perf = getPerformance();
+  return perf !== null ? readPageTimings(perf).pageLoadMs : null;
 }
 
 /**
@@ -50,6 +59,7 @@ export class ResponsivenessCollector implements Collector {
   private readonly sampleIntervalMs: number;
   private readonly freezeThresholdMs: number;
   private readonly lowFpsThreshold: number;
+  private readonly pageLoadEndMs: () => number | null;
   private readonly runSample: () => void;
 
   constructor(
@@ -69,6 +79,7 @@ export class ResponsivenessCollector implements Collector {
     this.sampleIntervalMs = deps.sampleIntervalMs !== undefined ? deps.sampleIntervalMs : FPS_SAMPLE_INTERVAL_MS;
     this.freezeThresholdMs = deps.freezeThresholdMs !== undefined ? deps.freezeThresholdMs : LONG_TASK_FREEZE_MS;
     this.lowFpsThreshold = deps.lowFpsThreshold !== undefined ? deps.lowFpsThreshold : LOW_FPS_THRESHOLD;
+    this.pageLoadEndMs = deps.pageLoadEndMs || readPageLoadEnd;
     const self = this;
     this.runSample = guard(logger, 'frame rate sample', function sample() {
       self.sampleFrameRate();
@@ -103,16 +114,36 @@ export class ResponsivenessCollector implements Collector {
     return this.fps;
   }
 
-  /** Handles one long task; exposed for tests. */
-  recordLongTask(durationMs: number): void {
+  /**
+   * Handles one long task; exposed for tests.
+   * @param startTimeMs When the task started, in ms since navigation start (the entry's `startTime`).
+   */
+  recordLongTask(durationMs: number, startTimeMs?: number): void {
     if (durationMs <= this.freezeThresholdMs) return;
     const now = this.now();
     if (now - this.lastFreezeReport < FREEZE_REPORT_INTERVAL_MS) return;
     this.lastFreezeReport = now;
-    this.sink.onPerformanceIssue(
-      'MainThreadBlocked',
-      'Main thread blocked for ' + Math.round(durationMs) + 'ms (page unresponsive)',
-    );
+    const startedAt = startTimeMs !== undefined ? Math.round(startTimeMs) : null;
+    this.sink.onPerformanceIssue('MainThreadBlocked', 'Main thread blocked for ' + Math.round(durationMs) + 'ms (page unresponsive)', {
+      duration_ms: Math.round(durationMs),
+      threshold_ms: this.freezeThresholdMs,
+      started_at_ms: startedAt,
+      during_page_load: this.duringPageLoad(startedAt),
+    });
+  }
+
+  /**
+   * Whether something that happened at `atMs` (ms since navigation start)
+   * happened before the page's load event ended. Without a time, whether the
+   * page is still loading now.
+   */
+  private duringPageLoad(atMs: number | null): boolean {
+    const loadEnd = this.pageLoadEndMs();
+    if (loadEnd === null) {
+      const doc = getDocument();
+      return doc !== null && doc.readyState !== 'complete';
+    }
+    return atMs !== null && atMs < loadEnd;
   }
 
   /** Counts frames for one sample window; exposed for tests. */
@@ -146,7 +177,8 @@ export class ResponsivenessCollector implements Collector {
     const now = this.now();
     if (now - this.lastLowFpsReport < FREEZE_REPORT_INTERVAL_MS) return;
     this.lastLowFpsReport = now;
-    this.sink.onPerformanceIssue('LowFrameRate', 'Low frame rate: ' + fps + ' fps (janky scrolling/animation)');
+    const context: JsonObject = { fps: fps, threshold_fps: this.lowFpsThreshold, during_page_load: this.duringPageLoad(null) };
+    this.sink.onPerformanceIssue('LowFrameRate', 'Low frame rate: ' + fps + ' fps (janky scrolling/animation)', context);
   }
 
   private observeLongTasks(): void {
@@ -160,7 +192,7 @@ export class ResponsivenessCollector implements Collector {
       const observer = new PerformanceObserver(
         guard(self.logger, 'long task observer', function onList(list: PerformanceObserverEntryList) {
           const entries = list.getEntries();
-          for (let i = 0; i < entries.length; i++) self.recordLongTask(entries[i].duration);
+          for (let i = 0; i < entries.length; i++) self.recordLongTask(entries[i].duration, entries[i].startTime);
         }),
       );
       observer.observe({ type: 'longtask', buffered: true });

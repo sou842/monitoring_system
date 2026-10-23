@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.6.0';
+export const SDK_VERSION = '0.6.1';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -188,6 +188,26 @@ export const LEAK_GROWTH_THRESHOLD_MAX = 10;
 export const LEAK_MIN_GROWTH_MB = 10;
 export const LEAK_MIN_GROWTH_MB_MIN = 1;
 export const LEAK_MIN_GROWTH_MB_MAX = 4096;
+/**
+ * Each floor in the trend must rise at least this much over the one before.
+ * Chrome's heap creeps up by a few KB between windows even when nothing
+ * leaks, which would otherwise count as "rising". Lowered automatically when
+ * `memoryLeakMinGrowthMb` / `memoryLeakReadings` describe a slower leak (see
+ * LEAK_MIN_STEP_SHARE_OF_AVERAGE).
+ */
+export const LEAK_MIN_STEP_MB = 0.5;
+/**
+ * The minimum step is never more than this share of the average step a leak of
+ * exactly `memoryLeakMinGrowthMb` over `memoryLeakReadings` floors would take,
+ * so long or small trend settings can still be met by a real, slightly uneven leak.
+ */
+export const LEAK_MIN_STEP_SHARE_OF_AVERAGE = 0.5;
+/**
+ * No single step may be more than this share of the trend's total rise. A
+ * heavy screen loading once is one big step after small creep, not a leak.
+ * Only applies when the trend has at least two steps.
+ */
+export const LEAK_MAX_STEP_SHARE = 0.7;
 /** Readings per floor window. The window's lowest reading approximates the heap left after garbage collection. */
 export const MEMORY_READINGS_PER_WINDOW = 4;
 /** Readings this soon after init are not used for leak detection: apps load most of their screens and caches at startup. */

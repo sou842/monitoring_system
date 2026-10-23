@@ -2,6 +2,7 @@ import { PERFORMANCE_TABLE_LIMIT, SLOWEST_SAMPLES_LIMIT, STATS_RANGES, TRANSACTI
 import {
   combineRows,
   endpointSummary,
+  isFailure,
   pageSummary,
   percentile,
   rollupHour,
@@ -164,7 +165,7 @@ export async function computeEndpointDetail(db, { projectIds, range, key, enviro
         p95: round(percentile(combined.h, 0.95)),
       };
     }),
-    samples,
+    samples: samples.map((sample) => ({ ...sample, failed: isFailure(sample) })),
   };
 }
 

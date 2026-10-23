@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isLeakTrend, MemoryCollector, MemoryOptions, MemoryReading } from '../src/collectors/memoryCollector';
+import { isLeakTrend, MemoryCollector, MemoryOptions, MemoryReading, minLeakStepBytes } from '../src/collectors/memoryCollector';
 import { ClsTracker, PerformanceCollector, readPageTimings } from '../src/collectors/performanceCollector';
 import { VisibilityTracker } from '../src/core/visibility';
 import { NetworkInterceptor } from '../src/collectors/networkInterceptor';
@@ -11,7 +11,7 @@ const logger = new Logger(false);
 const MB = 1024 * 1024;
 
 describe('isLeakTrend', () => {
-  const rule = { readings: 4, growth: 0.2, minGrowthBytes: 10 };
+  const rule = { readings: 4, growth: 0.2, minGrowthBytes: 10, minStepBytes: 1, maxStepShare: 0.7 };
 
   it('needs floors that rise every time, by the ratio and the minimum', () => {
     expect(isLeakTrend([100, 110, 120, 130], 100, rule)).toBe(true); // +30, +30%
@@ -19,6 +19,28 @@ describe('isLeakTrend', () => {
     expect(isLeakTrend([100, 120, 140], 100, rule)).toBe(false); // too few floors
     expect(isLeakTrend([100, 105, 110, 115], 100, rule)).toBe(false); // +15%
     expect(isLeakTrend([20, 24, 28, 29], 20, rule)).toBe(false); // +45% but only +9
+  });
+
+  it('ignores creep smaller than the minimum step', () => {
+    // Real Chrome case: three "flat" floors that each crept up by a few KB, then one 22.8 MB jump.
+    const kb = 1024;
+    const floors = [13.3 * MB, 13.3 * MB + 4 * kb, 13.3 * MB + 9 * kb, 36.1 * MB];
+    const real = { readings: 4, growth: 0.2, minGrowthBytes: 10 * MB, minStepBytes: 0.5 * MB, maxStepShare: 0.7 };
+    expect(isLeakTrend(floors, 13.3 * MB, real)).toBe(false);
+    expect(isLeakTrend([13 * MB, 18 * MB, 23 * MB, 28 * MB], 13 * MB, real)).toBe(true);
+  });
+
+  it('lowers the minimum step for slow-leak settings, never below creep-sized steps', () => {
+    expect(minLeakStepBytes(10 * MB, 4)).toBe(0.5 * MB); // defaults: average step 3.3 MB
+    expect(minLeakStepBytes(10 * MB, 20)).toBeCloseTo((10 * MB) / 19 / 2); // ~0.26 MB
+    expect(minLeakStepBytes(1 * MB, 4)).toBeCloseTo(MB / 3 / 2); // ~0.17 MB, still far above KB creep
+  });
+
+  it('rejects a trend made mostly of one step', () => {
+    expect(isLeakTrend([100, 102, 104, 140], 100, rule)).toBe(false); // the last step is 36 of 40
+    expect(isLeakTrend([100, 110, 115, 135], 100, rule)).toBe(true); // largest step 20 of 35 (57%)
+    // With only two floors there is one step, so the share rule can't apply.
+    expect(isLeakTrend([100, 140], 100, { ...rule, readings: 2 })).toBe(true);
   });
 
   it('measures growth from the lowest floor seen, not the oldest one kept', () => {
@@ -81,6 +103,26 @@ describe('MemoryCollector', () => {
     h.poll(40, 45);
     for (const floor of [50, 50, 120, 120, 121, 120, 121, 120]) h.poll(...windowWithFloor(floor));
     expect(h.sink.issues).toHaveLength(0);
+  });
+
+  it('ignores KB-sized creep followed by one big load (the 13.3 MB → 36.1 MB false alarm)', () => {
+    const h = harness();
+    h.poll(12, 13); // warm-up
+    for (const floor of [13.3, 13.304, 13.309, 13.313, 36.1, 36.104, 36.11]) h.poll(...windowWithFloor(floor));
+    expect(h.sink.issues).toHaveLength(0);
+  });
+
+  it('still reports a slow, uneven leak with long trend settings', () => {
+    const h = harness({ leakReadings: 12 });
+    h.poll(40, 45); // warm-up
+    // 10.5 MB over 11 steps, some only 0.48 MB: under the fixed 0.5 MB step, above half the
+    // average step these settings imply (10 MB / 11 / 2 = 0.45 MB).
+    const steps = [1.2, 0.48, 1.4, 0.9, 0.48, 1.5, 1.1, 0.48, 1.3, 1.0, 0.7];
+    let floor = 50;
+    h.poll(...windowWithFloor(floor));
+    for (const step of steps) h.poll(...windowWithFloor((floor += step)));
+    h.poll(...windowWithFloor(floor + 1)); // closes the last window
+    expect(h.sink.issues.map((i) => i.kind)).toEqual(['MemoryLeakSuspected']);
   });
 
   it('ignores allocation churn that garbage collection clears', () => {

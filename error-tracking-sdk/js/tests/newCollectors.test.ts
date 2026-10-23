@@ -192,10 +192,32 @@ describe('ResponsivenessCollector', () => {
     now += 30000;
     collector.recordLongTask(1200);
 
-    expect(sink.issues).toEqual([
-      { kind: 'MainThreadBlocked', message: 'Main thread blocked for 1500ms (page unresponsive)' },
-      { kind: 'MainThreadBlocked', message: 'Main thread blocked for 1200ms (page unresponsive)' },
+    expect(sink.issues.map((i) => i.message)).toEqual([
+      'Main thread blocked for 1500ms (page unresponsive)',
+      'Main thread blocked for 1200ms (page unresponsive)',
     ]);
+  });
+
+  it('says how long a block lasted, when it started and whether the page was still loading', () => {
+    let now = 100000;
+    const sink = new RecordingSink();
+    const collector = new ResponsivenessCollector(sink, logger, { now: () => now, requestFrame: () => {}, pageLoadEndMs: () => 4894 });
+    collector.recordLongTask(1570.4, 2100.7); // before the load event ended
+    now += 30000;
+    collector.recordLongTask(1300, 60000);
+    expect(sink.issues.map((i) => i.context)).toEqual([
+      { duration_ms: 1570, threshold_ms: 1000, started_at_ms: 2101, during_page_load: true },
+      { duration_ms: 1300, threshold_ms: 1000, started_at_ms: 60000, during_page_load: false },
+    ]);
+  });
+
+  it('treats a block as during page load while the load event has not ended', () => {
+    const sink = new RecordingSink();
+    const collector = new ResponsivenessCollector(sink, logger, { now: () => 100000, requestFrame: () => {}, pageLoadEndMs: () => null });
+    const readyState = vi.spyOn(document, 'readyState', 'get').mockReturnValue('interactive');
+    collector.recordLongTask(1500, 800);
+    readyState.mockRestore();
+    expect(sink.issues[0].context).toMatchObject({ during_page_load: true });
   });
 
   it('uses a custom main-thread block threshold when given', () => {
@@ -204,7 +226,13 @@ describe('ResponsivenessCollector', () => {
     collector.recordLongTask(1500); // over the default 1 s, under the custom 2 s
     expect(sink.issues).toHaveLength(0);
     collector.recordLongTask(2500);
-    expect(sink.issues).toEqual([{ kind: 'MainThreadBlocked', message: 'Main thread blocked for 2500ms (page unresponsive)' }]);
+    expect(sink.issues).toEqual([
+      {
+        kind: 'MainThreadBlocked',
+        message: 'Main thread blocked for 2500ms (page unresponsive)',
+        context: { duration_ms: 2500, threshold_ms: 2000, started_at_ms: null, during_page_load: false },
+      },
+    ]);
   });
 
   /** Drives the sampler with a fake clock: `frameMs` between frames. */
@@ -230,7 +258,13 @@ describe('ResponsivenessCollector', () => {
   it('reports a very low frame rate', () => {
     const { collector, sink } = sample(100);
     expect(collector.frameRate()).toBe(10);
-    expect(sink.issues).toEqual([{ kind: 'LowFrameRate', message: 'Low frame rate: 10 fps (janky scrolling/animation)' }]);
+    expect(sink.issues).toEqual([
+      {
+        kind: 'LowFrameRate',
+        message: 'Low frame rate: 10 fps (janky scrolling/animation)',
+        context: { fps: 10, threshold_fps: 20, during_page_load: false },
+      },
+    ]);
   });
 
   it('uses a custom low frame rate threshold when given', () => {
@@ -238,7 +272,9 @@ describe('ResponsivenessCollector', () => {
     expect(at25.collector.frameRate()).toBe(25);
     expect(at25.sink.issues).toHaveLength(0);
     const strict = sample(40, 30);
-    expect(strict.sink.issues).toEqual([{ kind: 'LowFrameRate', message: 'Low frame rate: 25 fps (janky scrolling/animation)' }]);
+    expect(strict.sink.issues).toEqual([
+      { kind: 'LowFrameRate', message: 'Low frame rate: 25 fps (janky scrolling/animation)', context: { fps: 25, threshold_fps: 30, during_page_load: false } },
+    ]);
   });
 
   it('discards a sample stretched by the tab being hidden', () => {

@@ -48,6 +48,8 @@ type HistoryFn = History['pushState'];
 const CONSOLE_LEVELS: ConsoleLevel[] = ['warn', 'error'];
 const INTERACTIVE_SELECTOR = 'button, a, input, select, textarea, label, summary, [role="button"], [role="link"], [onclick]';
 const FORM_FIELD_TAGS = ['INPUT', 'TEXTAREA', 'SELECT'];
+/** Clicks on these land on the whole page; their text is every word on it (icon sprites included), which says nothing. */
+const PAGE_ROOT_TAGS = ['BODY', 'HTML'];
 
 /** Returns true if `el` or an ancestor matches any selector. Invalid selectors are ignored. */
 export function isMasked(el: Element, selectors: readonly string[]): boolean {
@@ -83,6 +85,7 @@ export function cssPath(el: Element): string {
 /** Human-readable label for a clicked element, never exposing form values or masked text. */
 export function describeElementText(el: Element, maskSelectors: readonly string[]): string {
   if (isMasked(el, maskSelectors)) return MASKED_TEXT;
+  if (PAGE_ROOT_TAGS.indexOf(el.tagName) !== -1) return '';
   if (FORM_FIELD_TAGS.indexOf(el.tagName) !== -1) {
     return truncate(el.getAttribute('aria-label') || el.getAttribute('name') || el.getAttribute('type') || '', MAX_CLICK_TEXT_LENGTH);
   }

@@ -128,6 +128,14 @@ export const ROLLUP_BUCKET_MS = HOUR_MS;
  */
 export const HISTOGRAM_BASE = 1.15;
 export const HISTOGRAM_MAX_BUCKET = 120;
+/**
+ * HTTP statuses that count as a failed request in the Performance view: the JS
+ * SDK's default `httpErrorStatuses` (server errors plus the 4xx codes that
+ * usually mean a client bug). 401, 403, 409, 422, 429, ... are normal app flow
+ * (expired session, permissions, validation, rate limits), not failures.
+ * Single codes or inclusive [min, max] ranges.
+ */
+export const FAILED_HTTP_STATUSES = [400, 404, 405, 413, [500, 599]];
 /** CLS is unitless (0.1 is "good"); it is stored ×1000 in the same histograms. */
 export const CLS_SCALE = 1000;
 /** Rows returned in the pages and endpoints tables, and slowest samples in a detail view. */

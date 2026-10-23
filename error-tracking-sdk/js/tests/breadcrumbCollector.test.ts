@@ -46,6 +46,12 @@ describe('element helpers', () => {
     document.body.innerHTML = '<p>hello</p>';
     expect(describeElementText(document.querySelector('p') as Element, ['[[invalid'])).toBe('hello');
   });
+
+  it('reads no text for clicks on the page itself (body, html)', () => {
+    document.body.innerHTML = '<svg><symbol id="accordion-down"></symbol></svg><p>accessibility accordion-down</p>';
+    expect(describeElementText(document.body, MASK)).toBe('');
+    expect(describeElementText(document.documentElement, MASK)).toBe('');
+  });
 });
 
 describe('BreadcrumbCollector', () => {

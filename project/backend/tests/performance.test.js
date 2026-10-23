@@ -7,6 +7,7 @@ import {
   combineRows,
   endpointOf,
   endpointSummary,
+  isFailure,
   mergeUpdates,
   normalizePath,
   pageSummary,
@@ -148,6 +149,19 @@ describe('rollups', () => {
     assert.equal(pageRow.views, 2);
     assert.ok(Math.abs(pageRow.lcp - 1400) / 1400 < 0.08);
     assert.ok(Math.abs(pageRow.cls - 0.05) < 0.005);
+  });
+});
+
+describe('failed requests', () => {
+  it('counts server errors and client-bug 4xx, not normal app-flow 4xx', () => {
+    for (const status of [400, 404, 405, 413, 500, 503, 599]) assert.equal(isFailure({ status, failure: null }), true, String(status));
+    for (const status of [200, 304, 401, 403, 409, 422, 429]) assert.equal(isFailure({ status, failure: null }), false, String(status));
+  });
+
+  it('counts requests with no response, except ones the app aborted', () => {
+    assert.equal(isFailure({ status: 0, failure: 'timeout' }), true);
+    assert.equal(isFailure({ status: 0, failure: 'network' }), true);
+    assert.equal(isFailure({ status: 0, failure: 'aborted' }), false);
   });
 });
 

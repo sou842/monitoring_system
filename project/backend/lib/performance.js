@@ -1,5 +1,6 @@
 import {
   CLS_SCALE,
+  FAILED_HTTP_STATUSES,
   HISTOGRAM_BASE,
   HISTOGRAM_MAX_BUCKET,
   ROLLUP_BUCKET_MS,
@@ -112,9 +113,15 @@ export function rollupHour(date) {
   return new Date(ms - (ms % ROLLUP_BUCKET_MS));
 }
 
-function isFailure(span) {
-  // Requests the app cancelled itself are not failures.
-  return span.status >= 400 || (span.status === 0 && span.failure !== 'aborted');
+/**
+ * Whether a request counts as failed: a status in FAILED_HTTP_STATUSES, or no
+ * response at all (offline, timeout, CORS). Requests the app cancelled itself
+ * are not failures.
+ */
+export function isFailure(span) {
+  if (span.status === 0) return span.failure !== 'aborted';
+  return FAILED_HTTP_STATUSES.some((entry) =>
+    Array.isArray(entry) ? span.status >= entry[0] && span.status <= entry[1] : span.status === entry);
 }
 
 /**
