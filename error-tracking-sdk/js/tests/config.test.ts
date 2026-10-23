@@ -81,3 +81,29 @@ describe('resolveConfig performance thresholds', () => {
     expect(resolved({ memoryLeakReadings: 4.6 }).memoryLeakReadings).toBe(5);
   });
 });
+
+describe('resolveConfig httpErrorStatuses', () => {
+  it('defaults to 5xx plus the 4xx codes that usually mean a client bug', () => {
+    expect(resolved({}).httpErrorStatuses).toEqual([[400, 400], [404, 404], [405, 405], [413, 413], [500, 599]]);
+  });
+
+  it('accepts single codes and [min, max] ranges', () => {
+    expect(resolved({ httpErrorStatuses: [401, [500, 503]] }).httpErrorStatuses).toEqual([[401, 401], [500, 503]]);
+  });
+
+  it('drops invalid entries and keeps the valid ones', () => {
+    const input = [99, 600, 404.5, [503, 500], [400], '500', null, 418] as unknown as ErrorTrackerConfig['httpErrorStatuses'];
+    expect(resolved({ httpErrorStatuses: input }).httpErrorStatuses).toEqual([[418, 418]]);
+  });
+
+  it('accepts readonly (as const) lists', () => {
+    const statuses = [401, [500, 599]] as const;
+    expect(resolved({ httpErrorStatuses: statuses }).httpErrorStatuses).toEqual([[401, 401], [500, 599]]);
+  });
+
+  it('reports nothing for an empty list and uses the default for a non-array', () => {
+    expect(resolved({ httpErrorStatuses: [] }).httpErrorStatuses).toEqual([]);
+    const notArray = '500' as unknown as ErrorTrackerConfig['httpErrorStatuses'];
+    expect(resolved({ httpErrorStatuses: notArray }).httpErrorStatuses).toHaveLength(5);
+  });
+});

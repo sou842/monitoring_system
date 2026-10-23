@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.5.0';
+export const SDK_VERSION = '0.6.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -95,8 +95,17 @@ export const SLOW_THRESHOLD_MAX_MS = 600000;
 export const PAGE_NOT_FOUND_STATUSES: readonly number[] = [404, 410];
 /** With `captureSlowEvents`, one endpoint is reported as SlowApiCall at most once per this interval. */
 export const SLOW_EVENT_COOLDOWN_MS = 5 * 60 * 1000;
-/** Responses at or above this status are reported as HttpError events. */
+/** Failed resource loads (CSS images, pre-init entries) at or above this status are reported as ResourceError. */
 export const HTTP_ERROR_STATUS_MIN = 400;
+/**
+ * Default for `httpErrorStatuses`: server errors plus the 4xx codes that usually
+ * mean a client bug (malformed request, wrong URL, wrong method, payload too large).
+ * 401/403/409/422/429 are normal app flow (expired session, validation, rate limits).
+ */
+export const DEFAULT_HTTP_ERROR_STATUSES: ReadonlyArray<number | [number, number]> = [400, 404, 405, 413, [500, 599]];
+/** Statuses accepted in `httpErrorStatuses`. */
+export const HTTP_STATUS_CODE_MIN = 100;
+export const HTTP_STATUS_CODE_MAX = 599;
 /** Number of most recent API calls attached to every payload. */
 export const MAX_API_CALLS_TRACKED = 20;
 /** Delay after window `load` so loadEventEnd is populated. */

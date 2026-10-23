@@ -152,7 +152,11 @@ export class Client implements CollectorSink {
     }
     if (config.captureHttpErrors || config.captureNetworkErrors) {
       this.collectors.push(
-        new HttpErrorCollector(this, this.network, { httpErrors: config.captureHttpErrors, networkErrors: config.captureNetworkErrors }),
+        new HttpErrorCollector(this, this.network, {
+          httpErrors: config.captureHttpErrors,
+          httpErrorStatuses: config.httpErrorStatuses,
+          networkErrors: config.captureNetworkErrors,
+        }),
       );
     }
     this.collectors.push(

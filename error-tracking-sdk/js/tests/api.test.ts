@@ -357,7 +357,7 @@ describe('ErrorTracker public API', () => {
   });
 
   describe('HTTP error responses', () => {
-    const STATUS_BY_PATH: Record<string, number> = { '/api/fail': 500, '/api/missing': 404, '/api/ok': 200 };
+    const STATUS_BY_PATH: Record<string, number> = { '/api/fail': 500, '/api/missing': 404, '/api/ok': 200, '/api/login': 401, '/api/invalid': 422 };
     let received: TrackerEvent[];
 
     beforeEach(() => {
@@ -373,7 +373,7 @@ describe('ErrorTracker public API', () => {
       window.fetch = routedFetch as unknown as typeof fetch;
     });
 
-    it('reports 4xx and 5xx responses as HttpError events, but not 2xx', async () => {
+    it('reports 5xx and client-bug 4xx responses (default statuses) as HttpError events, but not 2xx', async () => {
       ErrorTracker.init(BASE_CONFIG);
       await window.fetch('/api/ok');
       await window.fetch('/api/fail', { method: 'POST' });
@@ -387,6 +387,27 @@ describe('ErrorTracker public API', () => {
       expectSchemaShape(received[0]);
       expect(received[0].event_type).toBe('error');
       expect(received[1].breadcrumbs).toContainEqual(expect.objectContaining({ type: 'api', message: 'GET http://localhost:3000/api/missing → 404' }));
+    });
+
+    it('skips 4xx statuses that are normal app flow by default', async () => {
+      ErrorTracker.init(BASE_CONFIG);
+      await window.fetch('/api/login');
+      await window.fetch('/api/invalid');
+      await ErrorTracker.flush();
+      expect(received).toHaveLength(0);
+    });
+
+    it('reports only the statuses listed in httpErrorStatuses', async () => {
+      ErrorTracker.init({ ...BASE_CONFIG, httpErrorStatuses: [401, [420, 429]] });
+      await window.fetch('/api/login');
+      await window.fetch('/api/invalid');
+      await window.fetch('/api/fail');
+      await window.fetch('/api/missing');
+      await ErrorTracker.flush();
+      expect(received.map((e) => e.context)).toEqual([
+        expect.objectContaining({ status: 401 }),
+        expect.objectContaining({ status: 422 }),
+      ]);
     });
 
     it('can be turned off with captureHttpErrors: false', async () => {

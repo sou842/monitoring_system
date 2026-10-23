@@ -1,4 +1,4 @@
-import { HTTP_ERROR_STATUS_MIN, MAX_MESSAGE_LENGTH } from '../constants';
+import { MAX_MESSAGE_LENGTH } from '../constants';
 import { markReported } from '../core/reportedErrors';
 import { truncate } from '../core/serialize';
 import { ApiCall } from '../types';
@@ -45,15 +45,17 @@ export function networkErrorFromCall(call: ApiCall, details: RequestDetails): Ca
 }
 
 export interface HttpErrorOptions {
-  /** Report 4xx/5xx responses. */
+  /** Report responses whose status is in `httpErrorStatuses`. */
   httpErrors: boolean;
+  /** Inclusive `[min, max]` status ranges reported as HttpError. */
+  httpErrorStatuses: ReadonlyArray<[number, number]>;
   /** Report requests that got no response (except user aborts). */
   networkErrors: boolean;
 }
 
 /**
  * Turns failed fetch/XHR requests into `error` events:
- * - `HttpError` for responses with a 4xx or 5xx status;
+ * - `HttpError` for responses whose status is in `httpErrorStatuses`;
  * - `NetworkError` for requests that never got a response (offline, timeout,
  *   connection refused, DNS/SSL failure, CORS). Requests the app cancelled
  *   itself are not errors and are skipped.
@@ -88,11 +90,19 @@ export class HttpErrorCollector implements Collector {
 
   private handle(call: ApiCall, details: RequestDetails): void {
     if (details.failure === null) {
-      if (this.options.httpErrors && call.status >= HTTP_ERROR_STATUS_MIN) this.sink.onError(httpErrorFromCall(call, details));
+      if (this.options.httpErrors && this.isErrorStatus(call.status)) this.sink.onError(httpErrorFromCall(call, details));
       return;
     }
     if (!this.options.networkErrors || details.failure === 'aborted') return;
     markReported(details.error);
     this.sink.onError(networkErrorFromCall(call, details));
+  }
+
+  private isErrorStatus(status: number): boolean {
+    const ranges = this.options.httpErrorStatuses;
+    for (let i = 0; i < ranges.length; i++) {
+      if (status >= ranges[i][0] && status <= ranges[i][1]) return true;
+    }
+    return false;
   }
 }

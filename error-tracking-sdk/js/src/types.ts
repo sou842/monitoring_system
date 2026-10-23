@@ -36,8 +36,16 @@ export interface ErrorTrackerConfig {
   maskSelectors?: string[];
   /** Log SDK diagnostics to the console. Defaults to false. */
   debug?: boolean;
-  /** Report fetch/XHR responses with a 4xx/5xx status as error events. Defaults to true. */
+  /** Report fetch/XHR responses with an error status (see `httpErrorStatuses`) as error events. Defaults to true. */
   captureHttpErrors?: boolean;
+  /**
+   * Which response statuses are reported as `HttpError`: single codes and
+   * inclusive `[min, max]` ranges, e.g. `[400, [500, 599]]`. Invalid entries are
+   * ignored; an empty list reports none. Defaults to
+   * `[400, 404, 405, 413, [500, 599]]`, leaving out 4xx codes that are usually
+   * normal app flow (401, 403, 409, 422, 429, ...).
+   */
+  httpErrorStatuses?: ReadonlyArray<number | readonly [number, number]>;
   /**
    * Report fetch/XHR requests that got no response (offline, timeout, CORS,
    * DNS/SSL failure) as NetworkError events. User-cancelled requests are

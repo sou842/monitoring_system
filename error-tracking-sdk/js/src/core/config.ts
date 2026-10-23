@@ -1,11 +1,14 @@
 import {
   DEFAULT_ENVIRONMENT,
+  DEFAULT_HTTP_ERROR_STATUSES,
   DEFAULT_HTML2CANVAS_INTEGRITY,
   DEFAULT_HTML2CANVAS_URL,
   DEFAULT_MASK_SELECTORS,
   DEFAULT_MAX_BREADCRUMBS,
   DEFAULT_PERFORMANCE_SAMPLE_RATE,
   DEFAULT_SAMPLE_RATE,
+  HTTP_STATUS_CODE_MAX,
+  HTTP_STATUS_CODE_MIN,
   LEAK_CONSECUTIVE_READINGS,
   LEAK_CONSECUTIVE_READINGS_MAX,
   LEAK_CONSECUTIVE_READINGS_MIN,
@@ -43,6 +46,8 @@ export interface ResolvedConfig {
   maskSelectors: string[];
   debug: boolean;
   captureHttpErrors: boolean;
+  /** Inclusive status ranges reported as HttpError. */
+  httpErrorStatuses: Array<[number, number]>;
   captureNetworkErrors: boolean;
   captureConsoleErrors: boolean;
   captureScreenshots: boolean;
@@ -73,6 +78,27 @@ function clamp(value: number, min: number, max: number): number {
 function numberOption(value: unknown, fallback: number, min: number, max: number, integer: boolean): number {
   if (typeof value !== 'number' || !isFinite(value)) return fallback;
   return clamp(integer ? Math.round(value) : value, min, max);
+}
+
+function isStatusCode(value: unknown): value is number {
+  return typeof value === 'number' && value % 1 === 0 && value >= HTTP_STATUS_CODE_MIN && value <= HTTP_STATUS_CODE_MAX;
+}
+
+/** Normalizes status codes and `[min, max]` ranges into ranges, dropping invalid entries. */
+function statusRanges(value: unknown): Array<[number, number]> {
+  const isArray = Object.prototype.toString.call(value) === '[object Array]';
+  const entries: ReadonlyArray<unknown> = isArray ? (value as unknown[]) : DEFAULT_HTTP_ERROR_STATUSES;
+  const ranges: Array<[number, number]> = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (isStatusCode(entry)) {
+      ranges.push([entry, entry]);
+    } else if (Object.prototype.toString.call(entry) === '[object Array]') {
+      const pair = entry as unknown[];
+      if (pair.length === 2 && isStatusCode(pair[0]) && isStatusCode(pair[1]) && pair[0] <= pair[1]) ranges.push([pair[0], pair[1]]);
+    }
+  }
+  return ranges;
 }
 
 function isValidUrl(value: string): boolean {
@@ -119,6 +145,7 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
       ),
       debug: input.debug === true,
       captureHttpErrors: input.captureHttpErrors !== false,
+      httpErrorStatuses: statusRanges(input.httpErrorStatuses),
       captureNetworkErrors: input.captureNetworkErrors !== false,
       captureConsoleErrors: input.captureConsoleErrors === true,
       captureScreenshots: input.captureScreenshots !== false,

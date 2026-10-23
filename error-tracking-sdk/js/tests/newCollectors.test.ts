@@ -33,7 +33,7 @@ describe('NetworkError and HttpError', () => {
   function install(fetchImpl: (input: RequestInfo | URL) => Promise<Response>, networkErrors = true): void {
     window.fetch = vi.fn(fetchImpl) as unknown as typeof fetch;
     network = new NetworkInterceptor(ENDPOINT, logger);
-    new HttpErrorCollector(sink, network, { httpErrors: true, networkErrors }).install();
+    new HttpErrorCollector(sink, network, { httpErrors: true, httpErrorStatuses: [[400, 599]], networkErrors }).install();
     network.install();
   }
 

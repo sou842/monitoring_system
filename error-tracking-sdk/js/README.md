@@ -114,7 +114,8 @@ app.config.errorHandler = (err, instance, info) => {
 | `maxBreadcrumbs` | `number` | `30` | Size of the breadcrumb ring buffer (max 100). |
 | `maskSelectors` | `string[]` | `[]` | Elements to black out in screenshots and hide in click breadcrumbs. `input[type="password"]` is always masked. |
 | `debug` | `boolean` | `false` | Log SDK diagnostics to the console. |
-| `captureHttpErrors` | `boolean` | `true` | Report every fetch/XHR response with a 4xx or 5xx status as an `HttpError` event. |
+| `captureHttpErrors` | `boolean` | `true` | Report fetch/XHR responses whose status is in `httpErrorStatuses` as `HttpError` events. |
+| `httpErrorStatuses` | `Array<number \| [min, max]>` | `[400, 404, 405, 413, [500, 599]]` | Which statuses count as errors. See [Which HTTP statuses are reported](#which-http-statuses-are-reported). *Added in 0.6.0;* earlier versions reported every 4xx and 5xx. |
 | `captureNetworkErrors` | `boolean` | `true` | Report fetch/XHR requests that got no response (offline, timeout, refused, DNS/SSL, CORS) as `NetworkError`. Requests the app aborts are never reported. |
 | `captureConsoleErrors` | `boolean` | `false` | Report each `console.error(...)` call as an event. Off by default because libraries log a lot of noise there. |
 | `captureScreenshots` | `boolean` | `true` | Attach a viewport screenshot to error events. |
@@ -167,6 +168,26 @@ A value outside the allowed range is moved to the nearest limit, so `slowApiCall
 `MainThreadBlocked` and `LowFrameRate` are each reported at most once every 30 s, whatever thresholds you set.
 
 \* *Changed in 0.5.0:* slow calls and slow pages are reported as issues only with `captureSlowEvents: true`, and then at most once per endpoint every 5 minutes, with the duration in `context` so repeats group together. Without it, the two thresholds still mark `performance.slow_api_calls` and `slow_screen` in error payloads, and every request and page is timed in the [Performance view](#performance-monitoring). Calls and loads that overlapped a hidden tab are never judged slow.
+
+### Which HTTP statuses are reported
+
+*Added in 0.6.0.* Many 4xx responses are normal app behaviour, not bugs: `401` when a session expires, `403` for a missing permission, `409`/`422` for validation errors, `429` for rate limiting. Reporting them fills the dashboard with issues nobody will fix, so by default the SDK reports only:
+
+- **500–599**: the server broke.
+- **400, 404, 405, 413**: usually a bug in the client (malformed request, wrong URL, wrong method, payload too large).
+
+Change the list with `httpErrorStatuses`, using single codes and inclusive `[min, max]` ranges:
+
+```js
+ErrorTracker.init({
+  // ...
+  httpErrorStatuses: [[400, 599]], // every 4xx and 5xx (the behaviour before 0.6.0)
+  // httpErrorStatuses: [[500, 599]], // server errors only
+  // httpErrorStatuses: [],          // none (same as captureHttpErrors: false)
+});
+```
+
+Entries that aren't whole numbers between 100 and 599, or ranges with `min > max`, are ignored. Every request still appears in breadcrumbs and in the Performance view whatever its status.
 
 ### Missing pages (404)
 
@@ -232,7 +253,7 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | Collector | Captures |
 | --- | --- |
 | **Errors** | `error` events (capture phase) and `unhandledrejection`. Stack traces are parsed from V8, Firefox and Safari formats into `{ filename, lineno, colno, function }` (max 50 frames, no source maps applied). Errors from other-origin scripts loaded without CORS are labelled `CrossOriginScriptError` (see below). |
-| **Network** | `HttpError` for fetch/XHR responses with a 4xx/5xx status (e.g. `GET https://app.example.com/api/cart → 500`). `NetworkError` for requests that got no response: offline, timeout, connection refused, DNS/SSL failure, CORS (`context.failure` says which, as far as the browser reveals). Requests the app aborts itself are not reported. `InvalidJsonResponse` when `response.json()` fails, even if the app catches it. The stack trace of all three points at the app code that made the request. |
+| **Network** | `HttpError` for fetch/XHR responses with an error status (all 5xx plus 400, 404, 405 and 413 by default, e.g. `GET https://app.example.com/api/cart → 500`; see [Which HTTP statuses are reported](#which-http-statuses-are-reported)). `NetworkError` for requests that got no response: offline, timeout, connection refused, DNS/SSL failure, CORS (`context.failure` says which, as far as the browser reveals). Requests the app aborts itself are not reported. `InvalidJsonResponse` when `response.json()` fails, even if the app catches it. The stack trace of all three points at the app code that made the request. |
 | **Missing pages** | `PageNotFound` (level `warning`) when the page itself was served with 404/410 (Chromium 109+, Firefox), or when the app calls `capturePageNotFound()`. See [Missing pages](#missing-pages-404). |
 | **Resources** | `ResourceError` for failed `<img>`/`<script>`/`<link>` loads, web fonts (`document.fonts`), and CSS background images / `@import`s with a 4xx/5xx status. Failures that happened while the HTML was still loading, before the SDK started, are picked up from Resource Timing. Failed `<link rel="preload">` hints are skipped, since the element using the file reports it. CSS-image and pre-start checks are Chromium 109+ only, and same-origin (or `Timing-Allow-Origin`) only. |
 | **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. Violations caused by the SDK's own screenshot library are ignored. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
