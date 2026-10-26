@@ -148,7 +148,7 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
       httpErrorStatuses: statusRanges(input.httpErrorStatuses),
       captureNetworkErrors: input.captureNetworkErrors !== false,
       captureConsoleErrors: input.captureConsoleErrors === true,
-      captureScreenshots: input.captureScreenshots !== false,
+      captureScreenshots: input.captureScreenshots === true,
       detectPageNotFound: input.detectPageNotFound !== false,
       html2canvasUrl: typeof input.html2canvasUrl === 'string' && input.html2canvasUrl.length > 0 ? input.html2canvasUrl : DEFAULT_HTML2CANVAS_URL,
       html2canvasIntegrity:

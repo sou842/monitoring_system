@@ -184,7 +184,7 @@ sequenceDiagram
 
     App->>SDK: throws TypeError
     SDK->>SDK: sample → dedup → rate limit → build payload
-    SDK->>SDK: screenshot (masked, ≤1280 px, JPEG 0.5)
+    SDK->>SDK: screenshot, if enabled and unhandled (masked, ≤1280 px, JPEG 0.5)
     SDK->>SDK: beforeSend → queue (batch of 10 or 2 s)
     SDK->>API: POST { events: [...] }  X-API-Key
     alt network error / 5xx / 408 / 429

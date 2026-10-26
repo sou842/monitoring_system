@@ -118,7 +118,7 @@ app.config.errorHandler = (err, instance, info) => {
 | `httpErrorStatuses` | `Array<number \| [min, max]>` | `[400, 404, 405, 413, [500, 599]]` | Which statuses count as errors. See [Which HTTP statuses are reported](#which-http-statuses-are-reported). *Added in 0.6.0;* earlier versions reported every 4xx and 5xx. |
 | `captureNetworkErrors` | `boolean` | `true` | Report fetch/XHR requests that got no response (offline, timeout, refused, DNS/SSL, CORS) as `NetworkError`. Requests the app aborts are never reported. |
 | `captureConsoleErrors` | `boolean` | `false` | Report each `console.error(...)` call as an event. Off by default because libraries log a lot of noise there. |
-| `captureScreenshots` | `boolean` | `true` | Attach a viewport screenshot to error events. |
+| `captureScreenshots` | `boolean` | `false` | Attach a viewport screenshot to **unhandled** errors (`handled: false`). *Off by default since 0.6.2*: rendering one freezes the page (see [Screenshots](#screenshots-and-content-security-policy)). |
 | `detectPageNotFound` | `boolean` | `true` | Report a `PageNotFound` event when the page itself was served with a 404 or 410 status. See [Missing pages](#missing-pages-404). |
 | `html2canvasUrl` | `string` | cdnjs html2canvas 1.4.1 | Where the screenshot library is loaded from. |
 | `html2canvasIntegrity` | `string` | SRI hash of the default URL | SRI hash for `html2canvasUrl`. Defaults to `''` (no check) when you set a custom URL. |
@@ -269,7 +269,7 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | **Performance** | One `transaction` event per page view with Web Vitals, INP and every request's timing (see [Performance monitoring](#performance-monitoring)). Error payloads also carry page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS, plus the last 20 API calls. Browsers hold back background tabs, so when the page was hidden before its first paint, FCP and LCP are `null`, and a load or request that overlapped a hidden period is not judged slow. |
 | **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. Adjustable with `mainThreadBlockedMs` / `lowFrameRateFps`. |
 | **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `MemoryLeakSuspected` event when the memory kept after garbage collection grows steadily. See [How memory leaks are detected](#how-memory-leaks-are-detected). |
-| **Screenshots** | The visible viewport as a compressed JPEG: at most 1280 px wide, quality 0.5, typically around 50 KB, capped at ~370 KB. Only taken when the page is visible, at most one every 10 s, with a 3 s time budget. |
+| **Screenshots** | **Opt-in** (`captureScreenshots: true`), and only for unhandled errors: uncaught exceptions and rejections, failed resources, CSP violations and worker errors. Handled errors (`captureError`, HTTP errors, network failures, `console.error`, performance issues) never get one. The visible viewport as a compressed JPEG: at most 1280 px wide, quality 0.5, typically around 50 KB, capped at ~370 KB. Only taken when the page is visible, at most one every 10 s, with a 3 s time budget. |
 
 Query strings and fragments are stripped from every recorded URL, because they often carry tokens.
 
@@ -308,6 +308,8 @@ Browsers hide the message and stack of errors thrown by scripts from another ori
 - Layout bugs that never throw.
 
 ### Screenshots and Content Security Policy
+
+**Cost:** html2canvas copies and draws the page on the main thread, so the page freezes while a screenshot renders. Measured on a page with about 1,500 elements: **~0.4 s on a desktop and ~3–4 s on a mid-range phone** (Chrome at 4× CPU slowdown). That is why screenshots are off by default (0.6.2) and limited to unhandled errors and one every 10 s. Enable them where the picture is worth the freeze, e.g. internal tools or desktop apps.
 
 html2canvas is **not bundled**. It is loaded on demand the first time a screenshot is needed, with Subresource Integrity checking. If your site uses a CSP, allow the script origin (`script-src https://cdnjs.cloudflare.com`). Alternatively, self-host the file and set `html2canvasUrl` (and `html2canvasIntegrity`). If the library can't load, error events are sent without a screenshot. html2canvas also draws `data:` images, so a policy that restricts `img-src` needs `data:` for screenshots to render. The SDK does not report the violations its own library causes.
 

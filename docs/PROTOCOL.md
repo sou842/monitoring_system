@@ -153,7 +153,7 @@ collector / capture* ─► sample ─► dedup ─► rate limit ─► build p
 | Dedup | Identical events (type + message + top frame) within 5 s are dropped (up to 200 fingerprints remembered) |
 | Rate limit | 100 events per rolling minute. When events are dropped, one `EventsDropped` summary is sent 10 s later. |
 | Build | Fills every schema field. Stacks are capped at 50 frames, strings at 1000 characters, messages at 2000. Objects are serialized to depth 5 with at most 50 keys. |
-| Screenshot | See below. At most one every 10 s, with a 3 s budget; on timeout the event is sent without it. |
+| Screenshot | **Opt-in** (`captureScreenshots: true`, off by default since JS 0.6.2) and only for unhandled errors (`handled: false`), because rendering freezes the page (~0.4 s desktop, ~3–4 s mid-range phone). At most one every 10 s, with a 3 s budget; on timeout the event is sent without it. |
 | `beforeSend` | The app can scrub the event, or return `null` to drop it. Transactions use `beforeSendTransaction`. |
 | Queue | Sends a batch at 10 events or after 2 s. The in-memory cap is 100 events (the oldest are dropped). |
 

@@ -59,7 +59,11 @@ export interface ErrorTrackerConfig {
    * 410 status (Chromium 109+ and Firefox). Defaults to true.
    */
   detectPageNotFound?: boolean;
-  /** Attach a screenshot to error events. Defaults to true. */
+  /**
+   * Attach a screenshot to unhandled errors (`handled: false`). Defaults to false:
+   * rendering one blocks the page's main thread (about 0.3 s on a desktop and
+   * several seconds on a mid-range phone for a page with ~1,500 elements).
+   */
   captureScreenshots?: boolean;
   /** Override where html2canvas is loaded from (self-hosting is recommended). */
   html2canvasUrl?: string;

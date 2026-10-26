@@ -429,7 +429,9 @@ export class Client implements CollectorSink {
     const timestamp = nowIso();
     const self = this;
 
-    if (!withScreenshot || !this.config.captureScreenshots) {
+    // Screenshots freeze the page while they render, so only errors that broke
+    // something without the app getting a chance (handled: false) get one.
+    if (!withScreenshot || !this.config.captureScreenshots || input.error === null || input.error.handled) {
       this.finish(buildEvent(input, scope, timestamp));
       return;
     }

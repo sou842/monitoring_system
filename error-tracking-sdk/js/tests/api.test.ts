@@ -335,25 +335,72 @@ describe('ErrorTracker public API', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[ErrorTracker] invalid config'));
   });
 
-  it('attaches a masked screenshot to error events and flush() waits for it', async () => {
-    document.body.innerHTML = '<div class="ssn">123-45-6789</div><p>public</p>';
-    vi.spyOn(document.querySelector('.ssn') as Element, 'getBoundingClientRect').mockReturnValue({
-      left: 5, top: 6, width: 70, height: 20, right: 75, bottom: 26, x: 5, y: 6, toJSON: () => ({}),
-    } as DOMRect);
-    const fillRect = vi.fn();
+  describe('screenshots', () => {
     const win = window as Window & { html2canvas?: unknown };
-    win.html2canvas = vi.fn(() =>
-      Promise.resolve({ getContext: () => ({ fillStyle: '', fillRect }), toDataURL: () => 'data:image/jpeg;base64,MASKED' }),
-    );
+    let fillRect: ReturnType<typeof vi.fn>;
+    let html2canvas: ReturnType<typeof vi.fn>;
+    const uncaught = (message: string) =>
+      window.dispatchEvent(new ErrorEvent('error', { error: new TypeError(message), message: message }));
 
-    ErrorTracker.init({ ...BASE_CONFIG, captureScreenshots: true, maskSelectors: ['.ssn'] });
-    ErrorTracker.captureError(new Error('with screenshot'));
-    await ErrorTracker.flush();
+    beforeEach(() => {
+      document.body.innerHTML = '<div class="ssn">123-45-6789</div><p>public</p>';
+      vi.spyOn(document.querySelector('.ssn') as Element, 'getBoundingClientRect').mockReturnValue({
+        left: 5, top: 6, width: 70, height: 20, right: 75, bottom: 26, x: 5, y: 6, toJSON: () => ({}),
+      } as DOMRect);
+      fillRect = vi.fn();
+      html2canvas = vi.fn(() =>
+        Promise.resolve({ getContext: () => ({ fillStyle: '', fillRect }), toDataURL: () => 'data:image/jpeg;base64,MASKED' }),
+      );
+      win.html2canvas = html2canvas;
+    });
 
-    expect(sentEvents()[0].screenshot).toBe('data:image/jpeg;base64,MASKED');
-    expect(fillRect).toHaveBeenCalledWith(5, 6, 70, 20);
-    delete win.html2canvas;
-    document.body.innerHTML = '';
+    afterEach(() => {
+      delete win.html2canvas;
+      document.body.innerHTML = '';
+    });
+
+    it('are off by default', async () => {
+      const { captureScreenshots: _omitted, ...defaults } = BASE_CONFIG;
+      ErrorTracker.init(defaults);
+      uncaught('no screenshot by default');
+      await ErrorTracker.flush();
+
+      expect(sentEvents()[0].screenshot).toBeNull();
+      expect(html2canvas).not.toHaveBeenCalled();
+    });
+
+    it('when enabled, attach a masked screenshot to unhandled errors and flush() waits for it', async () => {
+      ErrorTracker.init({ ...BASE_CONFIG, captureScreenshots: true, maskSelectors: ['.ssn'] });
+      uncaught('with screenshot');
+      await ErrorTracker.flush();
+
+      expect(sentEvents()[0].error?.handled).toBe(false);
+      expect(sentEvents()[0].screenshot).toBe('data:image/jpeg;base64,MASKED');
+      expect(fillRect).toHaveBeenCalledWith(5, 6, 70, 20);
+    });
+
+    it('when enabled, are never taken for handled errors (captureError, HTTP errors)', async () => {
+      const received: TrackerEvent[] = [];
+      const routedFetch = vi.fn((input: string, init?: RequestInit) => {
+        if (input === ENDPOINT) {
+          received.push(...(JSON.parse(String(init?.body)) as { events: TrackerEvent[] }).events);
+          return Promise.resolve(new Response(null, { status: 202 }));
+        }
+        return Promise.resolve(new Response(null, { status: 500 }));
+      });
+      vi.stubGlobal('fetch', routedFetch);
+      window.fetch = routedFetch as unknown as typeof fetch;
+
+      ErrorTracker.init({ ...BASE_CONFIG, captureScreenshots: true });
+      ErrorTracker.captureError(new Error('caught by the app'));
+      await window.fetch('https://app.test/api/fail');
+      await settle();
+      await ErrorTracker.flush();
+
+      expect(received.map((e) => e.error?.type).sort()).toEqual(['Error', 'HttpError']);
+      for (const event of received) expect(event.screenshot).toBeNull();
+      expect(html2canvas).not.toHaveBeenCalled();
+    });
   });
 
   describe('HTTP error responses', () => {
