@@ -147,7 +147,7 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal(String(stored.ownerId), alice.user.id);
       const list = await (await api.projects.GET(authed('/api/projects'))).json();
       assert.equal(list.projects[0].apiKeyHint.endsWith('…'), true);
-      assert.equal(list.limit, 10);
+      assert.equal(list.limit, null, 'no project limit per account');
     });
 
     it('rejects ingestion without a valid key', async () => {
@@ -272,28 +272,22 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal((await fromOrigin('https://evil.test')).status, 202, 'an empty list allows any origin again');
     });
 
-    it('limits events per IP, before they count against the project budget', async () => {
+    it('limits events per IP', async () => {
       // Each half must run inside one rate-limit window (one minute): start in a fresh one if little is left.
       const freshWindow = async () => {
         const msLeft = 60000 - (Date.now() % 60000);
         if (msLeft < 30000) await new Promise((resolve) => setTimeout(resolve, msLeft + 100));
       };
       await freshWindow();
-      const projectCount = async () => {
-        const doc = await db.collection('rate_limits').findOne({ _id: `${projectId}:${Date.now() - (Date.now() % 60000)}` });
-        return doc ? doc.count : 0;
-      };
       const ip = { 'x-forwarded-for': freshIp() };
       const batch = Array.from({ length: 50 }, () => sampleEvent());
       for (let i = 0; i < 3; i++) assert.equal((await ingest(apiKey, batch, ip)).status, 202);
 
-      const before = await projectCount();
       const over = await ingest(apiKey, [sampleEvent()], ip);
       assert.equal(over.status, 429);
       assert.equal((await over.json()).error.code, 'rate_limited_ip');
       assert.ok(Number(over.headers.get('retry-after')) >= 1);
       assert.equal(over.headers.get('access-control-allow-origin'), '*');
-      assert.equal(await projectCount(), before, 'a refused request uses none of the project budget');
       assert.equal((await ingest(apiKey, [sampleEvent()])).status, 202, 'other IPs still get through');
 
       await freshWindow();
@@ -470,15 +464,13 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal((await ingest(apiKey, [sampleEvent()])).status, 202, "Alice's key still works");
     });
 
-    it('limits the number of projects per user', async () => {
-      for (let i = 0; i < 10; i++) {
+    it('has no limit on the number of projects per user', async () => {
+      for (let i = 0; i < 11; i++) {
         assert.equal((await api.projects.POST(asBob('/api/projects', { method: 'POST', body: { name: `Bob ${i}` } }))).status, 201);
       }
-      const over = await api.projects.POST(asBob('/api/projects', { method: 'POST', body: { name: 'One too many' } }));
-      assert.equal(over.status, 403);
-      assert.equal((await over.json()).error.code, 'project_limit');
       const account = await (await api.account.GET(asBob('/api/account'))).json();
-      assert.deepEqual(account.usage, { projects: 10, projectLimit: 10 });
+      assert.deepEqual(account.usage, { projects: 11, projectLimit: null });
+      assert.equal((await (await api.projects.GET(asBob('/api/projects'))).json()).limit, null);
     });
   });
 

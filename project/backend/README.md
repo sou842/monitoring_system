@@ -52,7 +52,7 @@ The script also gives your account every project that has no owner yet, i.e. pro
 | `CLOUDINARY_UPLOAD_PRESET` | An **unsigned** upload preset. |
 | `SESSION_SECRET` | Long random string that signs login cookies. Changing it logs everyone out. |
 
-Limits (in `lib/constants.js`): 10 projects per user, 1000 events per project per minute, passwords 8–128 characters, 5 sign-ups per IP per hour, and 10 login attempts per account and 50 per IP per 15 minutes.
+Limits (in `lib/constants.js`): no limit on projects per user or on errors per project (both constants are `null`; set a number to turn one back on), 150 events and 150 page views per IP per project per minute, 1000 page views per project per minute, passwords 8–128 characters, 5 sign-ups per IP per hour, and 10 login attempts per account and 50 per IP per 15 minutes.
 
 ## Deploy to Vercel
 
@@ -76,7 +76,7 @@ Optional, recommended: in Cloudinary → Settings → Upload presets → your pr
 
 | Endpoint | Auth | Purpose |
 | --- | --- | --- |
-| `POST /api/v1/events` | `X-API-Key` | Ingest `{ events: [...] }` (max 50 events, 4 MB). CORS open to any origin; a project with **allowed origins** refuses other browser origins with `403 origin_not_allowed` (CORS headers kept, so the SDK drops instead of retrying). Returns `202 { accepted, rejected }`. 429 `rate_limited_ip` when one IP sends over 150 events/min to a project, 429 `rate_limited` over 1000 events/min per project, 403 when the owner's account is disabled. Page views (`transaction` events) have their own budgets (150/min per IP, 1000/min per project); over them they are rejected as `rate_limited` (not retried), while errors in the same batch are still stored. |
+| `POST /api/v1/events` | `X-API-Key` | Ingest `{ events: [...] }` (max 50 events, 4 MB). CORS open to any origin; a project with **allowed origins** refuses other browser origins with `403 origin_not_allowed` (CORS headers kept, so the SDK drops instead of retrying). Returns `202 { accepted, rejected }`. 429 `rate_limited_ip` when one IP sends over 150 events/min to a project (there is no per-project error limit), 403 when the owner's account is disabled. Page views (`transaction` events) have their own budgets (150/min per IP, 1000/min per project); over them they are rejected as `rate_limited` (not retried), while errors in the same batch are still stored. |
 | `GET /api/health` | none | Database status, for uptime monitors. |
 | `GET /api/auth` | – | `{ authenticated, user }`. |
 | `POST /api/auth?action=signup` · `?action=login` · `?action=logout` | – | Create an account `{ name, email, password }` / log in `{ email, password }` / log out. Sets an HttpOnly, SameSite=Strict cookie (7 days). |
@@ -114,7 +114,7 @@ Every dashboard endpoint only returns or changes data in projects you own. Anyth
 - **Passwords:** scrypt (N=16384, r=8, p=1) with a random salt per user. The cost settings are stored with each hash, so they can be raised later. Logins with an unknown email take as long as wrong passwords, and both get the same message.
 - **Sessions:** a signed, HttpOnly, SameSite=Strict cookie holding the user id and a session version. Every request re-reads the user, so disabling an account, changing a password or "log out other devices" ends the old sessions immediately.
 - **Cross-site requests:** state-changing requests whose `Origin` is another site are refused (on top of SameSite cookies).
-- **Rate limits:** sign-ups per IP, login attempts per account and per IP, and ingestion per project + IP (150 events and 150 page views per minute, checked before the project budget so one source can't use it up), counted in MongoDB so they hold across serverless instances.
+- **Rate limits:** sign-ups per IP, login attempts per account and per IP, and ingestion per project + IP (150 events and 150 page views per minute, IPv6 per /64; errors have no per-project limit, so this is what stops one source flooding a project), counted in MongoDB so they hold across serverless instances.
 - **Disabled accounts:** can't log in, are logged out everywhere, and their projects answer 403 to new events. Other serverless instances may accept events for up to a minute (key cache).
 - **Headers:** a strict Content-Security-Policy (scripts only from this site, images only from here and Cloudinary), HSTS, `X-Frame-Options: DENY`, `nosniff`, and a restrictive `Permissions-Policy` (`vercel.json`; the dev server sends the same).
 - **Rendering:** the dashboard renders all event data as text (never HTML), so a malicious error message can't run script in the dashboard.

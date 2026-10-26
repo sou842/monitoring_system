@@ -11,7 +11,7 @@ const MAX_BODY_BYTES = 2048;
 /** Room for MAX_ALLOWED_ORIGINS origins of MAX_ORIGIN_LENGTH characters each. */
 const MAX_ORIGINS_BODY_BYTES = 8192;
 
-/** GET /api/projects — your projects with open-issue and last-24h event counts, plus your project limit. */
+/** GET /api/projects — your projects with open-issue and last-24h event counts, plus your project limit (null = none). */
 export const GET = handle(async (request) => {
   const auth = await requireUser(request);
   if (auth.response) return auth.response;
@@ -56,7 +56,7 @@ export const POST = handle(async (request) => {
   if (!body.ok) return body.response;
   const name = cleanProjectName(body.value && body.value.name);
   if (name === null) return errorResponse(400, 'invalid_name', 'Project name is required (max 80 characters)');
-  if ((await db.collection('projects').countDocuments({ ownerId: user._id })) >= MAX_PROJECTS_PER_USER) {
+  if (MAX_PROJECTS_PER_USER !== null && (await db.collection('projects').countDocuments({ ownerId: user._id })) >= MAX_PROJECTS_PER_USER) {
     return errorResponse(403, 'project_limit', `You can have at most ${MAX_PROJECTS_PER_USER} projects. Delete one to create another.`);
   }
   const { project, apiKey } = await createProject(db, name, user._id);

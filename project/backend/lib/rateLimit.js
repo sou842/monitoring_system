@@ -31,8 +31,9 @@ export async function consume(db, key, amount, limit, windowMs, now = Date.now()
   return { allowed: doc.count <= limit, retryAfterSeconds: Math.max(1, Math.ceil((windowEnd - now) / 1000)) };
 }
 
-/** Per-project event budget per minute. */
+/** Per-project event budget per minute; always allowed when RATE_LIMIT_EVENTS_PER_MINUTE is null. */
 export function consumeEventBudget(db, projectId, eventCount, now = Date.now()) {
+  if (RATE_LIMIT_EVENTS_PER_MINUTE === null) return Promise.resolve({ allowed: true, retryAfterSeconds: 0 });
   return consume(db, String(projectId), eventCount, RATE_LIMIT_EVENTS_PER_MINUTE, RATE_LIMIT_WINDOW_MS, now);
 }
 

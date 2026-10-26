@@ -71,7 +71,8 @@ async function ingest(request) {
   }
 
   // Errors and page views have separate budgets, so heavy traffic can't crowd out errors.
-  // The per-IP budget is checked first, so one source over its share doesn't use up the project's.
+  // The per-IP budget is checked first, so one source over its share doesn't use up the project's
+  // (the per-project error budget is off while RATE_LIMIT_EVENTS_PER_MINUTE is null).
   const ip = clientIp(request);
   const pageViewCount = events.filter((event) => event && event.event_type === 'transaction').length;
   const otherCount = events.length - pageViewCount;

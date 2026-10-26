@@ -8,7 +8,7 @@ import { optimizedUrl, parseImageDataUrl, uploadScreenshot } from '../lib/cloudi
 import { MAX_ALLOWED_ORIGINS, MAX_SCREENSHOT_BYTES, SESSION_TTL_MS } from '../lib/constants.js';
 import { culprit, fingerprint, normalizeFilename, normalizeMessage } from '../lib/grouping.js';
 import { cleanOriginList, isOriginAllowed, normalizeOrigin } from '../lib/origins.js';
-import { ipBucket } from '../lib/rateLimit.js';
+import { consumeEventBudget, ipBucket } from '../lib/rateLimit.js';
 import { validateEvent } from '../lib/validate.js';
 import { sampleEvent } from './helpers.js';
 
@@ -252,6 +252,13 @@ describe('allowed origins', () => {
     assert.equal(isOriginAllowed(project, 'null'), false);
     assert.equal(isOriginAllowed(project, null), true, 'no Origin header: server-side and mobile SDKs');
     assert.equal(isOriginAllowed(project, ''), true);
+  });
+});
+
+describe('rate limits', () => {
+  it('has no per-project error budget (only the per-IP limit applies)', async () => {
+    // No database needed: with the limit off, nothing is counted.
+    assert.deepEqual(await consumeEventBudget(null, 'project', 5000), { allowed: true, retryAfterSeconds: 0 });
   });
 });
 

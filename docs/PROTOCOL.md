@@ -38,7 +38,7 @@ X-API-Key: et_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 | `401` | `missing_api_key` / `invalid_api_key` | Drop |
 | `403` | `project_disabled`: the owning account is disabled. `origin_not_allowed`: the browser's `Origin` is not in the project's allowed origins. | Drop |
 | `413` | Body too large, or more than 50 events | Drop |
-| `429` | With a `Retry-After` header. `rate_limited_ip`: over 150 events per minute from one IP to this project. `rate_limited`: over 1000 events per minute per project. | Retry |
+| `429` | `rate_limited_ip`, with a `Retry-After` header: over 150 events per minute from one IP to this project. There is no per-project limit on errors. | Retry |
 | `408`, `5xx`, network error | — | Retry |
 
 Error bodies have the shape `{ "error": { "code": "<code>", "message": "<human text>" } }`.
@@ -214,7 +214,7 @@ collector / capture* ─► sample ─► dedup ─► rate limit ─► build p
 X-API-Key ─► SHA-256 ─► project lookup (cached 60 s) ─► disabled? 403
           ─► Origin not in the project's allowed origins? 403 origin_not_allowed
           ─► per project + IP: errors 150/min → 429 rate_limited_ip   |   page views 150/min → rejected "rate_limited"
-          ─► per project:      errors 1000/min → 429 rate_limited    |   page views 1000/min → rejected "rate_limited"
+          ─► per project:      errors: no limit                      |   page views 1000/min → rejected "rate_limited"
           ─► validate each event (truncate long strings, cap arrays, fix clock skew > 24 h)
           ─► transactions → `transactions` + hourly `perf_rollups`
           ─► others → upload screenshot (4 at a time) → upsert issue by fingerprint → insert event
@@ -231,9 +231,10 @@ A browser app's API key is public: anyone can copy it from the page. It can only
 | Check | Rule | Stops | Doesn't stop |
 | --- | --- | --- | --- |
 | **Allowed origins** (`lib/origins.js`) | Per project, a list of exact origins (scheme + host + port, e.g. `http://localhost:3000`, `https://myapp.com`), max 20, no wildcards. Empty list = any origin. No `Origin` header = allowed (server-side SDKs, mobile apps). `Origin: null` (file:// pages) = refused when a list exists. | Other websites using a copied key through their visitors' browsers (browsers set `Origin` themselves) | Scripts outside a browser, which can fake the header |
-| **Per-IP limit** (`lib/rateLimit.js`) | 150 events and 150 page views per minute per project + client IP (`x-forwarded-for`, set by Vercel). Checked **before** the project budget. | One source using up the project's 1000/min budget and crowding out real errors | Many IPs at once (only the project budget and key rotation help there) |
+| **Per-IP limit** (`lib/rateLimit.js`) | 150 events and 150 page views per minute per project + client IP (`x-forwarded-for`, set by Vercel; IPv6 counted per /64). | One source flooding a project with errors | Many IPs at once (only key rotation helps there, since errors have no per-project limit) |
 
-- **Order:** the origin and per-IP checks run before the project budget, so a refused request uses none of it.
+- **No per-project error limit:** a project accepts any number of errors per minute from all its users together; only each IP is capped. (`RATE_LIMIT_EVENTS_PER_MINUTE` is `null`; setting a number turns a per-project limit back on.) Page views keep their per-project budget of 1000/min.
+- **Order:** the origin and per-IP checks run before the page-view project budget, so a refused request uses none of it.
 - **Refusals keep the CORS headers.** Without them the browser would hide the 403 from the SDK, which would treat it as a network error, retry, and store the events offline to try again on every page load. With them, the SDK sees a 4xx and drops the events once.
 - **Applying changes:** edits go through `PATCH /api/projects?id=…` and reach other serverless instances within 60 s (project cache).
 - **Shared IPs:** many users behind one office IP share the 150/min. Errors are rare in production, so this leaves plenty of room, and an over-limit batch is retried by the SDK and then kept offline, not lost.
@@ -272,7 +273,7 @@ Screenshots are stored in Cloudinary (unsigned upload preset, uploaded with `fet
 - **Rate limits:**
   - sign-up: 5 per IP per hour
   - login: 10 per account+IP and 50 per IP, per 15 minutes
-  - 10 projects per user
+  - no limit on projects per user (`MAX_PROJECTS_PER_USER` is `null`; a number turns the limit back on)
 - **HTTP headers** (`vercel.json`): strict CSP (`script-src 'self'`; images only from self and `res.cloudinary.com`), HSTS, `X-Frame-Options: DENY`, `nosniff`, and a restrictive Permissions-Policy.
 
 ### Dashboard API (all under `/api`, session cookie required except `auth` and `health`)

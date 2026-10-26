@@ -8,7 +8,7 @@ import { cleanUserName, userView } from '../lib/users.js';
 /**
  * The logged-in user's own account:
  *
- *   GET    /api/account                          → { user, usage: { projects, projectLimit } }
+ *   GET    /api/account                          → { user, usage: { projects, projectLimit } } (projectLimit null = none)
  *   PATCH  /api/account  { name }                → rename
  *   PATCH  /api/account  { currentPassword, newPassword } → change password, logs out other sessions
  *   POST   /api/account?action=logout-others     → ends every other session

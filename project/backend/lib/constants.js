@@ -9,13 +9,17 @@
 export const MAX_BODY_BYTES = 4 * 1024 * 1024;
 /** Max events accepted in one request (the SDK sends at most 10). */
 export const MAX_EVENTS_PER_REQUEST = 50;
-/** Events accepted per project per minute; more get HTTP 429 (the SDK retries later). */
-export const RATE_LIMIT_EVENTS_PER_MINUTE = 1000;
+/**
+ * Events accepted per project per minute; more get HTTP 429 (the SDK retries
+ * later). `null` = no per-project limit (the user's choice, 2026-10-26): the
+ * per-IP limit below is what stops one source from flooding a project.
+ */
+export const RATE_LIMIT_EVENTS_PER_MINUTE = null;
 export const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 /**
- * Events accepted per minute from one IP for one project, checked before the
- * project budget so one source can't use it all up. Errors are rare in
- * production, so this leaves room for many users behind one office IP.
+ * Events accepted per minute from one IP for one project, so one source can't
+ * flood a project. Errors are rare in production, so this leaves room for many
+ * users behind one office IP.
  */
 export const RATE_LIMIT_EVENTS_PER_IP_PER_MINUTE = 150;
 /** Page views accepted per minute from one IP for one project; more are dropped (not retried). */
@@ -97,8 +101,8 @@ export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_PASSWORD_LENGTH = 128;
 export const MAX_EMAIL_LENGTH = 254;
 export const MAX_USER_NAME_LENGTH = 80;
-/** Keeps one account from filling the shared database. */
-export const MAX_PROJECTS_PER_USER = 10;
+/** Projects one account may own; `null` = no limit (the user's choice, 2026-10-26). */
+export const MAX_PROJECTS_PER_USER = null;
 export const USER_ROLES = ['user', 'admin'];
 export const USER_STATUSES = ['active', 'disabled'];
 /** scrypt cost settings (~50 ms per hash) and sizes. Stored with each hash, so they can be raised later. */

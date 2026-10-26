@@ -197,7 +197,7 @@ sequenceDiagram
     end
     API->>DB: look up project by SHA-256(API key)
     API->>API: Origin in the project's allowed origins? (else 403)
-    API->>DB: consume per-IP budget (150/min), then per-project budget (1000/min)
+    API->>DB: consume per-IP budget (150/min; no per-project error limit)
     API->>API: validate each event (bad ones rejected individually)
     API->>CL: upload screenshot (≤400 KB)
     API->>DB: upsert issue by fingerprint (reopen if resolved)

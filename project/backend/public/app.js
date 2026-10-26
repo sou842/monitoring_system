@@ -789,7 +789,9 @@ async function accountPage() {
         el('div', { class: 'profile-row' }, avatar(user.name, true),
           el('div', {}, el('b', { text: user.name }), el('div', { class: 'muted small', text: `${user.role === 'admin' ? 'Admin · ' : ''}Member since ${new Date(user.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}` })),
           el('span', { class: 'spacer' }),
-          el('div', { class: 'usage' }, el('b', { text: `${usage.projects} / ${usage.projectLimit}` }), el('span', { class: 'muted small', text: 'projects used' }))),
+          el('div', { class: 'usage' },
+            el('b', { text: usage.projectLimit === null ? String(usage.projects) : `${usage.projects} / ${usage.projectLimit}` }),
+            el('span', { class: 'muted small', text: usage.projectLimit === null ? 'projects' : 'projects used' }))),
         profileForm),
       settingsCard('Password', 'Changing your password logs you out on every other device.', passwordForm),
       settingsCard('Sessions', 'Signed in on a shared or lost device? End those sessions here.', el('div', { class: 'row' }, logoutOthers)),
@@ -1345,7 +1347,8 @@ async function projectsPage(query) {
   setCrumbs(el('span', { text: 'Projects' }));
   loading();
   const { projects, limit } = await cachedGet('/api/projects');
-  const atLimit = projects.length >= limit;
+  // `limit` is null when accounts may have any number of projects.
+  const atLimit = limit !== null && projects.length >= limit;
 
   const createArea = el('div');
   const newButton = el('button', {
@@ -1371,7 +1374,7 @@ async function projectsPage(query) {
 
   show(
     el('div', { class: 'page-head' }, el('h1', { text: 'Projects' }), el('span', { class: 'spacer' }),
-      el('span', { class: `usage-pill${atLimit ? ' full' : ''}`, text: `${projects.length} / ${limit} projects` }), newButton),
+      el('span', { class: `usage-pill${atLimit ? ' full' : ''}`, text: limit === null ? `${projects.length} project(s)` : `${projects.length} / ${limit} projects` }), newButton),
     el('p', { class: 'page-sub', text: atLimit
       ? `You have reached the limit of ${limit} projects. Delete a project to create another.`
       : 'Each app that sends errors is a project with its own API key.' }),
