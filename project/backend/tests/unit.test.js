@@ -5,8 +5,10 @@ import { createSessionToken, crossSiteResponse, readCookie, verifySessionToken }
 import { hashPassword, passwordProblem, verifyPassword } from '../lib/passwords.js';
 import { cleanUserName, normalizeEmail } from '../lib/users.js';
 import { optimizedUrl, parseImageDataUrl, uploadScreenshot } from '../lib/cloudinary.js';
-import { MAX_SCREENSHOT_BYTES, SESSION_TTL_MS } from '../lib/constants.js';
+import { MAX_ALLOWED_ORIGINS, MAX_SCREENSHOT_BYTES, SESSION_TTL_MS } from '../lib/constants.js';
 import { culprit, fingerprint, normalizeFilename, normalizeMessage } from '../lib/grouping.js';
+import { cleanOriginList, isOriginAllowed, normalizeOrigin } from '../lib/origins.js';
+import { ipBucket } from '../lib/rateLimit.js';
 import { validateEvent } from '../lib/validate.js';
 import { sampleEvent } from './helpers.js';
 
@@ -202,5 +204,75 @@ describe('accounts', () => {
     assert.equal(cleanUserName('  Jane   Doe '), 'Jane Doe');
     assert.equal(cleanUserName('   '), null);
     assert.equal(cleanUserName('x'.repeat(81)), null);
+  });
+});
+
+describe('allowed origins', () => {
+  it('normalizes an origin to scheme + host + port', () => {
+    assert.deepEqual(normalizeOrigin('https://myapp.com'), { origin: 'https://myapp.com', trimmed: false });
+    assert.deepEqual(normalizeOrigin('  HTTPS://MyApp.com:443/ '), { origin: 'https://myapp.com', trimmed: true });
+    assert.deepEqual(normalizeOrigin('http://localhost:3000'), { origin: 'http://localhost:3000', trimmed: false });
+    assert.deepEqual(normalizeOrigin('http://LOCALHOST:80'), { origin: 'http://localhost', trimmed: true });
+    assert.deepEqual(normalizeOrigin('https://myapp.com/login?next=/x#top'), { origin: 'https://myapp.com', trimmed: true });
+    assert.deepEqual(normalizeOrigin('http://127.0.0.1:5173'), { origin: 'http://127.0.0.1:5173', trimmed: false });
+  });
+
+  it('refuses things that are not http(s) origins', () => {
+    for (const bad of ['', '   ', 'myapp.com', 'localhost:3000', '*.myapp.com', 'https://*.myapp.com', 'ftp://myapp.com',
+      'file:///C:/app/index.html', 'null', 'https://user:pass@myapp.com', 'https://', `https://${'a'.repeat(200)}.com`, null, 42]) {
+      assert.ok('error' in normalizeOrigin(bad), `refuses ${String(bad).slice(0, 40)}`);
+    }
+  });
+
+  it('cleans a whole list: normalized, de-duplicated, every bad entry reported, capped', () => {
+    assert.deepEqual(cleanOriginList(['https://a.test/', 'HTTPS://A.TEST', 'http://localhost:3000']),
+      { ok: true, origins: ['https://a.test', 'http://localhost:3000'] });
+    assert.deepEqual(cleanOriginList([]), { ok: true, origins: [] });
+    const bad = cleanOriginList(['https://a.test', 'a.test', '*.a.test']);
+    assert.equal(bad.ok, false);
+    assert.deepEqual(bad.errors.map((e) => e.index), [1, 2]);
+    assert.equal(cleanOriginList('https://a.test').ok, false);
+    assert.equal(cleanOriginList(null).ok, false);
+    const many = Array.from({ length: MAX_ALLOWED_ORIGINS + 1 }, (_, i) => `https://s${i}.test`);
+    assert.equal(cleanOriginList(many).ok, false);
+    assert.equal(cleanOriginList(many.slice(1)).ok, true);
+  });
+
+  it('allows any origin without a list, and only listed origins with one', () => {
+    assert.equal(isOriginAllowed({}, 'https://evil.test'), true);
+    assert.equal(isOriginAllowed({ allowedOrigins: [] }, 'https://evil.test'), true);
+    const project = { allowedOrigins: ['https://shop.test', 'http://localhost:3000'] };
+    assert.equal(isOriginAllowed(project, 'https://shop.test'), true);
+    assert.equal(isOriginAllowed(project, 'http://localhost:3000'), true);
+    assert.equal(isOriginAllowed(project, 'https://SHOP.test'), true);
+    assert.equal(isOriginAllowed(project, 'https://evil.test'), false);
+    assert.equal(isOriginAllowed(project, 'http://shop.test'), false, 'scheme must match');
+    assert.equal(isOriginAllowed(project, 'http://localhost:3001'), false, 'port must match');
+    assert.equal(isOriginAllowed(project, 'https://sub.shop.test'), false, 'no implicit subdomains');
+    assert.equal(isOriginAllowed(project, 'null'), false);
+    assert.equal(isOriginAllowed(project, null), true, 'no Origin header: server-side and mobile SDKs');
+    assert.equal(isOriginAllowed(project, ''), true);
+  });
+});
+
+describe('per-IP rate limit', () => {
+  it('counts IPv4 per address and IPv6 per /64 network', () => {
+    assert.equal(ipBucket('203.0.113.7'), '203.0.113.7');
+    assert.equal(ipBucket('::ffff:203.0.113.7'), '203.0.113.7');
+    assert.equal(ipBucket('2001:db8:a:b:1:2:3:4'), '2001:db8:a:b::/64');
+    assert.equal(ipBucket('2001:0DB8:000a:000b:ffff:ffff:ffff:ffff'), '2001:db8:a:b::/64', 'one client rotating inside its /64');
+    assert.equal(ipBucket('2001:db8:a:b::1'), '2001:db8:a:b::/64');
+    assert.equal(ipBucket('2001:db8::1'), '2001:db8:0:0::/64');
+    assert.equal(ipBucket('::1'), '0:0:0:0::/64');
+    assert.equal(ipBucket('fe80::1%eth0'), 'fe80:0:0:0::/64');
+    assert.notEqual(ipBucket('2001:db8:a:b::1'), ipBucket('2001:db8:a:c::1'), 'different /64 networks');
+  });
+
+  it('never throws on odd input and keeps keys short', () => {
+    for (const odd of [undefined, null, '', 'unknown', ':::::::::::', '1:2:3:4:5:6:7:8:9:10', 'x'.repeat(500), 'zz::zz']) {
+      const bucket = ipBucket(odd);
+      assert.equal(typeof bucket, 'string');
+      assert.ok(bucket.length <= 70);
+    }
   });
 });

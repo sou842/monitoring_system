@@ -49,6 +49,8 @@ let returnTo = null;
 let fieldSeq = 0;
 /** A just-created project's key, shown once on the redrawn Projects page. */
 let pendingKey = null;
+/** Project whose "Allowed origins" panel is open, so it stays open across redraws. */
+let originsOpenFor = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1362,7 +1364,7 @@ async function projectsPage(query) {
           el('div', { class: `stat${p.openIssues > 0 ? ' alert' : ''}` }, el('b', { text: p.openIssues.toLocaleString() }), el('span', { class: 'muted small', text: 'open issues' })),
           el('div', { class: 'stat' }, el('b', { text: p.events24h.toLocaleString() }), el('span', { class: 'muted small', text: 'events (24h)' })),
         ),
-        el('div', { class: 'key-hint mono', text: `Key: ${p.apiKeyHint}` }),
+        el('div', { class: 'key-hint mono', text: `Key: ${p.apiKeyHint} · ${p.allowedOrigins.length === 0 ? 'any origin' : `${p.allowedOrigins.length} origin(s)`}` }),
       ),
     ),
   );
@@ -1425,6 +1427,121 @@ function keyBox(title, apiKey, onDone) {
     el('div', { class: 'key-box' }, el('pre', { text: snippet })),
     el('div', { class: 'row section' }, copySnippet, el('span', { class: 'spacer' }), el('button', { class: 'primary', text: 'Done', onclick: onDone })),
   );
+}
+
+/** Same rules as the server's normalizeOrigin (lib/origins.js): `{ origin }` or `{ error }`. */
+function parseOrigin(text) {
+  const value = text.trim();
+  if (value === '') return { error: 'Enter an origin, e.g. https://myapp.com' };
+  if (value.includes('*')) return { error: 'Wildcards are not supported; add each origin' };
+  if (!value.includes('://')) return { error: 'Include http:// or https://, e.g. http://localhost:3000' };
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return { error: 'Not a valid origin; use the form https://myapp.com' };
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return { error: 'Only http:// and https:// origins' };
+  return { origin: url.origin };
+}
+
+function originsLabel(origins) {
+  return origins.length === 0 ? 'Allowed origins: any' : `Allowed origins: ${origins.length}`;
+}
+
+/**
+ * The websites whose pages may send events with this project's key. Each add
+ * or remove saves the whole list at once; `onChange(origins)` runs after a save.
+ */
+function originsPanel(project, onChange) {
+  let origins = [...project.allowedOrigins];
+  const status = el('div');
+  const list = el('div', { class: 'origin-list' });
+  const origin = field({
+    label: 'Add an origin',
+    placeholder: 'https://myapp.com',
+    autocomplete: 'off',
+    attrs: { spellcheck: 'false', autocapitalize: 'off' },
+    maxLength: 200,
+    hint: 'Scheme, host and port as in the address bar, e.g. http://localhost:3000. A pasted URL is cut down to its origin.',
+  });
+  const addButton = el('button', { class: 'primary', type: 'submit', text: 'Add' });
+
+  async function save(next) {
+    const res = await api(`/api/projects?id=${project.id}`, { method: 'PATCH', body: { allowedOrigins: next } });
+    origins = res.project.allowedOrigins;
+    project.allowedOrigins = origins;
+    draw();
+    onChange(origins);
+  }
+
+  function removeButton(value) {
+    return el('button', {
+      class: 'ghost danger',
+      type: 'button',
+      text: 'Remove',
+      attrs: { 'aria-label': `Remove ${value}` },
+      onclick: action(async (event) => {
+        const next = origins.filter((o) => o !== value);
+        if (next.length === 0) {
+          const ok = await openDialog({
+            title: 'Remove the last origin?',
+            message: "With no origins listed, any website can send events with this project's key.",
+            confirmText: 'Remove',
+            danger: true,
+            onConfirm: () => save(next),
+          });
+          if (ok) toast(`Removed ${value}`);
+          return;
+        }
+        const button = event.currentTarget;
+        setBusy(button, true);
+        try {
+          await save(next);
+          toast(`Removed ${value}`);
+        } finally {
+          setBusy(button, false);
+        }
+      }),
+    });
+  }
+
+  function draw() {
+    status.replaceChildren(origins.length === 0
+      ? el('p', { class: 'notice warn', text: 'Any website can send events with this key. Add the origins of your app, local and production, to accept events only from them.' })
+      : el('p', { class: 'muted small', text: 'Only these websites can send events. Server-side and mobile apps (no Origin header) are always accepted. Changes apply within a minute.' }));
+    list.replaceChildren(...origins.map((value) =>
+      el('div', { class: 'origin-row' }, el('code', { text: value }), el('span', { class: 'spacer' }), removeButton(value))));
+  }
+
+  const form = el('form', {
+    class: 'origin-form',
+    noValidate: true,
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const typed = origin.input.value.trim();
+      const parsed = parseOrigin(typed);
+      if (parsed.error) { origin.setError(parsed.error); origin.input.focus(); return; }
+      if (origins.includes(parsed.origin)) { origin.setError(`${parsed.origin} is already in the list`); origin.input.focus(); return; }
+      setBusy(addButton, true);
+      try {
+        await save([...origins, parsed.origin]);
+        const cut = typed.replace(/\/$/, '').toLowerCase() !== parsed.origin;
+        toast(cut ? `Added ${parsed.origin} (cut down to its origin)` : `Added ${parsed.origin}`);
+        origin.input.value = '';
+        origin.input.focus();
+      } catch (error) {
+        origin.setError(error.message);
+      } finally {
+        setBusy(addButton, false);
+      }
+    },
+  }, origin.wrap, el('div', { class: 'form-actions' }, addButton));
+
+  draw();
+  return el('div', { class: 'section' },
+    settingsCard('Allowed origins', 'Websites whose pages may send events with this key. Browsers set the Origin header, so other sites cannot use a key copied from your page.',
+      status, list, form));
 }
 
 async function issuesPage(projectId, query) {
@@ -1574,6 +1691,25 @@ async function issuesPage(projectId, query) {
       render();
     }),
   });
+  const originsArea = el('div');
+  const originsButton = el('button', {
+    class: `ghost${project.allowedOrigins.length === 0 ? ' warn' : ''}`,
+    type: 'button',
+    text: originsLabel(project.allowedOrigins),
+    attrs: { 'aria-expanded': 'false' },
+    onclick: () => toggleOrigins(originsOpenFor !== projectId),
+  });
+  function toggleOrigins(open) {
+    originsOpenFor = open ? projectId : null;
+    originsButton.setAttribute('aria-expanded', String(open));
+    originsArea.replaceChildren(open
+      ? originsPanel(project, (origins) => {
+          originsButton.textContent = originsLabel(origins);
+          originsButton.classList.toggle('warn', origins.length === 0);
+        })
+      : '');
+  }
+
   const deleteProject = el('button', {
     class: 'ghost danger',
     text: 'Delete project',
@@ -1596,14 +1732,16 @@ async function issuesPage(projectId, query) {
   });
 
   show(
-    el('div', { class: 'page-head' }, avatar(project.name, true), el('h1', { text: project.name }), el('span', { class: 'spacer' }), rotate, deleteProject),
+    el('div', { class: 'page-head' }, avatar(project.name, true), el('h1', { text: project.name }), el('span', { class: 'spacer' }), originsButton, rotate, deleteProject),
     el('p', { class: 'page-sub', text: `${data.total} issue(s)` }),
+    originsArea,
     tabs, filterBar,
     data.issues.length > 0 ? el('div', { class: 'row bulk' }, deleteSelected, el('span', { class: 'spacer' }), clearAll) : null,
     list, pager,
   );
   // Keep the search box focused across auto-refreshes.
   if (query.get('q')) search.focus();
+  if (originsOpenFor === projectId) toggleOrigins(true);
   guardRedraw(() => selected.size === 0);
 }
 

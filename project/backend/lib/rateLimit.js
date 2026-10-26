@@ -1,8 +1,13 @@
 import {
+  IPV6_GROUPS,
+  IPV6_RATE_LIMIT_GROUPS,
   LOGIN_ATTEMPTS_PER_ACCOUNT,
   LOGIN_ATTEMPTS_PER_IP,
   LOGIN_WINDOW_MS,
+  MAX_IP_LENGTH,
+  RATE_LIMIT_EVENTS_PER_IP_PER_MINUTE,
   RATE_LIMIT_EVENTS_PER_MINUTE,
+  RATE_LIMIT_TRANSACTIONS_PER_IP_PER_MINUTE,
   RATE_LIMIT_TRANSACTIONS_PER_MINUTE,
   RATE_LIMIT_WINDOW_MS,
   SIGNUPS_PER_IP,
@@ -34,6 +39,36 @@ export function consumeEventBudget(db, projectId, eventCount, now = Date.now()) 
 /** Per-project page-view (transaction event) budget per minute, separate from the event budget. */
 export function consumeTransactionBudget(db, projectId, count, now = Date.now()) {
   return consume(db, `${projectId}:transactions`, count, RATE_LIMIT_TRANSACTIONS_PER_MINUTE, RATE_LIMIT_WINDOW_MS, now);
+}
+
+/**
+ * The source a request is counted against: an IPv4 address as is, an IPv6
+ * address cut to its /64 network (`2001:db8:a:b::/64`), since one client can
+ * rotate through a whole /64.
+ */
+export function ipBucket(ip) {
+  const text = String(ip || 'unknown').trim().slice(0, MAX_IP_LENGTH).replace(/%.*$/, '').toLowerCase();
+  if (!text.includes(':')) return text;
+  const mapped = text.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return mapped[1];
+  const [head, tail = ''] = text.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const groups = text.includes('::')
+    ? [...left, ...Array(Math.max(0, IPV6_GROUPS - left.length - right.length)).fill('0'), ...right]
+    : left;
+  const prefix = groups.slice(0, IPV6_RATE_LIMIT_GROUPS).map((group) => (parseInt(group, 16) || 0).toString(16));
+  return `${prefix.join(':')}::/${IPV6_RATE_LIMIT_GROUPS * 16}`;
+}
+
+/** Per-project, per-IP event budget per minute, so one source can't use up the project budget. */
+export function consumeIpEventBudget(db, projectId, ip, eventCount, now = Date.now()) {
+  return consume(db, `ingest-ip:${projectId}:${ipBucket(ip)}`, eventCount, RATE_LIMIT_EVENTS_PER_IP_PER_MINUTE, RATE_LIMIT_WINDOW_MS, now);
+}
+
+/** Per-project, per-IP page-view budget per minute. */
+export function consumeIpTransactionBudget(db, projectId, ip, count, now = Date.now()) {
+  return consume(db, `ingest-ip:${projectId}:${ipBucket(ip)}:transactions`, count, RATE_LIMIT_TRANSACTIONS_PER_IP_PER_MINUTE, RATE_LIMIT_WINDOW_MS, now);
 }
 
 /** One login attempt: limited per IP and per account+IP, so guessing one password or many accounts is slow. */

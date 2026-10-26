@@ -64,6 +64,7 @@ Limits (in `lib/constants.js`): 10 projects per user, 1000 events per project pe
 4. Deploy. Check `https://<your-app>.vercel.app/api/health`, which should return `{"ok":true,"database":"up"}`.
 5. Sign up on the site, then run `npm run make-admin -- you@example.com` locally against the production database (see above).
 6. In each app, set the SDK `endpoint` to `https://<your-app>.vercel.app/api/v1/events`.
+7. For each browser project, open it in the dashboard → **Allowed origins** and add every origin the app runs on, e.g. `http://localhost:3000` and `https://myapp.com`. Until you do, any website can send events with the key.
 
 **Upgrading from the shared-password version:** existing API keys keep working and no data is lost. After deploying, everyone is logged out (the old cookie format is no longer accepted). Sign up, run `make-admin` to take over the existing projects, and remove the old `DASHBOARD_PASSWORD` variable from Vercel.
 
@@ -75,7 +76,7 @@ Optional, recommended: in Cloudinary → Settings → Upload presets → your pr
 
 | Endpoint | Auth | Purpose |
 | --- | --- | --- |
-| `POST /api/v1/events` | `X-API-Key` | Ingest `{ events: [...] }` (max 50 events, 4 MB). CORS open to any origin. Returns `202 { accepted, rejected }`. 429 when over 1000 events/min per project, 403 when the owner's account is disabled. Page views (`transaction` events) have their own budget of 1000/min; over it they are rejected as `rate_limited` (not retried), while errors in the same batch are still stored. |
+| `POST /api/v1/events` | `X-API-Key` | Ingest `{ events: [...] }` (max 50 events, 4 MB). CORS open to any origin; a project with **allowed origins** refuses other browser origins with `403 origin_not_allowed` (CORS headers kept, so the SDK drops instead of retrying). Returns `202 { accepted, rejected }`. 429 `rate_limited_ip` when one IP sends over 150 events/min to a project, 429 `rate_limited` over 1000 events/min per project, 403 when the owner's account is disabled. Page views (`transaction` events) have their own budgets (150/min per IP, 1000/min per project); over them they are rejected as `rate_limited` (not retried), while errors in the same batch are still stored. |
 | `GET /api/health` | none | Database status, for uptime monitors. |
 | `GET /api/auth` | – | `{ authenticated, user }`. |
 | `POST /api/auth?action=signup` · `?action=login` · `?action=logout` | – | Create an account `{ name, email, password }` / log in `{ email, password }` / log out. Sets an HttpOnly, SameSite=Strict cookie (7 days). |
@@ -83,6 +84,7 @@ Optional, recommended: in Cloudinary → Settings → Upload presets → your pr
 | `POST /api/account?action=logout-others` · `DELETE /api/account` | session | End your other sessions / delete your account and all its projects (body `{ password }`). |
 | `GET /api/projects` · `POST /api/projects` | session | Your projects / create one. Creating returns the API key **once**. |
 | `POST /api/projects?id=…&action=rotate-key` | session | Replace a project's key. |
+| `PATCH /api/projects?id=…` | session | Body `{ "allowedOrigins": ["https://myapp.com", "http://localhost:3000"] }` replaces the project's allowed origins (max 20; `[]` = any origin). Entries are normalized to scheme + host + port; `400 invalid_origins` lists each bad entry in `error.details`. |
 | `GET /api/issues?projectId=…&status=&type=&env=&q=&sort=&page=` | session | Issue list with filters. |
 | `GET /api/issue?id=…` · `PATCH /api/issue?id=…` | session | Issue with its latest events / set `status` (open, resolved, ignored). |
 | `GET /api/event?id=…` | session | One event in full. |
@@ -102,7 +104,8 @@ Every dashboard endpoint only returns or changes data in projects you own. Anyth
 - **Grouping:** fingerprint = event type + error type + normalized message (IDs, long numbers, durations and query strings removed) + top stack frame (function and file, with build hashes stripped). The same bug stays one issue across deploys and environments.
 - **Regressions:** a resolved issue that happens again is reopened and marked *regressed*.
 - **Screenshots:** uploaded to Cloudinary under `error-tracker/<projectId>/`. Images over 400 KB are refused rather than uploaded, so raw full-size images never reach Cloudinary (the SDK already sends ~50 KB JPEGs). The dashboard loads them through Cloudinary's low-quality, auto-format delivery.
-- **API keys:** only a SHA-256 hash is stored.
+- **API keys:** only a SHA-256 hash is stored. A browser app's key is public (it ships in the page), so it can only send events, never read data.
+- **Allowed origins** (`lib/origins.js`): per project, exact scheme + host + port, no wildcards. Empty list = any origin. Requests without an `Origin` header (server-side SDKs, mobile apps) are always accepted, since browsers always send one on cross-origin requests. This stops other websites from using a copied key through their visitors' browsers; a script outside a browser can fake the header, which the per-IP limit covers. Changes reach other serverless instances within a minute (key cache).
 - **Performance:** `transaction` events (one per page view, SDK 0.5.0+) never become issues. Each is stored in `transactions` (kept 7 days, for "slowest samples") and added to hourly rollups in `perf_rollups` (kept 90 days): one row per project, hour, environment and page route or endpoint, with counts and a logarithmic latency histogram (1.15× steps, so percentiles are within ~7%). Percentiles for any range come from adding histograms, so storage stays small however much traffic there is. IDs in paths are grouped (`/orders/42` → `/orders/{id}`), and timings measured while the tab was hidden are counted but kept out of histograms. Logic: `lib/performance.js` (pure, unit-tested) and `lib/performanceStats.js` (queries).
 - **Retention:** MongoDB TTL indexes delete events after 30 days, issues not seen for 90 days, page views after 7 days and performance rollups after 90. Cloudinary images are not deleted automatically, nor when you delete issues, projects or accounts: that needs the Cloudinary API secret, and is a possible follow-up.
 
@@ -111,7 +114,7 @@ Every dashboard endpoint only returns or changes data in projects you own. Anyth
 - **Passwords:** scrypt (N=16384, r=8, p=1) with a random salt per user. The cost settings are stored with each hash, so they can be raised later. Logins with an unknown email take as long as wrong passwords, and both get the same message.
 - **Sessions:** a signed, HttpOnly, SameSite=Strict cookie holding the user id and a session version. Every request re-reads the user, so disabling an account, changing a password or "log out other devices" ends the old sessions immediately.
 - **Cross-site requests:** state-changing requests whose `Origin` is another site are refused (on top of SameSite cookies).
-- **Rate limits:** sign-ups per IP, and login attempts per account and per IP, counted in MongoDB so they hold across serverless instances.
+- **Rate limits:** sign-ups per IP, login attempts per account and per IP, and ingestion per project + IP (150 events and 150 page views per minute, checked before the project budget so one source can't use it up), counted in MongoDB so they hold across serverless instances.
 - **Disabled accounts:** can't log in, are logged out everywhere, and their projects answer 403 to new events. Other serverless instances may accept events for up to a minute (key cache).
 - **Headers:** a strict Content-Security-Policy (scripts only from this site, images only from here and Cloudinary), HSTS, `X-Frame-Options: DENY`, `nosniff`, and a restrictive `Permissions-Policy` (`vercel.json`; the dev server sends the same).
 - **Rendering:** the dashboard renders all event data as text (never HTML), so a malicious error message can't run script in the dashboard.

@@ -29,7 +29,7 @@ export function cleanProjectName(name) {
 /** Creates a project owned by `ownerId`; returns it together with the one-time plain API key. */
 export async function createProject(db, name, ownerId, now = new Date()) {
   const apiKey = generateApiKey();
-  const doc = { name, ownerId, apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey), createdAt: now };
+  const doc = { name, ownerId, apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey), allowedOrigins: [], createdAt: now };
   const { insertedId } = await db.collection('projects').insertOne(doc);
   return { project: { _id: insertedId, ...doc }, apiKey };
 }
@@ -42,6 +42,12 @@ export async function rotateApiKey(db, projectId) {
     .updateOne({ _id: projectId }, { $set: { apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey) } });
   clearProjectCache();
   return result.matchedCount === 1 ? apiKey : null;
+}
+
+/** Replaces a project's allowed origins (already validated by `cleanOriginList`). */
+export async function setAllowedOrigins(db, projectId, origins) {
+  await db.collection('projects').updateOne({ _id: projectId }, { $set: { allowedOrigins: origins } });
+  clearProjectCache();
 }
 
 // Ingestion looks the key up on every request; a short cache saves a query each time.
@@ -65,5 +71,11 @@ export async function findProjectByApiKey(db, apiKey, now = Date.now()) {
 
 /** Public shape of a project (never includes the key hash). */
 export function projectView(project) {
-  return { id: String(project._id), name: project.name, apiKeyHint: project.apiKeyHint, createdAt: project.createdAt };
+  return {
+    id: String(project._id),
+    name: project.name,
+    apiKeyHint: project.apiKeyHint,
+    allowedOrigins: Array.isArray(project.allowedOrigins) ? project.allowedOrigins : [],
+    createdAt: project.createdAt,
+  };
 }

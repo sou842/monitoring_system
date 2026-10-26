@@ -12,7 +12,29 @@ export const MAX_EVENTS_PER_REQUEST = 50;
 /** Events accepted per project per minute; more get HTTP 429 (the SDK retries later). */
 export const RATE_LIMIT_EVENTS_PER_MINUTE = 1000;
 export const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+/**
+ * Events accepted per minute from one IP for one project, checked before the
+ * project budget so one source can't use it all up. Errors are rare in
+ * production, so this leaves room for many users behind one office IP.
+ */
+export const RATE_LIMIT_EVENTS_PER_IP_PER_MINUTE = 150;
+/** Page views accepted per minute from one IP for one project; more are dropped (not retried). */
+export const RATE_LIMIT_TRANSACTIONS_PER_IP_PER_MINUTE = 150;
+/**
+ * IPv6 clients are counted per /64 network (the first 4 of 8 groups): one
+ * connection usually gets a whole /64 and could switch address every request.
+ */
+export const IPV6_RATE_LIMIT_GROUPS = 4;
+export const IPV6_GROUPS = 8;
+/** Longer "IP addresses" are cut before being used in a counter key. */
+export const MAX_IP_LENGTH = 64;
 export const API_KEY_HEADER = 'x-api-key';
+
+// ---------------------------------------------------------------------------
+// Allowed origins (per project; an empty list allows every origin)
+// ---------------------------------------------------------------------------
+export const MAX_ALLOWED_ORIGINS = 20;
+export const MAX_ORIGIN_LENGTH = 200;
 
 // ---------------------------------------------------------------------------
 // Validation limits (longer strings are truncated, longer arrays cut)

@@ -16,7 +16,7 @@ const PASSWORD = 'correct horse battery';
 let api;
 let db;
 
-/** A fake client IP per call, so the per-IP sign-up limit doesn't interfere between tests. */
+/** A fake client IP per call, so the per-IP sign-up and ingestion limits don't interfere between tests. */
 const freshIp = () => `10.${randomBytes(3).join('.')}`;
 const cookieFrom = (res) => res.headers.get('set-cookie').split(';')[0];
 
@@ -56,7 +56,8 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
     return { cookie: cookieFrom(res), user: (await res.json()).user };
   }
   const as = (cookie) => (path, options = {}) => request(path, { ...options, headers: { cookie, ...(options.headers || {}) } });
-  const ingest = (key, events) => api.events.POST(request('/api/v1/events', { method: 'POST', headers: { 'X-API-Key': key }, body: { events } }));
+  const ingest = (key, events, headers = {}) =>
+    api.events.POST(request('/api/v1/events', { method: 'POST', headers: { 'X-API-Key': key, 'x-forwarded-for': freshIp(), ...headers }, body: { events } }));
 
   let alice; // { cookie, user }
   let authed; // request builder with Alice's cookie
@@ -235,6 +236,75 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.match(res.headers.get('access-control-allow-headers'), /X-API-Key/);
     });
 
+    it('accepts browser events only from allowed origins, once a project lists any', async () => {
+      const patch = (body, as = authed) => api.projects.PATCH(as(`/api/projects?id=${projectId}`, { method: 'PATCH', body }));
+      const fromOrigin = (origin) => ingest(apiKey, [sampleEvent()], origin === null ? {} : { Origin: origin });
+      assert.equal((await fromOrigin('https://evil.test')).status, 202, 'no list: any origin');
+
+      const bad = await patch({ allowedOrigins: ['https://ok.test', 'shop.test', '*.shop.test', 'ftp://shop.test'] });
+      assert.equal(bad.status, 400);
+      const badBody = await bad.json();
+      assert.equal(badBody.error.code, 'invalid_origins');
+      assert.deepEqual(badBody.error.details.map((d) => d.index), [1, 2, 3]);
+      assert.equal((await patch({ allowedOrigins: 'https://shop.test' })).status, 400);
+      assert.equal((await patch({ allowedOrigins: Array.from({ length: 21 }, (_, i) => `https://s${i}.test`) })).status, 400);
+
+      const res = await patch({ allowedOrigins: ['HTTPS://Shop.test:443/', 'http://localhost:3000', 'https://shop.test/checkout?x=1'] });
+      assert.equal(res.status, 200);
+      const expected = ['https://shop.test', 'http://localhost:3000'];
+      assert.deepEqual((await res.json()).project.allowedOrigins, expected, 'normalized and de-duplicated');
+      const list = await (await api.projects.GET(authed('/api/projects'))).json();
+      assert.deepEqual(list.projects.find((p) => p.id === projectId).allowedOrigins, expected);
+
+      assert.equal((await fromOrigin('https://shop.test')).status, 202);
+      assert.equal((await fromOrigin('http://localhost:3000')).status, 202);
+      assert.equal((await fromOrigin(null)).status, 202, 'server-side and mobile SDKs send no Origin');
+      const refused = await fromOrigin('https://evil.test');
+      assert.equal(refused.status, 403);
+      assert.equal((await refused.json()).error.code, 'origin_not_allowed');
+      assert.equal(refused.headers.get('access-control-allow-origin'), '*', 'the SDK must see the 403, not a CORS failure');
+      assert.equal((await fromOrigin('http://localhost:3001')).status, 403, 'the port must match');
+      assert.equal((await fromOrigin('http://shop.test')).status, 403, 'the scheme must match');
+      assert.equal((await fromOrigin('null')).status, 403);
+
+      assert.equal((await api.projects.PATCH(request(`/api/projects?id=${projectId}`, { method: 'PATCH', body: { allowedOrigins: [] } }))).status, 401);
+      assert.equal((await patch({ allowedOrigins: [] })).status, 200);
+      assert.equal((await fromOrigin('https://evil.test')).status, 202, 'an empty list allows any origin again');
+    });
+
+    it('limits events per IP, before they count against the project budget', async () => {
+      // Each half must run inside one rate-limit window (one minute): start in a fresh one if little is left.
+      const freshWindow = async () => {
+        const msLeft = 60000 - (Date.now() % 60000);
+        if (msLeft < 30000) await new Promise((resolve) => setTimeout(resolve, msLeft + 100));
+      };
+      await freshWindow();
+      const projectCount = async () => {
+        const doc = await db.collection('rate_limits').findOne({ _id: `${projectId}:${Date.now() - (Date.now() % 60000)}` });
+        return doc ? doc.count : 0;
+      };
+      const ip = { 'x-forwarded-for': freshIp() };
+      const batch = Array.from({ length: 50 }, () => sampleEvent());
+      for (let i = 0; i < 3; i++) assert.equal((await ingest(apiKey, batch, ip)).status, 202);
+
+      const before = await projectCount();
+      const over = await ingest(apiKey, [sampleEvent()], ip);
+      assert.equal(over.status, 429);
+      assert.equal((await over.json()).error.code, 'rate_limited_ip');
+      assert.ok(Number(over.headers.get('retry-after')) >= 1);
+      assert.equal(over.headers.get('access-control-allow-origin'), '*');
+      assert.equal(await projectCount(), before, 'a refused request uses none of the project budget');
+      assert.equal((await ingest(apiKey, [sampleEvent()])).status, 202, 'other IPs still get through');
+
+      await freshWindow();
+      const viewIp = { 'x-forwarded-for': freshIp() };
+      const views = Array.from({ length: 50 }, () => samplePageView());
+      for (let i = 0; i < 3; i++) assert.equal((await (await ingest(apiKey, views, viewIp)).json()).accepted, 50);
+      const overViews = await (await ingest(apiKey, [samplePageView()], viewIp)).json();
+      assert.equal(overViews.accepted, 0);
+      assert.deepEqual(overViews.rejected, [{ index: 0, reason: 'rate_limited' }], 'page views over the limit are dropped, not retried');
+    });
+
     it('deletes issues (with their events): one, selected ones, by status, and requires a login', async () => {
       const del = (path, body) => authed(path, { method: 'DELETE', body });
       const issueList = async (query = '') => (await (await api.issues.GET(authed(`/api/issues?projectId=${projectId}&status=all${query}`))).json());
@@ -391,6 +461,8 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal((await api.issue.DELETE(del(`/api/issue?id=${issueId}`))).status, 404);
       assert.equal((await api.issues.DELETE(del(`/api/issues?projectId=${projectId}&status=all`))).status, 404);
       assert.equal((await api.projects.POST(asBob(`/api/projects?id=${projectId}&action=rotate-key`, { method: 'POST' }))).status, 404);
+      const bobOrigins = await api.projects.PATCH(asBob(`/api/projects?id=${projectId}`, { method: 'PATCH', body: { allowedOrigins: ['https://bob.test'] } }));
+      assert.equal(bobOrigins.status, 404);
       assert.equal((await api.projects.DELETE(del(`/api/projects?id=${projectId}`))).status, 404);
 
       const issue = await (await api.issue.GET(authed(`/api/issue?id=${issueId}`))).json();
