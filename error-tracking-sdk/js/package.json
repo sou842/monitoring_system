@@ -1,6 +1,6 @@
 {
   "name": "@sourav732/error-tracker-js",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Lightweight, zero-dependency error, performance and crash tracking SDK for browser apps (React, Vue, Next.js, vanilla JS).",
   "keywords": [
     "error-tracking",
@@ -46,7 +46,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rollup -c && tsc -p tsconfig.build.json",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && rollup -c && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

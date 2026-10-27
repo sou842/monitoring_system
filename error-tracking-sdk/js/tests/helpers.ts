@@ -71,7 +71,6 @@ export function makeScope(overrides: Partial<EventScope> = {}): EventScope {
       referrer: null,
       locale: 'en-IN',
     },
-    screenshot: null,
     ...overrides,
   };
 }
@@ -96,7 +95,7 @@ export function mockFetch(status = 202) {
  * separately so any accidental drift from the shared contract is visible.
  */
 const SHARED_SCHEMA = {
-  root: ['sdk', 'api_key', 'event_type', 'timestamp', 'environment', 'app_version', 'user', 'error', 'stacktrace', 'breadcrumbs', 'screenshot', 'performance', 'memory', 'device', 'transaction'],
+  root: ['sdk', 'api_key', 'event_type', 'timestamp', 'environment', 'app_version', 'user', 'error', 'stacktrace', 'breadcrumbs', 'performance', 'memory', 'device', 'transaction'],
   sdk: ['name', 'version'],
   user: ['id', 'email', 'name'],
   error: ['message', 'type', 'handled'],

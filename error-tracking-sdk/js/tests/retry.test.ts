@@ -174,9 +174,9 @@ describe('EventQueue batch size limit', () => {
       isOnline: () => true,
       maxBatchBytes: LIMIT,
     });
-    const withShot = (name: string, length: number): TrackerEvent => ({ ...event(name), screenshot: 'data:image/jpeg;base64,' + 'A'.repeat(length) });
-    for (let i = 0; i < 5; i++) queue.enqueue(withShot('e' + i, 1000));
-    queue.enqueue(withShot('huge', 10000));
+    const padded = (name: string, length: number): TrackerEvent => ({ ...event(name), context: { padding: 'A'.repeat(length) } });
+    for (let i = 0; i < 5; i++) queue.enqueue(padded('e' + i, 1000));
+    queue.enqueue(padded('huge', 10000));
     await queue.flush();
 
     const size = (batch: TrackerEvent[]) => batch.reduce((n, e) => n + JSON.stringify(e).length, 0);

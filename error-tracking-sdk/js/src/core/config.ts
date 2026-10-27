@@ -1,8 +1,6 @@
 import {
   DEFAULT_ENVIRONMENT,
   DEFAULT_HTTP_ERROR_STATUSES,
-  DEFAULT_HTML2CANVAS_INTEGRITY,
-  DEFAULT_HTML2CANVAS_URL,
   DEFAULT_MASK_SELECTORS,
   DEFAULT_MAX_BREADCRUMBS,
   DEFAULT_PERFORMANCE_SAMPLE_RATE,
@@ -50,10 +48,7 @@ export interface ResolvedConfig {
   httpErrorStatuses: Array<[number, number]>;
   captureNetworkErrors: boolean;
   captureConsoleErrors: boolean;
-  captureScreenshots: boolean;
   detectPageNotFound: boolean;
-  html2canvasUrl: string;
-  html2canvasIntegrity: string;
   beforeSend: ((event: TrackerEvent) => TrackerEvent | null) | null;
   beforeSendTransaction: ((event: TrackerEvent) => TrackerEvent | null) | null;
   performanceSampleRate: number;
@@ -148,15 +143,7 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
       httpErrorStatuses: statusRanges(input.httpErrorStatuses),
       captureNetworkErrors: input.captureNetworkErrors !== false,
       captureConsoleErrors: input.captureConsoleErrors === true,
-      captureScreenshots: input.captureScreenshots === true,
       detectPageNotFound: input.detectPageNotFound !== false,
-      html2canvasUrl: typeof input.html2canvasUrl === 'string' && input.html2canvasUrl.length > 0 ? input.html2canvasUrl : DEFAULT_HTML2CANVAS_URL,
-      html2canvasIntegrity:
-        typeof input.html2canvasIntegrity === 'string'
-          ? input.html2canvasIntegrity
-          : typeof input.html2canvasUrl === 'string' && input.html2canvasUrl.length > 0
-            ? '' // A custom URL cannot share the default file's hash.
-            : DEFAULT_HTML2CANVAS_INTEGRITY,
       beforeSend: typeof input.beforeSend === 'function' ? input.beforeSend : null,
       beforeSendTransaction: typeof input.beforeSendTransaction === 'function' ? input.beforeSendTransaction : null,
       performanceSampleRate: numberOption(input.performanceSampleRate, DEFAULT_PERFORMANCE_SAMPLE_RATE, 0, 1, false),

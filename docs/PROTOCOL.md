@@ -63,7 +63,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
 
 ```jsonc
 {
-  "sdk": { "name": "error-tracker-js", "version": "0.6.2" },  // -ios / -android
+  "sdk": { "name": "error-tracker-js", "version": "0.7.0" },  // -ios / -android
   "api_key": "et_...",          // also in the header; the server ignores this field and never stores it
   "event_type": "error",        // error | message | performance | crash | transaction
   "level": "error",             // info | warning | error            (JS extension*)
@@ -74,7 +74,6 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
   "error": { "message": "Cannot read property 'price' of undefined", "type": "TypeError", "handled": false },
   "stacktrace": [ { "filename": "cart.js", "lineno": 142, "colno": 12, "function": "handlePayment" } ],
   "breadcrumbs": [ { "timestamp": "ISO8601", "type": "click", "message": "button#pay", "data": {} } ],
-  "screenshot": "https://res.cloudin...",   // or null
   "context": { },               // per-error-type detail, or null   (JS extension*)
   "performance": {
     "page_load_ms": 4200, "ttfb_ms": 320, "fcp_ms": 1800, "lcp_ms": 2400,
@@ -113,7 +112,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
 
 ### Transaction (page view) events
 
-Each page view sends one `transaction` event (a web route, iOS view controller or Android Activity/Fragment). On these events `error` is `null`, `stacktrace` and `breadcrumbs` are `[]`, and `screenshot` is `null`.
+Each page view sends one `transaction` event (a web route, iOS view controller or Android Activity/Fragment). On these events `error` is `null`, and `stacktrace` and `breadcrumbs` are `[]`.
 
 ```jsonc
 "transaction": {
@@ -143,7 +142,7 @@ Each page view sends one `transaction` event (a web route, iOS view controller o
 ### Event pipeline
 
 ```
-collector / capture* ─► sample ─► dedup ─► rate limit ─► build payload ─► screenshot ─► beforeSend ─► queue ─► transport
+collector / capture* ─► sample ─► dedup ─► rate limit ─► build payload ─► beforeSend ─► queue ─► transport
 ```
 
 | Stage | Rule |
@@ -153,13 +152,12 @@ collector / capture* ─► sample ─► dedup ─► rate limit ─► build p
 | Dedup | Identical events (type + message + top frame) within 5 s are dropped (up to 200 fingerprints remembered) |
 | Rate limit | 100 events per rolling minute. When events are dropped, one `EventsDropped` summary is sent 10 s later. |
 | Build | Fills every schema field. Stacks are capped at 50 frames, strings at 1000 characters, messages at 2000. Objects are serialized to depth 5 with at most 50 keys. |
-| Screenshot | **Opt-in** (`captureScreenshots: true`, off by default since JS 0.6.2) and only for unhandled errors (`handled: false`), because rendering freezes the page (~0.4 s desktop, ~3–4 s mid-range phone). At most one every 10 s, with a 3 s budget; on timeout the event is sent without it. |
 | `beforeSend` | The app can scrub the event, or return `null` to drop it. Transactions use `beforeSendTransaction`. |
 | Queue | Sends a batch at 10 events or after 2 s. The in-memory cap is 100 events (the oldest are dropped). |
 
 ### Delivery and persistence
 
-- **Offline and failed delivery:** events are saved in `localStorage["_et_queue"]` (at most 50). If storage is full, screenshots are dropped first. The API key is blanked before saving and filled back in at send time.
+- **Offline and failed delivery:** events are saved in `localStorage["_et_queue"]` (at most 50). If storage is full, the oldest events are dropped. The API key is blanked before saving and filled back in at send time.
 - **Page unload:** `pagehide` → `fetch(..., { keepalive: true })` for up to 60 KB. If the browser refuses that, the events are persisted instead. Sends made while the tab is hidden also use keepalive, and fall back to a normal request if the browser refuses.
 - **Persisted events are flushed** on the next page load.
 
@@ -177,9 +175,7 @@ collector / capture* ─► sample ─► dedup ─► rate limit ─► build p
 | --- | --- |
 | API key | Kept in memory and sent in the request header. Never persisted (blanked in the offline store). The server stores only a SHA-256 hash. |
 | URLs | Query string and fragment removed before recording (in breadcrumbs, `device.url` and spans) |
-| Screenshots | Never taken while the page is hidden. Two-layer masking: style the cloned DOM, then paint black rectangles over masked elements. `input[type=password]` and `maskSelectors` are always masked. |
-| Screenshot size | ≤ 1280 px wide, JPEG quality 0.5 (falling back to 0.3), at most ~370 KB. The server refuses anything over 400 KB, so a raw image never reaches Cloudinary. |
-| html2canvas | Loaded on demand from cdnjs, pinned to 1.4.1 with an SRI hash. Can be self-hosted (`html2canvasUrl`). |
+| Extra fields | Only schema fields are sent or stored. The SDK drops any other top-level field (e.g. added by an untyped `beforeSend`) before sending or persisting, and the server's validator builds each event from known fields only. |
 | Clicks | The click text is capped at 50 characters and masked elements record `[masked]`. Clicks on `body`/`html` record no text. |
 
 ### Detection rules (defaults; configurable through `init()` options, clamped to safe ranges)
@@ -217,7 +213,7 @@ X-API-Key ─► SHA-256 ─► project lookup (cached 60 s) ─► disabled? 40
           ─► per project:      errors: no limit                      |   page views 1000/min → rejected "rate_limited"
           ─► validate each event (truncate long strings, cap arrays, fix clock skew > 24 h)
           ─► transactions → `transactions` + hourly `perf_rollups`
-          ─► others → upload screenshot (4 at a time) → upsert issue by fingerprint → insert event
+          ─► others → upsert issue by fingerprint → insert event
           ─► 202 { accepted, rejected }
 ```
 
@@ -257,12 +253,10 @@ fingerprint = sha256( event_type | error.type | normalize(message) | topFrame.fu
 | `projects` | name, `ownerId`, `apiKeyHash`, key hint, `allowedOrigins` | — |
 | `users` | email, scrypt hash, role, status, `sessionVersion` | — |
 | `issues` | Grouped problems: count, first/last seen, status, environments | 90 days after last seen |
-| `events` | Every occurrence: indexed summary fields + full payload + screenshot URL | 30 days |
+| `events` | Every occurrence: indexed summary fields + full payload | 30 days |
 | `transactions` | Raw page views ("slowest samples") | 7 days |
 | `perf_rollups` | Per project / hour / environment / route or endpoint: counts and a log histogram (base 1.15 → percentiles ±7%) | 90 days |
 | `rate_limits` | Fixed-window counters | Expire on their own |
-
-Screenshots are stored in Cloudinary (unsigned upload preset, uploaded with `fetch`, no SDK), and only the URL is kept in MongoDB.
 
 ### Dashboard authentication and access
 
@@ -274,7 +268,7 @@ Screenshots are stored in Cloudinary (unsigned upload preset, uploaded with `fet
   - sign-up: 5 per IP per hour
   - login: 10 per account+IP and 50 per IP, per 15 minutes
   - no limit on projects per user (`MAX_PROJECTS_PER_USER` is `null`; a number turns the limit back on)
-- **HTTP headers** (`vercel.json`): strict CSP (`script-src 'self'`; images only from self and `res.cloudinary.com`), HSTS, `X-Frame-Options: DENY`, `nosniff`, and a restrictive Permissions-Policy.
+- **HTTP headers** (`vercel.json`): strict CSP (`script-src 'self'`; images only from self and inline `data:` icons), HSTS, `X-Frame-Options: DENY`, `nosniff`, and a restrictive Permissions-Policy.
 
 ### Dashboard API (all under `/api`, session cookie required except `auth` and `health`)
 
@@ -297,7 +291,7 @@ Screenshots are stored in Cloudinary (unsigned upload preset, uploaded with `fet
 | Constraint | Effect |
 | --- | --- |
 | SDK must never crash the host app | `safe` wrappers everywhere, silent failure, and a single network wrap |
-| No third-party runtime packages (SDK) | Hand-written queue, retry, stack parser and serializer. html2canvas is the only exception, loaded on demand. |
+| No third-party runtime packages (SDK) | Hand-written queue, retry, stack parser and serializer. |
 | Backend may only use `mongodb` | Plain Vercel functions, a vanilla-JS dashboard, inline SVG charts, hand-written data cache, `node:test` |
 | Vercel Hobby limit of 12 functions | 10 are in use, and related routes share one file (e.g. `auth?action=`) |
 | Every field always present | The backend schema stays the same across JS, iOS and Android |

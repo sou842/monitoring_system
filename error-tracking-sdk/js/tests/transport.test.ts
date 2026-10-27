@@ -10,10 +10,17 @@ import { makeScope, mockFetch } from './helpers';
 
 const logger = new Logger(false);
 
-function event(message: string, screenshot: string | null = null): TrackerEvent {
+/** An event; `padding` adds that many characters of context, to test size limits. */
+function event(message: string, padding = 0): TrackerEvent {
   return buildEvent(
-    { eventType: 'error', level: 'error', error: { message, type: 'Error', handled: true }, stacktrace: [], context: null },
-    makeScope({ screenshot }),
+    {
+      eventType: 'error',
+      level: 'error',
+      error: { message, type: 'Error', handled: true },
+      stacktrace: [],
+      context: padding > 0 ? { padding: 'A'.repeat(padding) } : null,
+    },
+    makeScope(),
     '2026-10-17T10:42:15.000Z',
   );
 }
@@ -76,7 +83,7 @@ describe('HttpTransport', () => {
       await transport.send([event('visible')]);
       setVisibility('hidden');
       await transport.send([event('hidden')]);
-      await transport.send([event('big', 'data:image/jpeg;base64,' + 'A'.repeat(70000))]);
+      await transport.send([event('big', 70000)]);
       expect(calls.map((c) => c.init.keepalive === true)).toEqual([false, true, false]);
     });
 
@@ -86,7 +93,7 @@ describe('HttpTransport', () => {
       expect(transport.sendOnUnload([event('bye')])).toBe(true);
       expect(calls[0].init.keepalive).toBe(true);
       expect(calls[0].body.events[0].api_key).toBe('k');
-      expect(transport.sendOnUnload([event('big', 'data:image/jpeg;base64,' + 'A'.repeat(70000))])).toBe(false);
+      expect(transport.sendOnUnload([event('big', 70000)])).toBe(false);
       expect(calls).toHaveLength(1);
     });
 
@@ -156,7 +163,16 @@ describe('LocalStorageStore', () => {
     expect(store.takeAll()).toHaveLength(1);
   });
 
-  it('on quota exceeded, drops screenshots first and then the oldest events', () => {
+  it('keeps only schema fields, also from events already in storage', () => {
+    const stored = { ...event('stored earlier'), extra: 'SECRET' };
+    localStorage.setItem(OFFLINE_STORAGE_KEY, JSON.stringify([stored]));
+    const store = new LocalStorageStore(logger);
+    store.append([{ ...event('new'), extra: 'SECRET' } as TrackerEvent]);
+    expect(localStorage.getItem(OFFLINE_STORAGE_KEY)).not.toContain('SECRET');
+    expect(store.takeAll().map((e) => e.error?.message)).toEqual(['stored earlier', 'new']);
+  });
+
+  it('on quota exceeded, drops the oldest events', () => {
     const store = new LocalStorageStore(logger);
     const realSetItem = Storage.prototype.setItem;
     const QUOTA = 6000;
@@ -165,12 +181,11 @@ describe('LocalStorageStore', () => {
       realSetItem.call(this, key, value);
     });
 
-    const big = 'data:image/jpeg;base64,' + 'A'.repeat(10000);
-    expect(() => store.append([event('1', big), event('2', big), event('3', big)])).not.toThrow();
+    expect(() => store.append([event('1', 2500), event('2', 2500), event('3', 2500)])).not.toThrow();
 
     const kept = JSON.parse(localStorage.getItem(OFFLINE_STORAGE_KEY) as string) as TrackerEvent[];
     expect(kept.length).toBeGreaterThan(0);
-    expect(kept.every((e) => e.screenshot === null)).toBe(true);
+    expect(kept.length).toBeLessThan(3);
     const newest = kept[kept.length - 1];
     expect(newest.error?.message).toBe('3');
   });

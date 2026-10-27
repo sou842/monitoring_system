@@ -30,14 +30,12 @@ describe('buildEvent', () => {
     expect(wire.performance.frame_rate_fps).toBeNull();
     expect(wire.memory.oom_kill).toBeNull();
     expect(wire.device.manufacturer).toBeNull();
-    expect(wire.screenshot).toBeNull();
   });
 
   it('maps input and scope to the expected values', () => {
     const scope = makeScope({
       user: { id: 'usr_8821', email: 'a@b.test' },
       breadcrumbs: [{ timestamp: TIMESTAMP, type: 'click', message: 'Clicked Pay Now', data: {} }],
-      screenshot: 'data:image/jpeg;base64,AAAA',
     });
     const event = buildEvent(ERROR_INPUT, scope, TIMESTAMP);
 
@@ -52,7 +50,6 @@ describe('buildEvent', () => {
       user: { id: 'usr_8821', email: 'a@b.test', name: null },
       error: { message: "Cannot read property 'price' of undefined", type: 'TypeError', handled: false },
       stacktrace: [{ filename: 'cart.js', lineno: 142, colno: 12, function: 'handlePayment' }],
-      screenshot: 'data:image/jpeg;base64,AAAA',
       context: { orderId: 'ord_1' },
       device: { platform: 'js' },
     });

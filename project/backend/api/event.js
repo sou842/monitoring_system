@@ -3,7 +3,7 @@ import { requireUser } from '../lib/auth.js';
 import { errorResponse, handle, json, parseObjectId } from '../lib/http.js';
 import { eventView } from '../lib/views.js';
 
-/** GET /api/event?id=… — one event in full (stack trace, breadcrumbs, screenshot, device…), if it is in one of your projects. */
+/** GET /api/event?id=… — one event in full (stack trace, breadcrumbs, device…), if it is in one of your projects. */
 export const GET = handle(async (request) => {
   const auth = await requireUser(request);
   if (auth.response) return auth.response;

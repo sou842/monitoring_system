@@ -23,7 +23,6 @@ flowchart LR
 
     subgraph Storage
         MONGO[("MongoDB Atlas<br/>db: monitor")]
-        CLD[("Cloudinary<br/>screenshots")]
     end
 
     USER(["Developer<br/>(browser)"])
@@ -34,12 +33,10 @@ flowchart LR
     AND -. "same schema" .-> ING
 
     ING -- "validate, group, store" --> MONGO
-    ING -- "upload compressed JPEG" --> CLD
 
     USER -- "HTTPS + session cookie" --> STATIC
     STATIC -- "fetch /api/*" --> DASHAPI
     DASHAPI --> MONGO
-    USER -. "loads images" .-> CLD
 ```
 
 | Part | Path | Stack | Status |
@@ -80,7 +77,7 @@ flowchart TB
 
     subgraph CORE["Core pipeline (src/core/client.ts)"]
         direction LR
-        S["sample"] --> D["deduplication<br/>5 s"] --> RL["rate limit<br/>100/min"] --> B["payloadBuilder"] --> SS["screenshot<br/>(html2canvas)"] --> BS["beforeSend"] --> Q["eventQueue"]
+        S["sample"] --> D["deduplication<br/>5 s"] --> RL["rate limit<br/>100/min"] --> B["payloadBuilder"] --> BS["beforeSend"] --> Q["eventQueue"]
     end
 
     subgraph TR["Transport (src/transport/)"]
@@ -117,11 +114,9 @@ sequenceDiagram
     participant LS as localStorage
     participant API as POST /api/v1/events
     participant DB as MongoDB
-    participant CL as Cloudinary
 
     App->>SDK: throws TypeError
     SDK->>SDK: sample → deduplication → rate limit → build payload
-    SDK->>SDK: screenshot (masked, ≤1280 px, JPEG 0.5)
     SDK->>SDK: beforeSend → queue (batch of 10 or 2 s)
     SDK->>API: POST { events: [...] }  X-API-Key
     alt network error / 5xx / 408 / 429
@@ -136,9 +131,8 @@ sequenceDiagram
     API->>API: Origin in the project's allowed origins? (else 403)
     API->>DB: consume per-IP budget (150/min), then per-project budget (1000/min)
     API->>API: validate each event (bad ones rejected individually)
-    API->>CL: upload screenshot (≤400 KB)
     API->>DB: upsert issue by fingerprint (reopen if resolved)
-    API->>DB: insert event (+ screenshot URL)
+    API->>DB: insert event
     API-->>SDK: 202 { accepted, rejected: [{index, reason}] }
 ```
 

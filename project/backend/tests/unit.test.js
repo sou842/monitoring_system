@@ -4,8 +4,7 @@ import { ObjectId } from 'mongodb';
 import { createSessionToken, crossSiteResponse, readCookie, verifySessionToken } from '../lib/auth.js';
 import { hashPassword, passwordProblem, verifyPassword } from '../lib/passwords.js';
 import { cleanUserName, normalizeEmail } from '../lib/users.js';
-import { optimizedUrl, parseImageDataUrl, uploadScreenshot } from '../lib/cloudinary.js';
-import { MAX_ALLOWED_ORIGINS, MAX_SCREENSHOT_BYTES, SESSION_TTL_MS } from '../lib/constants.js';
+import { MAX_ALLOWED_ORIGINS, SESSION_TTL_MS } from '../lib/constants.js';
 import { culprit, fingerprint, normalizeFilename, normalizeMessage } from '../lib/grouping.js';
 import { cleanOriginList, isOriginAllowed, normalizeOrigin } from '../lib/origins.js';
 import { consumeEventBudget, ipBucket } from '../lib/rateLimit.js';
@@ -13,8 +12,6 @@ import { validateEvent } from '../lib/validate.js';
 import { sampleEvent } from './helpers.js';
 
 process.env.SESSION_SECRET = 'test-secret';
-process.env.CLOUDINARY_CLOUD_NAME = 'demo';
-process.env.CLOUDINARY_UPLOAD_PRESET = 'preset';
 
 const validated = (overrides) => validateEvent(sampleEvent(overrides)).event;
 
@@ -137,41 +134,14 @@ describe('dashboard sessions', () => {
   });
 });
 
-describe('screenshots', () => {
-  const smallJpeg = 'data:image/jpeg;base64,' + 'A'.repeat(1000);
-
-  it('accepts only base64 image data URLs of allowed types', () => {
-    assert.deepEqual(parseImageDataUrl(smallJpeg), { mime: 'image/jpeg', bytes: 750 });
-    assert.equal(parseImageDataUrl('data:image/svg+xml;base64,AAAA'), null);
-    assert.equal(parseImageDataUrl('https://evil.test/x.jpg'), null);
-  });
-
-  it('never uploads an image over the size cap (no raw images reach Cloudinary)', async () => {
-    let called = false;
-    const big = 'data:image/jpeg;base64,' + 'A'.repeat(Math.ceil(((MAX_SCREENSHOT_BYTES + 1) * 4) / 3) + 4);
-    const result = await uploadScreenshot(big, 'p1', async () => { called = true; });
-    assert.deepEqual(result, { url: null, reason: 'too_large' });
-    assert.equal(called, false);
-  });
-
-  it('uploads to the project folder with the preset, and survives Cloudinary failures', async () => {
-    let sent = null;
-    const ok = await uploadScreenshot(smallJpeg, 'p1', async (url, init) => {
-      sent = { url, folder: init.body.get('folder'), preset: init.body.get('upload_preset') };
-      return new Response(JSON.stringify({ secure_url: 'https://res.cloudinary.com/demo/image/upload/v1/x.jpg', bytes: 750 }), { status: 200 });
-    });
-    assert.equal(ok.url, 'https://res.cloudinary.com/demo/image/upload/v1/x.jpg');
-    assert.deepEqual(sent, { url: 'https://api.cloudinary.com/v1_1/demo/image/upload', folder: 'error-tracker/p1', preset: 'preset' });
-
-    const rejected = await uploadScreenshot(smallJpeg, 'p1', async () => new Response('{"error":{"message":"bad"}}', { status: 400 }));
-    assert.deepEqual(rejected, { url: null, reason: 'upload_rejected' });
-    const thrown = await uploadScreenshot(smallJpeg, 'p1', async () => { throw new Error('network'); });
-    assert.deepEqual(thrown, { url: null, reason: 'upload_failed' });
-  });
-
-  it('serves screenshots compressed', () => {
-    assert.equal(optimizedUrl('https://res.cloudinary.com/demo/image/upload/v1/x.jpg'),
-      'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto:low,w_1280,c_limit/v1/x.jpg');
+describe('validation', () => {
+  it('keeps only schema fields: anything else an SDK sends is dropped', () => {
+    const blob = 'data:image/jpeg;base64,' + 'A'.repeat(1000);
+    const result = validateEvent(sampleEvent({ attachment: blob, internal: { secret: 'x' } }));
+    assert.equal(result.ok, true);
+    assert.equal('attachment' in result.event, false);
+    assert.equal('internal' in result.event, false);
+    assert.equal(JSON.stringify(result.event).includes(blob), false);
   });
 });
 

@@ -59,7 +59,7 @@ export default function Home() {
   return (
     <div>
       <h1>Home</h1>
-      <p className="private">Private info (masked in screenshots): jane@example.com</p>
+      <p className="private">Private info (masked in click breadcrumbs): jane@example.com</p>
 
       <Section title="Runtime errors">
         <button onClick={() => { const cart = undefined; return cart.price; }}>Uncaught TypeError</button>

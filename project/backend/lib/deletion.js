@@ -1,7 +1,6 @@
 /**
  * Deleting data. An issue's events are stored separately, so they are always
- * removed together with the issue. Screenshots uploaded to Cloudinary are not
- * deleted: that needs the Cloudinary API secret, which this app doesn't hold.
+ * removed together with the issue.
  */
 
 import { clearProjectCache } from './projects.js';

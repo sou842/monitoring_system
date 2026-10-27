@@ -32,7 +32,7 @@ export interface ErrorTrackerConfig {
   sampleRate?: number;
   /** Size of the breadcrumb ring buffer. Defaults to 30. */
   maxBreadcrumbs?: number;
-  /** CSS selectors whose elements are blacked out in screenshots and click breadcrumbs. */
+  /** CSS selectors whose text is replaced with `[masked]` in click breadcrumbs. */
   maskSelectors?: string[];
   /** Log SDK diagnostics to the console. Defaults to false. */
   debug?: boolean;
@@ -59,16 +59,6 @@ export interface ErrorTrackerConfig {
    * 410 status (Chromium 109+ and Firefox). Defaults to true.
    */
   detectPageNotFound?: boolean;
-  /**
-   * Attach a screenshot to unhandled errors (`handled: false`). Defaults to false:
-   * rendering one blocks the page's main thread (about 0.3 s on a desktop and
-   * several seconds on a mid-range phone for a page with ~1,500 elements).
-   */
-  captureScreenshots?: boolean;
-  /** Override where html2canvas is loaded from (self-hosting is recommended). */
-  html2canvasUrl?: string;
-  /** SRI hash for `html2canvasUrl`. Set to an empty string to disable the integrity check. */
-  html2canvasIntegrity?: string;
   /** A fetch/XHR call slower than this (ms) is reported as `SlowApiCall`. Defaults to 2000 (allowed 100–600000). */
   slowApiCallMs?: number;
   /** A page load slower than this (ms) is reported as `SlowPageLoad`. Defaults to 3000 (allowed 100–600000). */
@@ -286,7 +276,6 @@ export interface TrackerEvent {
   error: ErrorPayload | null;
   stacktrace: StackFrame[];
   breadcrumbs: Breadcrumb[];
-  screenshot: string | null;
   performance: PerformancePayload;
   memory: MemoryPayload;
   device: DevicePayload;

@@ -35,17 +35,10 @@ export class LocalStorageStore implements OfflineStore {
 
     let combined = this.read(storage).concat(events.map(redact)).slice(-this.maxEvents);
 
-    // Quota strategy: first drop screenshots (by far the largest field), then
-    // repeatedly halve the stored set keeping the newest events.
-    let strippedScreenshots = false;
+    // Quota strategy: repeatedly halve the stored set, keeping the newest events.
     while (combined.length > 0) {
       if (this.write(storage, combined)) return;
-      if (!strippedScreenshots) {
-        combined = combined.map(withoutScreenshot);
-        strippedScreenshots = true;
-      } else {
-        combined = combined.slice(Math.ceil(combined.length / 2));
-      }
+      combined = combined.slice(Math.ceil(combined.length / 2));
     }
     this.logger.warn('localStorage is full; could not persist events');
   }
@@ -75,7 +68,7 @@ export class LocalStorageStore implements OfflineStore {
     try {
       const parsed: unknown = JSON.parse(raw);
       if (Object.prototype.toString.call(parsed) !== '[object Array]') throw new Error('not an array');
-      return (parsed as unknown[]).filter(isEventLike);
+      return (parsed as unknown[]).filter(isEventLike).map(redact);
     } catch (e) {
       this.logger.warn('persisted queue was corrupt; discarding it', e);
       try {
@@ -115,12 +108,9 @@ export class MemoryStore implements OfflineStore {
   }
 }
 
+/** Blanks the API key and keeps only schema fields (see `withField`). */
 function redact(event: TrackerEvent): TrackerEvent {
   return withField(event, 'api_key', '');
-}
-
-function withoutScreenshot(event: TrackerEvent): TrackerEvent {
-  return withField(event, 'screenshot', null);
 }
 
 function isEventLike(value: unknown): value is TrackerEvent {

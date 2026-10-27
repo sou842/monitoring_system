@@ -12,7 +12,6 @@ export async function reportServerError(error, request, context) {
       endpoint: process.env.ET_SERVER_ENDPOINT || process.env.NEXT_PUBLIC_ET_ENDPOINT,
       environment: process.env.NODE_ENV,
       appVersion: '0.1.0',
-      captureScreenshots: false,
     });
   }
   ErrorTracker.captureError(error, {

@@ -40,7 +40,6 @@ export function sampleEvent(overrides = {}) {
     error: { message: "Cannot read properties of undefined (reading 'price')", type: 'TypeError', handled: false },
     stacktrace: [{ filename: 'https://shop.test/static/cart-3f9a1b2c4d.js', lineno: 142, colno: 12, function: 'handlePayment' }],
     breadcrumbs: [{ timestamp: new Date().toISOString(), type: 'click', message: 'Clicked Pay Now', data: {} }],
-    screenshot: null,
     performance: { page_load_ms: 1200, ttfb_ms: 100, fcp_ms: 300, lcp_ms: 500, startup_ms: null, frame_rate_fps: 60, slow_screen: false, api_calls: [], slow_api_calls: [] },
     memory: { used_mb: 40, total_mb: 80, leak_suspected: false, oom_kill: null },
     device: { platform: 'js', os: 'Windows 11', os_version: '15.0', manufacturer: null, model: null, browser: 'Chrome', browser_version: '124.0', screen_width: 1920, screen_height: 1080, url: 'https://shop.test/checkout', locale: 'en-IN' },

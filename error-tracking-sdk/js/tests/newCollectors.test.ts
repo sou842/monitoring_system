@@ -306,23 +306,12 @@ describe('CspCollector', () => {
 
   it('falls back to the securitypolicyviolation event without the Reporting API', () => {
     const sink = new RecordingSink();
-    const collector = new CspCollector(sink, logger, [], null);
+    const collector = new CspCollector(sink, logger, null);
     collector.install();
     document.dispatchEvent(violation({ blockedURI: 'eval', effectiveDirective: 'script-src', disposition: 'enforce' }));
     collector.uninstall();
     document.dispatchEvent(violation({ blockedURI: 'eval', effectiveDirective: 'script-src', disposition: 'enforce' }));
     expect(sink.errors.map((e) => e.error.message)).toEqual(['CSP blocked eval (script-src)']);
-  });
-
-  it("ignores violations caused by the SDK's own screenshot library", () => {
-    const sink = new RecordingSink();
-    const collector = new CspCollector(sink, logger, ['https://cdn.test/html2canvas.min.js'], null);
-    collector.install();
-    document.dispatchEvent(violation({ blockedURI: 'data', effectiveDirective: 'img-src', disposition: 'report', sourceFile: 'https://cdn.test/html2canvas.min.js' }));
-    document.dispatchEvent(violation({ blockedURI: 'data', effectiveDirective: 'img-src', disposition: 'report', sourceFile: 'https://app.test/main.js' }));
-    collector.uninstall();
-    expect(sink.errors).toHaveLength(1);
-    expect(sink.errors[0].stacktrace[0].filename).toBe('https://app.test/main.js');
   });
 
   it('uses a buffered ReportingObserver when available, so violations from before init are included', () => {
@@ -337,7 +326,7 @@ describe('CspCollector', () => {
       observe(): void {}
       disconnect(): void {}
     }
-    const collector = new CspCollector(sink, logger, [], FakeReportingObserver);
+    const collector = new CspCollector(sink, logger, FakeReportingObserver);
     collector.install();
     expect(options).toEqual({ types: ['csp-violation'], buffered: true });
 

@@ -59,20 +59,6 @@ export const ISSUE_EVENT_TYPES = EVENT_TYPES.filter((type) => type !== 'transact
 export const LEVELS = ['info', 'warning', 'error'];
 
 // ---------------------------------------------------------------------------
-// Screenshots (Cloudinary)
-// ---------------------------------------------------------------------------
-/**
- * Decoded size above which a screenshot is NOT uploaded. The SDK compresses
- * before sending; this guarantees a raw, uncompressed image never reaches Cloudinary.
- */
-export const MAX_SCREENSHOT_BYTES = 400 * 1024;
-export const SCREENSHOT_MIME_TYPES = ['image/jpeg', 'image/webp', 'image/png'];
-export const CLOUDINARY_FOLDER = 'error-tracker';
-export const CLOUDINARY_TIMEOUT_MS = 10000;
-/** Parallel screenshot uploads per request. */
-export const SCREENSHOT_UPLOAD_CONCURRENCY = 4;
-
-// ---------------------------------------------------------------------------
 // Retention (MongoDB TTL indexes delete old documents automatically)
 // ---------------------------------------------------------------------------
 export const EVENT_RETENTION_DAYS = 30;

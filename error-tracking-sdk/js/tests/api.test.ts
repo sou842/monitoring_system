@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OFFLINE_STORAGE_KEY, RATE_LIMIT_MAX_EVENTS } from '../src/constants';
+import { buildEvent } from '../src/core/payloadBuilder';
 import ErrorTracker from '../src/index';
 import { TrackerEvent } from '../src/types';
-import { expectSchemaShape, mockFetch, settle } from './helpers';
+import { expectSchemaShape, makeScope, mockFetch, settle } from './helpers';
 
 const ENDPOINT = 'https://ingest.test/v1/events';
 const BASE_CONFIG = {
@@ -10,7 +11,6 @@ const BASE_CONFIG = {
   endpoint: ENDPOINT,
   environment: 'staging',
   appVersion: '2.1.4',
-  captureScreenshots: false,
   // Page views have their own tests below; here they would add to every event count.
   performanceSampleRate: 0,
 };
@@ -60,7 +60,6 @@ describe('ErrorTracker public API', () => {
       user: { id: 'usr_8821', email: 'jane@example.com', name: null },
       error: { message: "Cannot read property 'price' of undefined", type: 'TypeError', handled: true },
       context: { cartId: 'c_1' },
-      screenshot: null,
     });
     expect(event.breadcrumbs).toContainEqual(expect.objectContaining({ type: 'click', message: 'Clicked Pay Now', data: { button: 'pay' } }));
     expect(event.stacktrace.length).toBeGreaterThan(0);
@@ -335,71 +334,41 @@ describe('ErrorTracker public API', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[ErrorTracker] invalid config'));
   });
 
-  describe('screenshots', () => {
-    const win = window as Window & { html2canvas?: unknown };
-    let fillRect: ReturnType<typeof vi.fn>;
-    let html2canvas: ReturnType<typeof vi.fn>;
-    const uncaught = (message: string) =>
-      window.dispatchEvent(new ErrorEvent('error', { error: new TypeError(message), message: message }));
+  describe('only schema fields leave the page', () => {
+    const SECRET = 'not-part-of-the-schema';
 
-    beforeEach(() => {
-      document.body.innerHTML = '<div class="ssn">123-45-6789</div><p>public</p>';
-      vi.spyOn(document.querySelector('.ssn') as Element, 'getBoundingClientRect').mockReturnValue({
-        left: 5, top: 6, width: 70, height: 20, right: 75, bottom: 26, x: 5, y: 6, toJSON: () => ({}),
-      } as DOMRect);
-      fillRect = vi.fn();
-      html2canvas = vi.fn(() =>
-        Promise.resolve({ getContext: () => ({ fillStyle: '', fillRect }), toDataURL: () => 'data:image/jpeg;base64,MASKED' }),
-      );
-      win.html2canvas = html2canvas;
+    it('ignores unknown init options', async () => {
+      ErrorTracker.init({ ...BASE_CONFIG, ...{ notAnOption: true } } as typeof BASE_CONFIG);
+      ErrorTracker.captureError(new Error('still works'));
+      await ErrorTracker.flush();
+      expect(sentEvents().map((e) => e.error?.message)).toEqual(['still works']);
+      expectSchemaShape(sentEvents()[0]);
+      expect(document.querySelectorAll('script')).toHaveLength(0);
     });
 
-    afterEach(() => {
-      delete win.html2canvas;
-      document.body.innerHTML = '';
-    });
-
-    it('are off by default', async () => {
-      const { captureScreenshots: _omitted, ...defaults } = BASE_CONFIG;
-      ErrorTracker.init(defaults);
-      uncaught('no screenshot by default');
+    it('drops extra fields added by an untyped beforeSend', async () => {
+      ErrorTracker.init({ ...BASE_CONFIG, beforeSend: (event) => ({ ...event, extra: SECRET }) as TrackerEvent });
+      ErrorTracker.captureError(new Error('caught'));
       await ErrorTracker.flush();
 
-      expect(sentEvents()[0].screenshot).toBeNull();
-      expect(html2canvas).not.toHaveBeenCalled();
+      expectSchemaShape(sentEvents()[0]);
+      expect(String(fetchMock.calls[0].init.body)).not.toContain(SECRET);
     });
 
-    it('when enabled, attach a masked screenshot to unhandled errors and flush() waits for it', async () => {
-      ErrorTracker.init({ ...BASE_CONFIG, captureScreenshots: true, maskSelectors: ['.ssn'] });
-      uncaught('with screenshot');
+    it('drops extra fields from events found in the offline queue', async () => {
+      const stored = { ...buildEvent(
+        { eventType: 'error', level: 'error', error: { message: 'stored earlier', type: 'Error', handled: false }, stacktrace: [], context: null },
+        makeScope(),
+        '2026-10-20T10:00:00.000Z',
+      ), extra: SECRET };
+      localStorage.setItem(OFFLINE_STORAGE_KEY, JSON.stringify([stored]));
+
+      ErrorTracker.init(BASE_CONFIG);
       await ErrorTracker.flush();
 
-      expect(sentEvents()[0].error?.handled).toBe(false);
-      expect(sentEvents()[0].screenshot).toBe('data:image/jpeg;base64,MASKED');
-      expect(fillRect).toHaveBeenCalledWith(5, 6, 70, 20);
-    });
-
-    it('when enabled, are never taken for handled errors (captureError, HTTP errors)', async () => {
-      const received: TrackerEvent[] = [];
-      const routedFetch = vi.fn((input: string, init?: RequestInit) => {
-        if (input === ENDPOINT) {
-          received.push(...(JSON.parse(String(init?.body)) as { events: TrackerEvent[] }).events);
-          return Promise.resolve(new Response(null, { status: 202 }));
-        }
-        return Promise.resolve(new Response(null, { status: 500 }));
-      });
-      vi.stubGlobal('fetch', routedFetch);
-      window.fetch = routedFetch as unknown as typeof fetch;
-
-      ErrorTracker.init({ ...BASE_CONFIG, captureScreenshots: true });
-      ErrorTracker.captureError(new Error('caught by the app'));
-      await window.fetch('https://app.test/api/fail');
-      await settle();
-      await ErrorTracker.flush();
-
-      expect(received.map((e) => e.error?.type).sort()).toEqual(['Error', 'HttpError']);
-      for (const event of received) expect(event.screenshot).toBeNull();
-      expect(html2canvas).not.toHaveBeenCalled();
+      expect(sentEvents().map((e) => e.error?.message)).toEqual(['stored earlier']);
+      expectSchemaShape(sentEvents()[0]);
+      expect(String(fetchMock.calls[0].init.body)).not.toContain(SECRET);
     });
   });
 
@@ -490,7 +459,7 @@ describe('ErrorTracker public API', () => {
       expect(views.map((e) => e.transaction !== null && e.transaction.kind)).toEqual(['pageload', 'navigation']);
       views.forEach(expectSchemaShape);
       const [load, nav] = views;
-      expect(load).toMatchObject({ level: 'info', error: null, breadcrumbs: [], screenshot: null, context: null });
+      expect(load).toMatchObject({ level: 'info', error: null, breadcrumbs: [], context: null });
       expect(load.transaction).toMatchObject({ name: '/', background: false });
       expect(load.transaction && load.transaction.spans).toEqual([
         expect.objectContaining({ op: 'http', method: 'POST', url: 'https://app.test/api/cart', status: 202 }),

@@ -1,7 +1,7 @@
 /**
  * Integration tests: real API handlers against a throwaway MongoDB database
  * (monitor_test_<random>, collections dropped afterwards). Skipped when
- * MONGODB_URI is not configured. Cloudinary is not called: events here carry no screenshots.
+ * MONGODB_URI is not configured.
  */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -371,6 +371,24 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal((await (await api.stats.GET(authed('/api/stats?range=7d'))).json()).series.length, 7);
       assert.equal((await api.stats.GET(authed('/api/stats?range=1y'))).status, 400);
       assert.equal((await api.stats.GET(request('/api/stats'))).status, 401);
+    });
+
+    it('never stores or serves fields outside the schema', async () => {
+      const created = await (await api.projects.POST(authed('/api/projects', { method: 'POST', body: { name: 'Extra fields app' } }))).json();
+      const id = created.project.id;
+      const blob = 'data:image/jpeg;base64,' + 'A'.repeat(2000);
+      const res = await ingest(created.apiKey, [sampleEvent({ attachment: blob })]);
+      assert.deepEqual(await res.json(), { accepted: 1, rejected: [] }, 'the error itself is still accepted');
+
+      const stored = await db.collection('events').findOne({ projectId: new ObjectId(id) });
+      assert.equal(JSON.stringify(stored).includes('attachment'), false);
+      assert.equal(JSON.stringify(stored).includes(blob), false);
+      const issues = await (await api.issues.GET(authed(`/api/issues?projectId=${id}`))).json();
+      const detail = await (await api.issue.GET(authed(`/api/issue?id=${issues.issues[0].id}`))).json();
+      const event = await (await api.event.GET(authed(`/api/event?id=${detail.events[0].id}`))).json();
+      assert.equal(JSON.stringify(event).includes(blob), false);
+
+      await api.projects.DELETE(authed(`/api/projects?id=${id}`, { method: 'DELETE' }));
     });
 
     it('stores page views as performance data, never as issues, and serves the Performance view', async () => {

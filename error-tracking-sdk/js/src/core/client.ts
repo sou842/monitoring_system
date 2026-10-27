@@ -12,7 +12,6 @@ import { PageViewCollector } from '../collectors/pageViewCollector';
 import { PerformanceCollector } from '../collectors/performanceCollector';
 import { ResourceCollector } from '../collectors/resourceCollector';
 import { ResponsivenessCollector } from '../collectors/responsivenessCollector';
-import { ScreenshotCollector } from '../collectors/screenshotCollector';
 import { WorkerCollector } from '../collectors/workerCollector';
 import { HttpTransport, Transport } from '../transport/httpTransport';
 import { LocalStorageStore, OfflineStore } from '../transport/offlineStore';
@@ -37,7 +36,6 @@ export interface ClientDependencies {
   rateLimiter?: RateLimiter;
   deduplicator?: Deduplicator;
   readMemory?: () => MemoryReading | null;
-  screenshot?: ScreenshotCollector;
   queueRetryDelaysMs?: readonly number[];
   queueFlushDelayMs?: number;
 }
@@ -63,7 +61,6 @@ export class Client implements CollectorSink {
   private readonly transactionLimiter = new RateLimiter(TRANSACTION_RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   private readonly memory: MemoryCollector;
   private readonly responsiveness: ResponsivenessCollector;
-  private readonly screenshot: ScreenshotCollector;
   private readonly collectors: Collector[];
   private user: TrackedUser | null = null;
   private rateLimitWarned = false;
@@ -71,8 +68,6 @@ export class Client implements CollectorSink {
   private droppedCount = 0;
   private droppedTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
-  /** Events waiting on a screenshot before they can be queued. */
-  private pendingCaptures: Array<Promise<void>> = [];
 
   private readonly handleOnline: () => void;
   private readonly handleVisibility: () => void;
@@ -123,12 +118,6 @@ export class Client implements CollectorSink {
       freezeThresholdMs: config.mainThreadBlockedMs,
       lowFpsThreshold: config.lowFrameRateFps,
     });
-    this.screenshot =
-      deps.screenshot ||
-      new ScreenshotCollector(
-        { maskSelectors: config.maskSelectors, libraryUrl: config.html2canvasUrl, libraryIntegrity: config.html2canvasIntegrity },
-        this.logger,
-      );
     this.collectors = [
       // First: everything below asks it whether the tab was hidden.
       this.visibility,
@@ -140,7 +129,7 @@ export class Client implements CollectorSink {
       this.pageViews,
       this.memory,
       this.responsiveness,
-      new CspCollector(this, this.logger, [config.html2canvasUrl]),
+      new CspCollector(this, this.logger),
       new WorkerCollector(this, this.logger),
       new ResourceCollector(this, this.logger),
       new JsonResponseCollector(this, this.logger, (url: string) => this.network.isSdkUrl(url)),
@@ -237,21 +226,16 @@ export class Client implements CollectorSink {
     });
   }
 
-  /** Waits for events still awaiting a screenshot, then sends everything queued. */
+  /** Sends everything queued. */
   flush(): Promise<void> {
-    const queue = this.queue;
     const pageViews = this.pageViews;
     // Page views that ended a moment ago wait briefly for timing entries; send them now.
     safelyRun(this.logger, 'send finished page views', function sendViews() {
       pageViews.flushDeferred();
     });
-    return Promise.all(this.pendingCaptures.slice())
-      .then(function send() {
-        return queue.flush();
-      })
-      .then(null, () => {
-        this.logger.warn('flush failed');
-      });
+    return this.queue.flush().then(null, () => {
+      this.logger.warn('flush failed');
+    });
   }
 
   captureError(thrown: unknown, context?: object): void {
@@ -264,7 +248,6 @@ export class Client implements CollectorSink {
         stacktrace: captured.stacktrace,
         context: context !== undefined && context !== null ? normalizeObject(context) : null,
       },
-      true,
     );
   }
 
@@ -307,7 +290,6 @@ export class Client implements CollectorSink {
           source: details.source,
         },
       },
-      false,
     );
   }
 
@@ -320,7 +302,6 @@ export class Client implements CollectorSink {
         stacktrace: [],
         context: null,
       },
-      false,
     );
   }
 
@@ -349,7 +330,6 @@ export class Client implements CollectorSink {
         stacktrace: captured.stacktrace,
         context: captured.context !== undefined ? captured.context : null,
       },
-      true,
     );
   }
 
@@ -372,7 +352,6 @@ export class Client implements CollectorSink {
         stacktrace: [],
         context: context !== undefined ? context : null,
       },
-      false,
     );
   }
 
@@ -403,10 +382,10 @@ export class Client implements CollectorSink {
   }
 
   // -------------------------------------------------------------------------
-  // Pipeline: sample → dedup → rate limit → build → screenshot → beforeSend → queue
+  // Pipeline: sample → dedup → rate limit → build → beforeSend → queue
   // -------------------------------------------------------------------------
 
-  private capture(input: EventInput, withScreenshot: boolean): void {
+  private capture(input: EventInput): void {
     if (this.random() > this.config.sampleRate) {
       this.logger.info('event dropped by sampleRate');
       return;
@@ -423,33 +402,7 @@ export class Client implements CollectorSink {
     }
     this.rateLimitWarned = false;
 
-    // Snapshot scope now so breadcrumbs reflect the moment of the error, not
-    // whatever happens while the screenshot renders.
-    const scope = this.scope();
-    const timestamp = nowIso();
-    const self = this;
-
-    // Screenshots freeze the page while they render, so only errors that broke
-    // something without the app getting a chance (handled: false) get one.
-    if (!withScreenshot || !this.config.captureScreenshots || input.error === null || input.error.handled) {
-      this.finish(buildEvent(input, scope, timestamp));
-      return;
-    }
-
-    const pending = this.screenshot.capture().then(
-      function attach(shot) {
-        scope.screenshot = shot;
-        self.finish(buildEvent(input, scope, timestamp));
-      },
-      function withoutShot() {
-        self.finish(buildEvent(input, scope, timestamp));
-      },
-    );
-    this.pendingCaptures.push(pending);
-    pending.then(function untrack() {
-      const index = self.pendingCaptures.indexOf(pending);
-      if (index !== -1) self.pendingCaptures.splice(index, 1);
-    });
+    this.finish(buildEvent(input, this.scope(), nowIso()));
   }
 
   /** Counts a rate-limited event and schedules one summary event, so storms stay visible. */
@@ -519,7 +472,6 @@ export class Client implements CollectorSink {
       performance: performance,
       memory: this.memory.snapshot(),
       device: this.device.snapshot(),
-      screenshot: null,
     };
   }
 }

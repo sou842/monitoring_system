@@ -1,7 +1,7 @@
 # Error Tracker — JavaScript SDK
 
 Client-side error, performance and memory monitoring for browser apps (vanilla JS, React, Vue, Next.js, …).
-The SDK captures problems in the page and sends them to the **Error Tracker dashboard**, where they are grouped into issues with stack traces, breadcrumbs, screenshots and charts.
+The SDK captures problems in the page and sends them to the **Error Tracker dashboard**, where they are grouped into issues with stack traces, breadcrumbs and charts.
 
 **Dashboard: [monitoringsystem-backend.vercel.app](https://monitoringsystem-backend.vercel.app/)**. Free to sign up, and your projects are visible only to your account.
 
@@ -112,16 +112,13 @@ app.config.errorHandler = (err, instance, info) => {
 | `appVersion` | `string` | `null` | Your app's version. |
 | `sampleRate` | `number` | `1.0` | 0–1. Each event is dropped when `Math.random() > sampleRate`. |
 | `maxBreadcrumbs` | `number` | `30` | Size of the breadcrumb ring buffer (max 100). |
-| `maskSelectors` | `string[]` | `[]` | Elements to black out in screenshots and hide in click breadcrumbs. `input[type="password"]` is always masked. |
+| `maskSelectors` | `string[]` | `[]` | Elements whose text is hidden (`[masked]`) in click breadcrumbs. `input[type="password"]` is always masked. |
 | `debug` | `boolean` | `false` | Log SDK diagnostics to the console. |
 | `captureHttpErrors` | `boolean` | `true` | Report fetch/XHR responses whose status is in `httpErrorStatuses` as `HttpError` events. |
 | `httpErrorStatuses` | `Array<number \| [min, max]>` | `[400, 404, 405, 413, [500, 599]]` | Which statuses count as errors. See [Which HTTP statuses are reported](#which-http-statuses-are-reported). *Added in 0.6.0;* earlier versions reported every 4xx and 5xx. |
 | `captureNetworkErrors` | `boolean` | `true` | Report fetch/XHR requests that got no response (offline, timeout, refused, DNS/SSL, CORS) as `NetworkError`. Requests the app aborts are never reported. |
 | `captureConsoleErrors` | `boolean` | `false` | Report each `console.error(...)` call as an event. Off by default because libraries log a lot of noise there. |
-| `captureScreenshots` | `boolean` | `false` | Attach a viewport screenshot to **unhandled** errors (`handled: false`). *Off by default since 0.6.2*: rendering one freezes the page (see [Screenshots](#screenshots-and-content-security-policy)). |
 | `detectPageNotFound` | `boolean` | `true` | Report a `PageNotFound` event when the page itself was served with a 404 or 410 status. See [Missing pages](#missing-pages-404). |
-| `html2canvasUrl` | `string` | cdnjs html2canvas 1.4.1 | Where the screenshot library is loaded from. |
-| `html2canvasIntegrity` | `string` | SRI hash of the default URL | SRI hash for `html2canvasUrl`. Defaults to `''` (no check) when you set a custom URL. |
 | `beforeSend` | `(event) => event \| null` | — | Scrub or drop events before they are queued. If the hook throws, the original event is sent. Not called for page views; see `beforeSendTransaction`. |
 | `performanceSampleRate` | `number` | `1.0` | 0–1. Share of page loads whose page views are recorded. See [Performance monitoring](#performance-monitoring). *Added in 0.5.0.* |
 | `beforeSendTransaction` | `(event) => event \| null` | — | Like `beforeSend`, for page-view (`transaction`) events, e.g. to scrub URLs. *Added in 0.5.0.* |
@@ -251,7 +248,7 @@ Sampling is decided once per page load with `performanceSampleRate` (default `1.
 ErrorTracker.init({ apiKey, endpoint, performanceSampleRate: 0.2 }); // record 1 page load in 5
 ```
 
-Page views have their own budget (30 per minute in the SDK, separate limits on the server), so they never crowd out errors. They include `device`, `user` and `app_version` but no breadcrumbs or screenshots.
+Page views have their own budget (30 per minute in the SDK, separate limits on the server), so they never crowd out errors. They include `device`, `user` and `app_version` but no breadcrumbs.
 
 Other public methods: `flush(): Promise<void>` sends everything now (and never rejects). `close(): Promise<void>` flushes, removes every hook and persists anything unsent. `isInitialized(): boolean`.
 
@@ -263,13 +260,12 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | **Network** | `HttpError` for fetch/XHR responses with an error status (all 5xx plus 400, 404, 405 and 413 by default, e.g. `GET https://app.example.com/api/cart → 500`; see [Which HTTP statuses are reported](#which-http-statuses-are-reported)). `NetworkError` for requests that got no response: offline, timeout, connection refused, DNS/SSL failure, CORS (`context.failure` says which, as far as the browser reveals). Requests the app aborts itself are not reported. `InvalidJsonResponse` when `response.json()` fails, even if the app catches it. The stack trace of all three points at the app code that made the request. |
 | **Missing pages** | `PageNotFound` (level `warning`) when the page itself was served with 404/410 (Chromium 109+, Firefox), or when the app calls `capturePageNotFound()`. See [Missing pages](#missing-pages-404). |
 | **Resources** | `ResourceError` for failed `<img>`/`<script>`/`<link>` loads, web fonts (`document.fonts`), and CSS background images / `@import`s with a 4xx/5xx status. Failures that happened while the HTML was still loading, before the SDK started, are picked up from Resource Timing. Failed `<link rel="preload">` hints are skipped, since the element using the file reports it. CSS-image and pre-start checks are Chromium 109+ only, and same-origin (or `Timing-Allow-Origin`) only. |
-| **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. Violations caused by the SDK's own screenshot library are ignored. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
+| **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
 | **Console** | Opt-in (`captureConsoleErrors: true`): each `console.error(...)` becomes a `ConsoleError` event, or the passed Error's own type. Errors the SDK has already reported are skipped. |
 | **Breadcrumbs** | Clicks (tag, visible text, CSS path; form values are never read), `pushState`/`replaceState`/`popstate` navigation, page visibility changes, `console.warn`/`console.error`, and every `fetch`/XHR call (URL, method, status or failure, duration). |
 | **Performance** | One `transaction` event per page view with Web Vitals, INP and every request's timing (see [Performance monitoring](#performance-monitoring)). Error payloads also carry page load, TTFB (Navigation Timing L2, with an L1 fallback), FCP, LCP and CLS, plus the last 20 API calls. Browsers hold back background tabs, so when the page was hidden before its first paint, FCP and LCP are `null`, and a load or request that overlapped a hidden period is not judged slow. |
 | **Responsiveness** | `MainThreadBlocked` when one task freezes the page for more than 1 s (Long Tasks API, Chromium only; at most one report per 30 s). The frame rate is sampled for 1 s, 5 s after start and then every 30 s while the page is visible. It fills `performance.frame_rate_fps`, and a sample under 20 fps is reported as `LowFrameRate`. Adjustable with `mainThreadBlockedMs` / `lowFrameRateFps`. |
 | **Memory** | `performance.memory` (Chromium only), polled every 30 s. Sets `leak_suspected` and sends a `MemoryLeakSuspected` event when the memory kept after garbage collection grows steadily. See [How memory leaks are detected](#how-memory-leaks-are-detected). |
-| **Screenshots** | **Opt-in** (`captureScreenshots: true`), and only for unhandled errors: uncaught exceptions and rejections, failed resources, CSP violations and worker errors. Handled errors (`captureError`, HTTP errors, network failures, `console.error`, performance issues) never get one. The visible viewport as a compressed JPEG: at most 1280 px wide, quality 0.5, typically around 50 KB, capped at ~370 KB. Only taken when the page is visible, at most one every 10 s, with a 3 s time budget. |
 
 Query strings and fragments are stripped from every recorded URL, because they often carry tokens.
 
@@ -307,20 +303,12 @@ Browsers hide the message and stack of errors thrown by scripts from another ori
 - A page stuck in an infinite loop: the task never ends, so it can't be reported from inside the page.
 - Layout bugs that never throw.
 
-### Screenshots and Content Security Policy
-
-**Cost:** html2canvas copies and draws the page on the main thread, so the page freezes while a screenshot renders. Measured on a page with about 1,500 elements: **~0.4 s on a desktop and ~3–4 s on a mid-range phone** (Chrome at 4× CPU slowdown). That is why screenshots are off by default (0.6.2) and limited to unhandled errors and one every 10 s. Enable them where the picture is worth the freeze, e.g. internal tools or desktop apps.
-
-html2canvas is **not bundled**. It is loaded on demand the first time a screenshot is needed, with Subresource Integrity checking. If your site uses a CSP, allow the script origin (`script-src https://cdnjs.cloudflare.com`). Alternatively, self-host the file and set `html2canvasUrl` (and `html2canvasIntegrity`). If the library can't load, error events are sent without a screenshot. html2canvas also draws `data:` images, so a policy that restricts `img-src` needs `data:` for screenshots to render. The SDK does not report the violations its own library causes.
-
-Masking works in two layers. Masked elements are painted black in html2canvas's cloned DOM (form values are blanked and their children hidden). Then, after rendering, black rectangles are drawn over their on-screen bounds. If the canvas can't be drawn on, the screenshot is discarded rather than sent unmasked.
-
 ## Delivery
 
 - Events are batched (up to 10 per request, and at most ~1 MB per request so serverless hosts such as Vercel accept it) and sent 2 s after the first event, or immediately once 10 are waiting.
 - The request is `POST <endpoint>`, with headers `Content-Type: application/json` and `X-API-Key: <apiKey>`, and the body `{ "events": [ ... ] }`.
 - **Retries:** network errors, 5xx, 408 and 429 are retried 3 times, after 1 s, 2 s and 4 s. Other 4xx responses (bad payload, invalid key) are dropped without retrying, since resending can't succeed.
-- **Offline:** when `navigator.onLine === false`, or once retries are exhausted, events are stored in `localStorage["_et_queue"]` (newest 50, with the API key removed). The stored queue is flushed on the `online` event, when the tab becomes visible again, and on the next `init()`. If storage is full, screenshots are dropped first, then the oldest events.
+- **Offline:** when `navigator.onLine === false`, or once retries are exhausted, events are stored in `localStorage["_et_queue"]` (newest 50, with the API key removed). The stored queue is flushed on the `online` event, when the tab becomes visible again, and on the next `init()`. If storage is full, the oldest events are dropped.
 - **Leaving the page:** when the tab is hidden or the page unloads, queued events are sent with `fetch(…, { keepalive: true })`, which the browser finishes after the page is gone. Only batches up to ~60 KB use it (browsers cap keepalive bodies); larger ones, and browsers that refuse keepalive, fall back to `localStorage` and the next visit. *Added in 0.5.0.*
 - **Error storms:** identical events (same type, message and top frame) are deduplicated within 5 s. After that, at most 100 events per rolling minute are accepted. When the limit drops events, one `EventsDropped` summary (`context.dropped_count`) is sent 10 s later, so a storm is never silent.
 
@@ -341,7 +329,6 @@ Every event follows the shared cross-platform schema. Every field is always pres
   "error": { "message": "Cannot read properties of undefined (reading 'price')", "type": "TypeError", "handled": false },
   "stacktrace": [{ "filename": "https://app.example.com/static/cart.js", "lineno": 142, "colno": 12, "function": "handlePayment" }],
   "breadcrumbs": [{ "timestamp": "2026-10-17T10:42:14.100Z", "type": "click", "message": "Clicked Pay Now", "data": { "tag": "button", "text": "Pay Now", "selector": "form#checkout > button.primary" } }],
-  "screenshot": "data:image/jpeg;base64,...",
   "performance": {
     "page_load_ms": 4200, "ttfb_ms": 320, "fcp_ms": 1800, "lcp_ms": 2400, "cls": 0.02,
     "startup_ms": null, "frame_rate_fps": null, "slow_screen": true,

@@ -109,17 +109,10 @@ export class CspCollector implements Collector {
   constructor(
     private readonly sink: CollectorSink,
     private readonly logger: Logger,
-    /**
-     * Scripts loaded by the SDK itself (the screenshot library). Violations
-     * they cause, e.g. drawing `data:` images under a strict `img-src`, are not the app's problem.
-     */
-    sdkScriptUrls: readonly string[] = [],
     private readonly reportingObserver: ReportingObserverConstructor | null = defaultReportingObserver(),
   ) {
     const self = this;
-    const ignored = sdkScriptUrls.map(stripQuery);
     const report = function report(violation: CspViolation) {
-      if (violation.sourceFile !== null && ignored.indexOf(stripQuery(violation.sourceFile)) !== -1) return;
       self.sink.onError(cspError(violation));
     };
     this.handleEvent = guard(logger, 'CSP violation handler', function onViolation(event: SecurityPolicyViolationEvent) {

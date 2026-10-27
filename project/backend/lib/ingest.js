@@ -1,19 +1,18 @@
-import { MONGO_DUPLICATE_KEY, SCREENSHOT_UPLOAD_CONCURRENCY } from './constants.js';
+import { MONGO_DUPLICATE_KEY } from './constants.js';
 import { culprit, fingerprint } from './grouping.js';
 import { endpointOf, mergeUpdates, normalizePath, rollupUpdates } from './performance.js';
 import { validateEvent } from './validate.js';
 
 /**
  * Stores a batch of events for one project:
- *   validate → upload screenshots → group into issues → insert events.
+ *   validate → group into issues → insert events.
  *
  * Invalid events are rejected individually; valid ones in the same batch are
- * still stored. `uploadScreenshot(dataUrl, projectId)` is injected so tests
- * can run without Cloudinary.
+ * still stored.
  *
  * @returns {Promise<{ accepted: number, rejected: Array<{ index: number, reason: string }> }>}
  */
-export async function ingestEvents({ db, project, rawEvents, uploadScreenshot, now = new Date(), acceptTransactions = true }) {
+export async function ingestEvents({ db, project, rawEvents, now = new Date(), acceptTransactions = true }) {
   const rejected = [];
   const valid = [];
   const pageViews = [];
@@ -29,15 +28,10 @@ export async function ingestEvents({ db, project, rawEvents, uploadScreenshot, n
   if (valid.length === 0) return { accepted: storedViews, rejected };
 
   const projectId = project._id;
-  const screenshots = await mapLimit(valid, SCREENSHOT_UPLOAD_CONCURRENCY, (event) =>
-    event.screenshot ? uploadScreenshot(event.screenshot, String(projectId)) : Promise.resolve({ url: null }),
-  );
-
   const docs = [];
-  for (let i = 0; i < valid.length; i++) {
-    const event = valid[i];
+  for (const event of valid) {
     const issue = await upsertIssue(db, projectId, event, now);
-    docs.push(eventDocument(projectId, issue._id, event, screenshots[i], now));
+    docs.push(eventDocument(projectId, issue._id, event, now));
   }
   await db.collection('events').insertMany(docs, { ordered: false });
   return { accepted: docs.length + storedViews, rejected };
@@ -125,9 +119,8 @@ async function upsertIssue(db, projectId, event, now) {
   return issue;
 }
 
-/** Event as stored: indexed summary fields plus the full validated payload (minus the image itself). */
-function eventDocument(projectId, issueId, event, screenshot, now) {
-  const { screenshot: _dataUrl, ...payload } = event;
+/** Event as stored: indexed summary fields plus the full validated payload. */
+function eventDocument(projectId, issueId, event, now) {
   return {
     projectId,
     issueId,
@@ -143,22 +136,6 @@ function eventDocument(projectId, issueId, event, screenshot, now) {
     userId: event.user.id,
     url: event.device.url,
     platform: event.device.platform,
-    screenshotUrl: screenshot.url,
-    screenshotSkipped: screenshot.url === null && event.screenshot !== null ? screenshot.reason || 'unknown' : null,
-    payload,
+    payload: event,
   };
-}
-
-/** Promise.all with at most `limit` tasks running at once, results in input order. */
-async function mapLimit(items, limit, task) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await task(items[index]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }

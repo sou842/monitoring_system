@@ -1,8 +1,6 @@
-import { optimizedUrl } from './cloudinary.js';
-
 /**
  * Shapes database documents for the dashboard API: string ids, no internal
- * fields, compressed screenshot URLs.
+ * fields.
  */
 
 export function issueView(issue) {
@@ -37,7 +35,6 @@ export function eventSummaryView(event) {
     url: event.url,
     platform: event.platform,
     browser: event.payload && event.payload.device ? event.payload.device.browser : null,
-    hasScreenshot: Boolean(event.screenshotUrl),
   };
 }
 
@@ -45,9 +42,6 @@ export function eventView(event) {
   return {
     ...eventSummaryView(event),
     issueId: String(event.issueId),
-    screenshotUrl: optimizedUrl(event.screenshotUrl),
-    screenshotOriginalUrl: event.screenshotUrl,
-    screenshotSkipped: event.screenshotSkipped || null,
     payload: event.payload,
   };
 }

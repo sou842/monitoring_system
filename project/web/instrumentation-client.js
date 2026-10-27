@@ -9,9 +9,6 @@ ErrorTracker.init({
   appVersion: '0.1.0',
   maskSelectors: ['.private'],
   captureConsoleErrors: true,
-  // Demo: screenshots are off by default since 0.6.2 (they freeze the page while
-  // rendering); here they show what an unhandled error looked like.
-  captureScreenshots: true,
   // Demo: read the heap every 5 s (default 30 s) so the memory-leak button is
   // reported within a few minutes instead of about 10.
   memoryPollIntervalMs: 5000,

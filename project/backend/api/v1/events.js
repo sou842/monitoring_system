@@ -1,5 +1,4 @@
 import { clientIp } from '../../lib/auth.js';
-import { uploadScreenshot } from '../../lib/cloudinary.js';
 import { API_KEY_HEADER, MAX_EVENTS_PER_REQUEST } from '../../lib/constants.js';
 import { getDb } from '../../lib/db.js';
 import { errorResponse, handle, json, readJson } from '../../lib/http.js';
@@ -94,6 +93,6 @@ async function ingest(request) {
     ((await consumeIpTransactionBudget(db, project._id, ip, pageViewCount)).allowed &&
       (await consumeTransactionBudget(db, project._id, pageViewCount)).allowed);
 
-  const result = await ingestEvents({ db, project, rawEvents: events, uploadScreenshot, acceptTransactions });
+  const result = await ingestEvents({ db, project, rawEvents: events, acceptTransactions });
   return json(result, 202);
 }

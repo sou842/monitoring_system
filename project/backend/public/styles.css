@@ -279,7 +279,6 @@ a.hbar-row:hover .top span:first-child { text-decoration: underline; text-underl
 .kv { display: grid; grid-template-columns: 150px 1fr; gap: 8px 16px; margin: 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; word-break: break-word; }
-.screenshot img { max-width: 100%; border: 1px solid var(--line); display: block; }
 details summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
 details summary:hover { color: var(--fg); }
 details pre, .card pre.mono { margin-top: 8px; padding: 14px; background: var(--panel-2); border: 1px solid var(--line); max-height: 400px; overflow: auto; }
@@ -422,7 +421,6 @@ details pre, .card pre.mono { margin-top: 8px; padding: 14px; background: var(--
 :root[data-theme='light'] .frame:first-child { background: var(--red-soft); box-shadow: inset 3px 0 0 var(--red); }
 :root[data-theme='light'] .notice { border-radius: var(--radius-sm); }
 :root[data-theme='light'] .notice.error { background: var(--red-soft); border-color: transparent; }
-:root[data-theme='light'] .screenshot img { border-radius: var(--radius-sm); }
 
 /* ---------- Header refresh button ---------- */
 .icon-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; }

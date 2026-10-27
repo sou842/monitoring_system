@@ -25,7 +25,6 @@ const SOFT_RENDER_RETRY_MS = 100;
 /** The login session is not re-checked on every page change, only this often. */
 const SESSION_RECHECK_MS = 60 * 1000;
 const SDK_PACKAGE = '@sourav732/error-tracker-js';
-const SCREENSHOT_HOST = 'https://res.cloudinary.com/';
 const STATUSES = ['open', 'resolved', 'ignored', 'all'];
 const EVENT_TYPES = ['error', 'message', 'performance', 'crash'];
 /** Mirrors the server's rules (lib/constants.js); the server re-checks everything. */
@@ -1869,15 +1868,6 @@ function eventDetail(event) {
         )),
       ),
     ));
-  }
-
-  if (event.screenshotUrl && event.screenshotUrl.startsWith(SCREENSHOT_HOST)) {
-    parts.push(section('Screenshot',
-      el('a', { class: 'screenshot', href: event.screenshotOriginalUrl, target: '_blank', rel: 'noopener noreferrer' },
-        el('img', { src: event.screenshotUrl, alt: 'Screenshot of the page when the error happened', loading: 'lazy' })),
-    ));
-  } else if (event.screenshotSkipped) {
-    parts.push(section('Screenshot', el('p', { class: 'muted', text: `Not stored (${event.screenshotSkipped.replace(/_/g, ' ')}).` })));
   }
 
   if (p.breadcrumbs.length > 0) {

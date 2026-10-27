@@ -36,7 +36,6 @@ export interface EventScope {
   performance: PerformancePayload;
   memory: MemoryPayload;
   device: DevicePayload;
-  screenshot: string | null;
 }
 
 /** Performance block with every field present and nothing measured. */
@@ -86,7 +85,6 @@ export function buildEvent(input: EventInput, scope: EventScope, timestamp: stri
     error: input.error !== null ? { message: input.error.message, type: input.error.type, handled: input.error.handled } : null,
     stacktrace: input.stacktrace.slice(),
     breadcrumbs: scope.breadcrumbs.slice(),
-    screenshot: scope.screenshot,
     performance: {
       page_load_ms: scope.performance.page_load_ms,
       ttfb_ms: scope.performance.ttfb_ms,
@@ -124,11 +122,35 @@ export function buildEvent(input: EventInput, scope: EventScope, timestamp: stri
   };
 }
 
-/** Returns a shallow copy of `event` with one top-level field replaced. */
+/** Every top-level field of the wire format; typed so it cannot drift from `TrackerEvent`. */
+const EVENT_FIELDS: Record<keyof TrackerEvent, true> = {
+  sdk: true,
+  api_key: true,
+  event_type: true,
+  level: true,
+  timestamp: true,
+  environment: true,
+  app_version: true,
+  user: true,
+  error: true,
+  stacktrace: true,
+  breadcrumbs: true,
+  performance: true,
+  memory: true,
+  device: true,
+  context: true,
+  transaction: true,
+};
+
+/**
+ * Returns a shallow copy of `event` with one top-level field replaced. Only
+ * schema fields are copied: anything else (added by an untyped `beforeSend`, or
+ * found in an offline queue written by another SDK version) is never sent or stored.
+ */
 export function withField<K extends keyof TrackerEvent>(event: TrackerEvent, key: K, value: TrackerEvent[K]): TrackerEvent {
   const copy = {} as TrackerEvent;
   (Object.keys(event) as Array<keyof TrackerEvent>).forEach(function assign(k) {
-    (copy as unknown as Record<string, unknown>)[k] = event[k];
+    if (EVENT_FIELDS[k] === true) (copy as unknown as Record<string, unknown>)[k] = event[k];
   });
   copy[key] = value;
   return copy;

@@ -65,7 +65,7 @@ ErrorTracker.init({
   appVersion: string,
   sampleRate: number,       // 0.0 to 1.0, default 1.0
   maxBreadcrumbs: number,   // default 30
-  maskSelectors: string[],  // CSS selectors for PII fields to mask in screenshots
+  maskSelectors: string[],  // CSS selectors whose text is hidden in click breadcrumbs
   debug: boolean,           // enable console warnings, default false
 });
 ErrorTracker.captureError(error: Error, context?: Record<string, any>);
@@ -78,7 +78,6 @@ Collectors (one file each, under src/collectors/):
 2. **BreadcrumbCollector:** record clicks (tag + text + CSS path), navigation (pushState/popState), console warn/error, and fetch/XHR (URL, method, status, duration). Circular buffer of maxBreadcrumbs.
 3. **PerformanceCollector:** Navigation Timing + PerformanceObserver to collect page load, TTFB, FCP, LCP, CLS. Intercept fetch/XHR for per-call timings. Flag a page load over 3000 ms or an API call over 2000 ms as slow.
 4. **MemoryCollector:** poll performance.memory every 30 s (heap used/total). Set `leak_suspected` if heap used grows more than 20% across 3 consecutive readings without navigation.
-5. **ScreenshotCollector:** html2canvas loaded dynamically (not bundled), or a DOM serializer. Mask maskSelectors with black rectangles before capture.
 
 Transport: fetch with Content-Type JSON and `X-API-Key`. Queue in memory. When offline, persist to localStorage `_et_queue` and flush on the `online` event. Retry 3× with 1s/2s/4s backoff. Batch up to 10 events. Apply sampleRate before queuing (drop the event if `Math.random() > sampleRate`).
 
@@ -98,7 +97,7 @@ ErrorTracker.shared.initialize(config: ErrorTrackerConfig(
   appVersion: String,
   sampleRate: Double,       // 0.0–1.0, default 1.0
   maxBreadcrumbs: Int,      // default 30
-  maskViews: [UIView],      // views whose screenshots will be blacked out
+  maskViews: [UIView],      // views whose labels are hidden in touch breadcrumbs
   debug: Bool
 ))
 ErrorTracker.shared.captureError(_ error: Error, context: [String: Any]? = nil)
@@ -111,7 +110,6 @@ Collectors (one Swift file each):
 2. **BreadcrumbCollector:** swizzle (or use method observation) to record UIViewController viewDidAppear, touch events (element class + accessibility label), and URLSession completions (URL, method, status, duration). Thread-safe circular buffer of maxBreadcrumbs, guarded by a serial DispatchQueue.
 3. **PerformanceCollector:** cold start time (process launch to first viewDidAppear). For each URLSessionDataTask, record URL, method, status and duration. Flag a screen that takes over 1000 ms to appear as slow. Track frame rate via CADisplayLink; flag drops below 55 fps as jank.
 4. **MemoryCollector:** os_proc_available_memory() and task_vm_info every 30 s. Observe UIApplication.didReceiveMemoryWarningNotification. Detect OOM termination (didFinishLaunching with no clean-exit flag set), record an OOM event, and send it on next launch.
-5. **ScreenshotCollector:** render the key window to a UIImage via UIGraphicsImageRenderer. Fill maskViews frames with black via CoreGraphics before rendering. Encode as JPEG at 0.6 quality, then base64. Capture on the main thread; skip with a warning if the app is in the background.
 
 Transport: URLSession.shared with a custom URLSessionConfiguration (60 s timeout). Persist unsent events to a JSON file in Caches. Flush on launch and on applicationWillEnterForeground. Retry 3× (1s/2s/4s) on a background queue. Batch up to 10. Compress with zlib if over 50 KB. Send the `X-API-Key` and `Content-Type: application/json` headers.
 
@@ -133,7 +131,7 @@ ErrorTracker.init(
     appVersion = String,
     sampleRate = Double,       // 0.0–1.0, default 1.0
     maxBreadcrumbs = Int,      // default 30
-    maskViewIds = List<Int>,   // R.id.* view IDs to black out in screenshots
+    maskViewIds = List<Int>,   // R.id.* views whose labels are hidden in touch breadcrumbs
     debug = Boolean
   )
 )
@@ -148,11 +146,10 @@ Collectors (one Kotlin file each):
 3. **BreadcrumbCollector:** Application.ActivityLifecycleCallbacks for Activity transitions. Wrap OkHttp if present (detect via reflection; no hard dependency), otherwise intercept HttpURLConnection, to record API calls. Record touch events via a custom Window.Callback. Thread-safe circular buffer: ArrayDeque + ReentrantLock.
 4. **PerformanceCollector:** cold start via ProcessStartTimeHelper / AppStartInfo (API 35+), falling back to Process.getStartUptimeMillis(). Track each HTTP call's URL, method, status and duration. Detect dropped frames with Choreographer.FrameCallback (flag when frame time exceeds 16 ms × 3). Flag an Activity onResume over 1000 ms as slow.
 5. **MemoryCollector:** ActivityManager.getMemoryInfo() and Debug.MemoryInfo every 30 s. Register ComponentCallbacks2.onTrimMemory for memory pressure. Detect OOM kills via ActivityManager.getHistoricalProcessExitReasons (API 30+) and record them on next launch.
-6. **ScreenshotCollector:** capture the current Activity's root view using PixelCopy (API 26+), with a Canvas-drawing fallback. Draw black rects over maskViewIds bounds. Encode as JPEG at 60%, then base64. Only capture when Activity.isDestroyed == false and the app is in the foreground.
 
 Transport: HttpURLConnection (no OkHttp dependency) with 60 s connect and read timeouts. Persist unsent events as JSON files in context.cacheDir/errortracker/. Flush on launch and on ProcessLifecycleOwner foreground transitions. Retry 3× (1s/2s/4s) on a background ExecutorService. Batch up to 10. Send the `X-API-Key` and `Content-Type: application/json` headers. Use ConnectivityManager.NetworkCallback to flush on reconnect.
 
-Also: minSdk 21, with @RequiresApi on API-gated calls plus safe fallbacks. Thread-safe, and no main-thread work except screenshots. JUnit 4 + Mockito tests for payload building, the breadcrumb buffer, the ANR detector and retry logic. A README with Gradle install and usage. A consumer-proguard-rules.pro. Zero Logcat output unless debug.
+Also: minSdk 21, with @RequiresApi on API-gated calls plus safe fallbacks. Thread-safe, and no heavy work on the main thread. JUnit 4 + Mockito tests for payload building, the breadcrumb buffer, the ANR detector and retry logic. A README with Gradle install and usage. A consumer-proguard-rules.pro. Zero Logcat output unless debug.
 
 ---
 
@@ -181,7 +178,6 @@ All three SDKs must send events in this exact JSON shape. Any field not availabl
   "breadcrumbs": [
     { "timestamp": "ISO8601", "type": "navigation" | "click" | "api" | "log" | "lifecycle", "message": "string", "data": {} }
   ],
-  "screenshot": "data:image/jpeg;base64,...",
   "performance": {
     "page_load_ms": 4200,
     "ttfb_ms": 320,
@@ -219,7 +215,7 @@ All three SDKs must send events in this exact JSON shape. Any field not availabl
 ```
 
 ### Addition (2026-10-23, JS 0.5.0): page views as `transaction` events
-Added after the original spec, for Sentry-style performance monitoring. Every SDK sends `"transaction": null` on all other events, and one `transaction` event per **page view** (web route, iOS view controller, Android Activity or Fragment). A transaction event has `error: null`, `stacktrace: []`, `breadcrumbs: []`, `screenshot: null`, an empty `performance` block (nulls / empty arrays), level `info`, and:
+Added after the original spec, for Sentry-style performance monitoring. Every SDK sends `"transaction": null` on all other events, and one `transaction` event per **page view** (web route, iOS view controller, Android Activity or Fragment). A transaction event has `error: null`, `stacktrace: []`, `breadcrumbs: []`, an empty `performance` block (nulls / empty arrays), level `info`, and:
 ```json
 "transaction": {
   "name": "/orders/42",                 // route path, or the screen's class/route name on mobile
@@ -253,7 +249,7 @@ Write a comprehensive test suite covering every scenario below. For each one: wr
 - **Memory & performance:** memory leak detection, OOM crash, slow page load (>3 s), dropped frames (<55 fps), ANR (Android only), slow API call (>2 s)
 - **Native crashes:** SIGSEGV / SIGABRT signal, iOS watchdog timeout, Android JNI crash, background task termination
 - **Storage errors:** disk full simulation, corrupt local DB, localStorage quota exceeded, permission denied
-- **SDK-specific:** capture before init, invalid API key, offline queuing and flush on reconnect, duplicate event dedup, PII in screenshots (must be masked), high-frequency error-storm throttling (1000 events/min)
+- **SDK-specific:** capture before init, invalid API key, offline queuing and flush on reconnect, duplicate event dedup, PII masking in breadcrumbs, high-frequency error-storm throttling (1000 events/min)
 
 For each test, assert that the event is sent to the endpoint, the payload matches the shared schema, and the correct fields are populated. For the SDK-specific cases, also assert that the host app does not crash.
 
@@ -276,7 +272,7 @@ For each test, assert that the event is sent to the endpoint, the payload matche
 1. Shared types / models
 2. Core event queue and payload builder
 3. Transport layer with retry logic
-4. Collectors one by one (Error → Breadcrumb → Performance → Memory → Screenshot)
+4. Collectors one by one (Error → Breadcrumb → Performance → Memory)
 5. Public API surface
 6. Unit tests
 7. README
@@ -286,7 +282,6 @@ For each test, assert that the event is sent to the endpoint, the payload matche
 - Don't use deprecated APIs without a clearly commented fallback.
 - Don't print to console / Logcat / NSLog unless debug mode is enabled.
 - Don't store the API key anywhere other than in memory and the outgoing request header.
-- Don't capture screenshots when the app is in the background.
 
 **When unsure:**
 - Ask before choosing between two implementation approaches.
@@ -296,7 +291,7 @@ For each test, assert that the event is sent to the endpoint, the payload matche
 - [ ] All collectors implemented and tested
 - [ ] Payload matches the shared schema exactly
 - [ ] Offline queue works (send, persist, flush on reconnect)
-- [ ] PII masking in screenshots tested
+- [ ] PII masking in breadcrumbs tested
 - [ ] High-frequency throttling tested
 - [ ] SDK does not crash the host app under any error condition
 - [ ] README complete with install and usage example

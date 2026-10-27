@@ -187,8 +187,6 @@ export function validateEvent(raw, now = new Date()) {
       error,
       stacktrace: list(raw.stacktrace, MAX_STACK_FRAMES).map(frame),
       breadcrumbs: list(raw.breadcrumbs, MAX_BREADCRUMBS).map(breadcrumb),
-      // Kept as-is here; the ingest step uploads it and stores only the URL.
-      screenshot: typeof raw.screenshot === 'string' ? raw.screenshot : null,
       performance: {
         page_load_ms: num(perf.page_load_ms),
         ttfb_ms: num(perf.ttfb_ms),

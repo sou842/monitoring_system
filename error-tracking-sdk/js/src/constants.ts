@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.6.2';
+export const SDK_VERSION = '0.7.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +80,8 @@ export const UNKNOWN_FUNCTION = '<anonymous>';
 export const MAX_CLICK_TEXT_LENGTH = 50;
 export const MAX_CSS_PATH_DEPTH = 5;
 export const MASKED_TEXT = '[masked]';
+/** Always masked, in addition to config.maskSelectors. */
+export const DEFAULT_MASK_SELECTORS: readonly string[] = ['input[type="password"]'];
 
 // ---------------------------------------------------------------------------
 // Performance
@@ -213,28 +215,3 @@ export const MEMORY_READINGS_PER_WINDOW = 4;
 /** Readings this soon after init are not used for leak detection: apps load most of their screens and caches at startup. */
 export const MEMORY_WARMUP_MS = 60000;
 export const BYTES_PER_MB = 1024 * 1024;
-
-// ---------------------------------------------------------------------------
-// Screenshots
-// ---------------------------------------------------------------------------
-export const DEFAULT_HTML2CANVAS_URL =
-  'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-/** Subresource-integrity hash of DEFAULT_HTML2CANVAS_URL. */
-export const DEFAULT_HTML2CANVAS_INTEGRITY =
-  'sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H';
-export const SCREENSHOT_MIME_TYPE = 'image/jpeg';
-export const SCREENSHOT_QUALITY = 0.5;
-/** Fallback quality used when the first encode is over the size budget. */
-export const SCREENSHOT_FALLBACK_QUALITY = 0.3;
-/** Max base64 length of a screenshot data URL (~370 KB of image; the backend refuses > 400 KB). */
-export const MAX_SCREENSHOT_LENGTH = 500000;
-/** Library load + render must finish within this or the event is sent without it. */
-export const SCREENSHOT_TIMEOUT_MS = 3000;
-/** At most one screenshot per interval to protect the host app's main thread. */
-export const SCREENSHOT_MIN_INTERVAL_MS = 10000;
-export const SCREENSHOT_MAX_SCALE = 1;
-/** Screenshots are downscaled so they are at most this many pixels wide. */
-export const SCREENSHOT_MAX_WIDTH = 1280;
-export const MASK_COLOR = '#000000';
-/** Always masked, in addition to config.maskSelectors. */
-export const DEFAULT_MASK_SELECTORS: readonly string[] = ['input[type="password"]'];
