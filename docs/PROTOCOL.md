@@ -25,7 +25,7 @@ X-API-Key: et_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 | Transport | HTTPS, JSON, UTF-8 |
 | Authentication | `X-API-Key` header (project key, prefix `et_`). The server stores only the SHA-256 hash of each key. |
 | Body | `{ "events": [ ... ] }` with 1–50 events per request. The SDK sends batches of up to 10 events and at most ~1 MB. |
-| Max body size | 4 MB (Vercel's hard cap is 4.5 MB) |
+| Max body size | 4 MB |
 | CORS | `Access-Control-Allow-Origin: *`, methods `POST, OPTIONS`, headers `Content-Type, X-API-Key`, preflight cached 24 h. The API key, not the origin, identifies the project. Refusals keep these headers so the browser lets the SDK read the status. |
 | Allowed origins | Optional per-project list (set in the dashboard). See [Allowed origins and per-IP limit](#allowed-origins-and-per-ip-limit). |
 
@@ -63,7 +63,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
 
 ```jsonc
 {
-  "sdk": { "name": "error-tracker-js", "version": "0.6.1" },  // -ios / -android
+  "sdk": { "name": "error-tracker-js", "version": "0.6.2" },  // -ios / -android
   "api_key": "et_...",          // also in the header; the server ignores this field and never stores it
   "event_type": "error",        // error | message | performance | crash | transaction
   "level": "error",             // info | warning | error            (JS extension*)
@@ -74,7 +74,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
   "error": { "message": "Cannot read property 'price' of undefined", "type": "TypeError", "handled": false },
   "stacktrace": [ { "filename": "cart.js", "lineno": 142, "colno": 12, "function": "handlePayment" } ],
   "breadcrumbs": [ { "timestamp": "ISO8601", "type": "click", "message": "button#pay", "data": {} } ],
-  "screenshot": "data:image/jpeg;base64,...",   // or null
+  "screenshot": "https://res.cloudin...",   // or null
   "context": { },               // per-error-type detail, or null   (JS extension*)
   "performance": {
     "page_load_ms": 4200, "ttfb_ms": 320, "fcp_ms": 1800, "lcp_ms": 2400,
@@ -131,7 +131,7 @@ Each page view sends one `transaction` event (a web route, iOS view controller o
 }
 ```
 
-- **When a view ends:** on a route change, when the tab or app goes to the background, on page unload, or after 30 minutes (the view then continues as `kind: "continued"`).
+- **When a view ends:** on a route change, when the tab or app goes to the background, on page unload, or after 30 minutes. A new view for the same page that starts after the tab returns from the background, or after a 30-minute split, has `kind: "continued"`.
 - **Span limits:** at most 100 spans per view; any further requests are only counted in `dropped_spans`.
 - **Sampling:** `performanceSampleRate` (default 1.0) is decided once per page load and is separate from `sampleRate`.
 - **Rate limits:** the SDK sends at most 30 transactions per minute; the server accepts 1000 page views per project per minute.
