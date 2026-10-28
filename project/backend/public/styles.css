@@ -306,6 +306,8 @@ details summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
 details summary:hover { color: var(--fg); }
 details pre, .card pre.mono { margin-top: 8px; padding: 14px; background: var(--panel-2); border: 1px solid var(--line); max-height: 400px; overflow: auto; }
 .key-box pre { padding: 0; margin: 0; background: none; border: 0; }
+.stack-text { margin-top: 14px; }
+.stack-text-bar { margin-top: 8px; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1000px) {

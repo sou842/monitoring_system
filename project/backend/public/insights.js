@@ -110,6 +110,29 @@ export function frameLabel(frame) {
 }
 
 /**
+ * The error as the browser console prints it (Chrome's format), rebuilt from
+ * the stored type, message and frames, with full file URLs:
+ *   TypeError: Cannot read properties of undefined (reading 'node')
+ *       at r._crCreate (https://…/fusioncharts.js:23:52678)
+ *       at https://…/fusioncharts.js:14:265572        ← anonymous function
+ *       at Array.forEach (<anonymous>)              ← browser code, no file
+ */
+export function stackText(error, stacktrace) {
+  const type = error ? asText(error.type) : '';
+  const message = error ? asText(error.message) : '';
+  const head = type && message ? `${type}: ${message}` : type || message || 'Error';
+  const lines = (Array.isArray(stacktrace) ? stacktrace : []).map((frame) => {
+    const f = frame && typeof frame === 'object' ? frame : {};
+    const fn = typeof f.function === 'string' ? f.function : '';
+    const file = typeof f.filename === 'string' ? f.filename : '';
+    const position = [asNumber(f.lineno), asNumber(f.colno)].filter((n) => n !== null);
+    const where = file ? [file, ...position].join(':') : '<anonymous>';
+    return !fn || fn === '<anonymous>' ? `    at ${where}` : `    at ${fn} (${where})`;
+  });
+  return [head, ...lines].join('\n');
+}
+
+/**
  * A "frame to hide" entry matches a function name (`wrapped` also hides
  * `Object.wrapped` and `x [as wrapped]`), or, when it contains a `/`, any
  * frame whose file path contains it.

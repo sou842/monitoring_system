@@ -14,7 +14,7 @@
  * built from DOM nodes with textContent only, never innerHTML.
  */
 
-import { analyzeEvent, APP_PATH_PREFIX, BUILT_IN_LIBRARY_NAMES, frameLabel, insightSettings } from './insights.js';
+import { analyzeEvent, APP_PATH_PREFIX, BUILT_IN_LIBRARY_NAMES, frameLabel, insightSettings, stackText } from './insights.js';
 
 /** Cached data younger than this is used as is; older data is shown and refreshed in the background. */
 const STALE_MS = 10000;
@@ -1985,16 +1985,17 @@ function summarySection(insight) {
 function momentsSection(insight, p) {
   if (insight.moments.length === 0) return null;
   const errorText = p.error ? `${p.error.type}: ${p.error.message}` : p.event_type;
-  return section('Last moments',
+  // Newest first: the error on top, then what led up to it, going back in time.
+  return section('Last moments (newest first)',
     el('ol', { class: 'timeline moments' },
-      insight.moments.map((m) => el('li', { class: m.tone ? `tone-${m.tone}` : '' },
-        el('span', { class: 'muted mono small', text: m.when || (m.at ? new Date(m.at).toLocaleTimeString() : '') }),
-        el('span', { class: 'bc-type' }, badge(m.type, 'info')),
-        el('span', { class: 'moment-msg', text: m.message }))),
       el('li', { class: 'moment-error' },
         el('span', { class: 'mono small', text: '0 s' }),
         el('span', { class: 'bc-type' }, badge(p.event_type, 'error')),
-        el('span', { class: 'moment-msg', text: errorText }))),
+        el('span', { class: 'moment-msg', text: errorText })),
+      insight.moments.slice().reverse().map((m) => el('li', { class: m.tone ? `tone-${m.tone}` : '' },
+        el('span', { class: 'muted mono small', text: m.when || (m.at ? new Date(m.at).toLocaleTimeString() : '') }),
+        el('span', { class: 'bc-type' }, badge(m.type, 'info')),
+        el('span', { class: 'moment-msg', text: m.message })))),
   );
 }
 
@@ -2007,13 +2008,25 @@ function frameRow(c, focus) {
     el('span', { class: 'frame-tag', text: c.library || FRAME_KIND_LABELS[c.kind] }));
 }
 
-/** Stack trace with your code shown and runs of library/browser/hidden frames folded away. */
-function stackSection(insight) {
+/** The whole error as the browser console prints it, ready to paste into a ticket or chat. */
+function stackTextBlock(payload) {
+  const text = stackText(payload.error, payload.stacktrace);
+  return el('details', { class: 'stack-text' },
+    el('summary', { text: 'As text (like the browser console)' }),
+    el('div', { class: 'row stack-text-bar' },
+      el('span', { class: 'muted small', text: 'Every frame, nothing folded.' }),
+      el('span', { class: 'spacer' }),
+      el('button', { text: 'Copy', onclick: (e) => copy(text, e.currentTarget) })),
+    el('pre', { text }));
+}
+
+/** Stack trace with your code shown and runs of library/browser/hidden frames folded away, plus the plain-text version. */
+function stackSection(insight, payload) {
   const frames = insight.frames;
   const focus = insight.whereToLook;
   // A stack with no frames of your code is shown whole: folding everything would hide it all.
   if (!frames.some((c) => c.kind === 'app')) {
-    return section('Stack trace', el('div', { class: 'frames' }, frames.map((c, i) => frameRow(c, i === 0))));
+    return section('Stack trace', el('div', { class: 'frames' }, frames.map((c, i) => frameRow(c, i === 0))), stackTextBlock(payload));
   }
   const groups = [];
   for (const c of frames) {
@@ -2030,6 +2043,7 @@ function stackSection(insight) {
         el('summary', { text: `${g.length} frame${g.length === 1 ? '' : 's'}: ${names}` }),
         g.map((c) => frameRow(c, false)));
     })),
+    stackTextBlock(payload),
   );
 }
 
@@ -2049,7 +2063,7 @@ function eventDetail(event, insightSettings) {
     parts.push(momentsSection(insight, p));
   }
   if (p.stacktrace.length > 0) {
-    parts.push(stackSection(insight || { frames: p.stacktrace.map((frame) => ({ frame, kind: 'app', library: null })), whereToLook: null }));
+    parts.push(stackSection(insight || { frames: p.stacktrace.map((frame) => ({ frame, kind: 'app', library: null })), whereToLook: null }, p));
   }
 
   parts.push(section('Event',

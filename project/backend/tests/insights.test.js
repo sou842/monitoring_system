@@ -2,11 +2,52 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { MAX_INSIGHT_ENTRIES } from '../lib/constants.js';
 import { cleanInsightSettings, insightSettingsView } from '../lib/insights.js';
-import { analyzeEvent, classifyFrames, frameLabel, hintsFor, lastMoments, relativeTime, withoutOrigin } from '../public/insights.js';
+import { analyzeEvent, classifyFrames, frameLabel, hintsFor, lastMoments, relativeTime, stackText, withoutOrigin } from '../public/insights.js';
 import { fusionChartsError, serverCallFailed } from './insights.fixtures.js';
 
 const fact = (insight, label) => insight.facts.find((f) => f.label === label);
 const APPZILLON = { hiddenFrames: ['serverError', 'wrapped'] };
+
+describe('stack trace as text', () => {
+  it("rebuilds the browser console's text from a real Appzillon event (2026-10-28), with full URLs", () => {
+    const fc = 'http://localhost:8080/AppzillonAdmin/appzillon/scripts/fusioncharts/fusioncharts.js?v=1.0.0.0';
+    const frame = (fn, lineno, colno, filename = fc) => ({ filename, lineno, colno, function: fn });
+    const error = { message: "Cannot read properties of undefined (reading 'node')", type: 'TypeError', handled: true };
+    const stacktrace = [
+      frame('r._crCreate', 23, 52678),
+      frame('r._drawMain', 23, 51267),
+      frame('e.<computed>.<computed> [as trierFirst]', 14, 269448),
+      frame('e.<computed>._mapperSeed', 14, 267399),
+      frame('t.<computed> [as _mapperParent]', 14, 265798),
+      frame('<anonymous>', 14, 265572),
+      frame('Array.forEach', null, null, null),
+      frame('t.storeObj', 14, 265525),
+      frame('Object.license', 14, 125644),
+      frame('Object.getFusionChartLicenseKeyCB', 1, 6398, 'http://localhost:8080/AppzillonAdmin/appzillon/scripts/appzillon/charts.js?v=1.0.0.0'),
+    ];
+    // What the console showed, line for line (DevTools only shortens the file names on screen).
+    assert.equal(stackText(error, stacktrace), [
+      "TypeError: Cannot read properties of undefined (reading 'node')",
+      `    at r._crCreate (${fc}:23:52678)`,
+      `    at r._drawMain (${fc}:23:51267)`,
+      `    at e.<computed>.<computed> [as trierFirst] (${fc}:14:269448)`,
+      `    at e.<computed>._mapperSeed (${fc}:14:267399)`,
+      `    at t.<computed> [as _mapperParent] (${fc}:14:265798)`,
+      `    at ${fc}:14:265572`,
+      '    at Array.forEach (<anonymous>)',
+      `    at t.storeObj (${fc}:14:265525)`,
+      `    at Object.license (${fc}:14:125644)`,
+      '    at Object.getFusionChartLicenseKeyCB (http://localhost:8080/AppzillonAdmin/appzillon/scripts/appzillon/charts.js?v=1.0.0.0:1:6398)',
+    ].join('\n'));
+  });
+
+  it('never throws on odd input', () => {
+    assert.equal(stackText(null, null), 'Error');
+    assert.equal(stackText({ type: 'Error', message: '' }, [null, 'x', { function: { toString: () => 'evil' }, filename: 7, lineno: 'a' }]),
+      'Error\n    at <anonymous>\n    at <anonymous>\n    at <anonymous>');
+    assert.equal(stackText({ type: 'Error', message: 'x' }, [{ function: 'f', filename: 'a.js', lineno: 'a', colno: 3 }]), 'Error: x\n    at f (a.js:3)');
+  });
+});
 
 describe('issue insights: a real FusionCharts error', () => {
   const insight = analyzeEvent(fusionChartsError, {});
