@@ -3,6 +3,7 @@ import { requireUser } from '../lib/auth.js';
 import { ISSUE_RECENT_EVENTS, ISSUE_STATUSES } from '../lib/constants.js';
 import { deleteIssues } from '../lib/deletion.js';
 import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
+import { insightSettingsView } from '../lib/insights.js';
 import { eventSummaryView, eventView, issueView } from '../lib/views.js';
 
 const MAX_BODY_BYTES = 1024;
@@ -18,19 +19,22 @@ async function loadIssue(request) {
   return { db: auth.db, issue };
 }
 
-/** GET /api/issue?id=… — the issue, its latest events (summaries) and the newest event in full. */
+/**
+ * GET /api/issue?id=… — the issue, its latest events (summaries), the newest
+ * event in full, and the project's insight settings for the summary on top.
+ */
 export const GET = handle(async (request) => {
   const loaded = await loadIssue(request);
   if (loaded.response) return loaded.response;
   const { db, issue } = loaded;
   const [events, project] = await Promise.all([
     db.collection('events').find({ issueId: issue._id }).sort({ receivedAt: -1 }).limit(ISSUE_RECENT_EVENTS).toArray(),
-    db.collection('projects').findOne({ _id: issue.projectId }, { projection: { name: 1 } }),
+    db.collection('projects').findOne({ _id: issue.projectId }, { projection: { name: 1, insights: 1 } }),
   ]);
 
   return json({
     issue: issueView(issue),
-    project: project ? { id: String(project._id), name: project.name } : null,
+    project: project ? { id: String(project._id), name: project.name, insights: insightSettingsView(project.insights) } : null,
     events: events.map(eventSummaryView),
     latestEvent: events.length > 0 ? eventView(events[0]) : null,
   });

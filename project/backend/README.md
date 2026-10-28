@@ -80,9 +80,9 @@ The deployment uses 10 serverless functions, within the Hobby plan's limit of 12
 | `POST /api/account?action=logout-others` · `DELETE /api/account` | session | End your other sessions / delete your account and all its projects (body `{ password }`). |
 | `GET /api/projects` · `POST /api/projects` | session | Your projects / create one. Creating returns the API key **once**. |
 | `POST /api/projects?id=…&action=rotate-key` | session | Replace a project's key. |
-| `PATCH /api/projects?id=…` | session | Body `{ "allowedOrigins": ["https://myapp.com", "http://localhost:3000"] }` replaces the project's allowed origins (max 20; `[]` = any origin). Entries are normalized to scheme + host + port; `400 invalid_origins` lists each bad entry in `error.details`. |
+| `PATCH /api/projects?id=…` | session | Body `{ "allowedOrigins": ["https://myapp.com", "http://localhost:3000"] }` replaces the project's allowed origins (max 20; `[]` = any origin). Entries are normalized to scheme + host + port; `400 invalid_origins` lists each bad entry in `error.details`. Body `{ "insights": { "libraryPaths": [], "hiddenFrames": [], "hints": [{ "match": "…", "text": "…" }] } }` replaces the issue-insight settings (max 50 per list; `400 invalid_insights`). Both may be sent together; nothing is saved if either is invalid. |
 | `GET /api/issues?projectId=…&status=&type=&env=&q=&sort=&page=` | session | Issue list with filters. |
-| `GET /api/issue?id=…` · `PATCH /api/issue?id=…` | session | Issue with its latest events / set `status` (open, resolved, ignored). |
+| `GET /api/issue?id=…` · `PATCH /api/issue?id=…` | session | Issue with its latest events and the project's insight settings / set `status` (open, resolved, ignored). |
 | `GET /api/event?id=…` | session | One event in full. |
 | `GET /api/stats?range=24h\|7d&projectId=` | session | Dashboard charts for your projects (or one of them). |
 | `GET /api/stats?view=performance&range=&projectId=&environment=` | session | Web Vitals (p75 + rating), request latency per bucket, and the pages and endpoints tables. Add `&endpoint=<key>` or `&page=<route>` for one endpoint or route over time, with its slowest recent samples. |

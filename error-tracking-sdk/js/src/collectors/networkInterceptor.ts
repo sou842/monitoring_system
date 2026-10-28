@@ -42,10 +42,23 @@ interface TrackedXhr extends XMLHttpRequest {
   __et_method?: string;
   __et_url?: string;
   __et_failure?: NetworkFailure | null;
+  /** The interceptor that added this XHR's listeners (once per object, even when reused). */
+  __et_hooked?: NetworkInterceptor;
+  /** Set by send(); only sent requests are recorded. */
+  __et_sent?: boolean;
+  /** Set once the request has been recorded, so later events don't record it again. */
+  __et_done?: boolean;
+  __et_start?: number;
+  __et_callSite?: () => StackFrame[];
 }
 
 /** Frames added by the SDK (`rawStack` + the fetch/XHR wrapper), removed from call-site stacks. */
 const WRAPPER_FRAMES = 2;
+
+/** `XMLHttpRequest.OPENED`: open() was called; send() may start the request. */
+const XHR_OPENED = 1;
+/** `XMLHttpRequest.DONE`: the request has finished, with or without a response. */
+const XHR_DONE = 4;
 
 /** Classifies a fetch rejection. */
 export function classifyFetchFailure(error: unknown): NetworkFailure {
@@ -88,8 +101,10 @@ export class NetworkInterceptor implements Collector {
   private patchedFetch: typeof fetch | null = null;
   private originalOpen: XMLHttpRequest['open'] | null = null;
   private originalSend: XMLHttpRequest['send'] | null = null;
+  private originalAbort: XMLHttpRequest['abort'] | null = null;
   private patchedOpen: XMLHttpRequest['open'] | null = null;
   private patchedSend: XMLHttpRequest['send'] | null = null;
+  private patchedAbort: XMLHttpRequest['abort'] | null = null;
   private readonly ignoredUrl: string;
 
   constructor(
@@ -127,14 +142,17 @@ export class NetworkInterceptor implements Collector {
         const proto = XMLHttpRequest.prototype;
         if (this.originalOpen !== null && proto.open === this.patchedOpen) proto.open = this.originalOpen;
         if (this.originalSend !== null && proto.send === this.patchedSend) proto.send = this.originalSend;
+        if (this.originalAbort !== null && proto.abort === this.patchedAbort) proto.abort = this.originalAbort;
       }
     }
     this.originalFetch = null;
     this.patchedFetch = null;
     this.originalOpen = null;
     this.originalSend = null;
+    this.originalAbort = null;
     this.patchedOpen = null;
     this.patchedSend = null;
+    this.patchedAbort = null;
     this.listeners = [];
     this.installed = false;
   }
@@ -204,20 +222,84 @@ export class NetworkInterceptor implements Collector {
     win.fetch = patched;
   }
 
+  /**
+   * Records an XHR the first time it is seen to be finished. The browser fires
+   * `readystatechange` (DONE), then `load`/`error`/`abort`/`timeout`, then
+   * `loadend`; libraries like jQuery run the app's callbacks on the earlier
+   * ones, so waiting for `loadend` would record the request only after an
+   * error reported from those callbacks had already been built without it.
+   */
+  private finishXhr(xhr: TrackedXhr): void {
+    // Listeners stay on XHR objects after uninstall(); a later install must still be able to record them.
+    if (!this.installed || !xhr.__et_sent || xhr.__et_done) return;
+    // Every real finish happens at DONE. A late event of the previous request after the
+    // app re-opened the XHR in its onload (polling, retries) sees OPENED: not this request.
+    if (xhr.readyState !== XHR_DONE) return;
+    xhr.__et_done = true;
+    const startedAt = xhr.__et_start || nowMs();
+    let failure = xhr.__et_failure || null;
+    if (failure === null && xhr.status === 0) {
+      // At DONE the failure event hasn't fired yet. abort() is wrapped, so
+      // only a timeout can still be mistaken for a plain network failure.
+      const timedOut = xhr.timeout > 0 && nowMs() - startedAt >= xhr.timeout;
+      failure = timedOut ? 'timeout' : isOnline() ? 'network' : 'offline';
+    }
+    this.emit(xhr.__et_method || 'GET', xhr.__et_url || '', xhr.status, startedAt, {
+      failure: failure,
+      error: null,
+      callSite: xhr.__et_callSite || lazyCallSite(undefined),
+    });
+  }
+
+  /**
+   * Adds the XHR's listeners in open(), not send(): apps (and jQuery) attach
+   * their `onload`/`onreadystatechange` handlers after open(), so ours run
+   * first and the request is recorded before the app hears about it.
+   */
+  private hookXhr(xhr: TrackedXhr): void {
+    if (xhr.__et_hooked === this) return;
+    xhr.__et_hooked = this;
+    const self = this;
+    const finishWith = function finishWith(kind: NetworkFailure | null) {
+      return function onFinished() {
+        safelyRun(self.logger, 'XHR tracking', function finish() {
+          if (kind !== null && !xhr.__et_failure) xhr.__et_failure = kind;
+          self.finishXhr(xhr);
+        });
+      };
+    };
+    xhr.addEventListener('readystatechange', function onReadyStateChange() {
+      if (xhr.readyState === XHR_DONE) finishWith(null)();
+    });
+    xhr.addEventListener('load', finishWith(null));
+    xhr.addEventListener('abort', finishWith('aborted'));
+    xhr.addEventListener('timeout', finishWith('timeout'));
+    xhr.addEventListener('error', function onError() {
+      // Checked at failure time: connectivity may have changed since send().
+      finishWith(isOnline() ? 'network' : 'offline')();
+    });
+    xhr.addEventListener('loadend', finishWith(null));
+  }
+
   private wrapXhr(): void {
     if (typeof XMLHttpRequest === 'undefined') return;
     const proto = XMLHttpRequest.prototype;
     const originalOpen = proto.open;
     const originalSend = proto.send;
+    const originalAbort = proto.abort;
     const self = this;
     this.originalOpen = originalOpen;
     this.originalSend = originalSend;
+    this.originalAbort = originalAbort;
 
     proto.open = function trackedOpen(this: TrackedXhr, method: string, url: string | URL) {
       safelyRun(self.logger, 'XHR open tracking', () => {
         this.__et_method = method;
         this.__et_url = typeof url === 'string' ? url : url.href;
         this.__et_failure = null;
+        this.__et_sent = false;
+        this.__et_done = false;
+        self.hookXhr(this);
       });
       // eslint-disable-next-line prefer-rest-params
       return originalOpen.apply(this, arguments as unknown as Parameters<XMLHttpRequest['open']>);
@@ -226,33 +308,29 @@ export class NetworkInterceptor implements Collector {
     proto.send = function trackedSend(this: TrackedXhr, body?: Document | XMLHttpRequestBodyInit | null) {
       const xhr = this;
       safelyRun(self.logger, 'XHR send tracking', function track() {
-        const startedAt = nowMs();
-        const callSite = lazyCallSite(rawStack());
-        const markFailure = function mark(kind: NetworkFailure) {
-          return function onFailure() {
-            xhr.__et_failure = kind;
-          };
-        };
-        xhr.addEventListener('abort', markFailure('aborted'));
-        xhr.addEventListener('timeout', markFailure('timeout'));
-        xhr.addEventListener('error', function onError() {
-          // Checked at failure time: connectivity may have changed since send().
-          xhr.__et_failure = isOnline() ? 'network' : 'offline';
-        });
-        xhr.addEventListener('loadend', function onLoadEnd() {
-          let failure = xhr.__et_failure || null;
-          // Status 0 with no failure event still means no response (e.g. CORS).
-          if (failure === null && xhr.status === 0) failure = isOnline() ? 'network' : 'offline';
-          self.emit(xhr.__et_method || 'GET', xhr.__et_url || '', xhr.status, startedAt, {
-            failure: failure,
-            error: null,
-            callSite: callSite,
-          });
-        });
+        // send() only starts a request on an opened, not yet sent XHR; otherwise it throws
+        // and the request in progress (or just finished) must keep its tracking state.
+        if (xhr.readyState !== XHR_OPENED || xhr.__et_sent) return;
+        self.hookXhr(xhr); // opened before the SDK was installed
+        xhr.__et_start = nowMs();
+        xhr.__et_callSite = lazyCallSite(rawStack());
+        xhr.__et_failure = null;
+        xhr.__et_sent = true;
+        xhr.__et_done = false;
       });
       return originalSend.call(this, body);
     };
+
+    // abort() fires readystatechange (DONE) before the abort event, so mark it first.
+    // Only an in-flight request: abort() before send() or after the end changes nothing.
+    proto.abort = function trackedAbort(this: TrackedXhr) {
+      safelyRun(self.logger, 'XHR abort tracking', () => {
+        if (this.__et_sent && !this.__et_done) this.__et_failure = 'aborted';
+      });
+      return originalAbort.call(this);
+    };
     this.patchedOpen = proto.open;
     this.patchedSend = proto.send;
+    this.patchedAbort = proto.abort;
   }
 }

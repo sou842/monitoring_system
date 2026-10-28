@@ -235,6 +235,18 @@ A browser app's API key is public: anyone can copy it from the page. It can only
 - **Applying changes:** edits go through `PATCH /api/projects?id=…` and reach other serverless instances within 60 s (project cache).
 - **Shared IPs:** many users behind one office IP share the 150/min. Errors are rare in production, so this leaves plenty of room, and an over-limit batch is retried by the SDK and then kept offline, not lost.
 
+### Issue insights (`public/insights.js`, `lib/insights.js`)
+
+The top of the issue page explains the selected event so a developer doesn't have to read the raw JSON. It is computed in the browser from the stored event, by rules only (no AI, nothing sent anywhere), so it applies to old events too and needs no change to the event format.
+
+- **What happened:** where it was thrown (your code, or a library and which frame of your code called it), the server call or request from `context`, the request that ended just before (≤ 5 s, red if it failed), the last screen and click, whether the tab had just gone to the background, and whether the app caught it.
+- **Where to look:** the first stack frame of your code. Frames are labelled your code / library / browser / hidden; runs of non-app frames are folded.
+- **Last moments:** breadcrumbs from the last 15 s (at least 5, at most 15), oldest first, times relative to the error, the page's own origin left out of URLs, repeated tab hidden/shown folded.
+- **Hints:** the project's team hints, then one built-in hint by error type, HTTP status, network failure or message pattern.
+- **Per-project settings** (`projects.insights`, "Issue insights" panel, `PATCH /api/projects` `{ insights }`): `libraryPaths` (text in a frame's file URL; added to the built-in list: jQuery, React, Vue, Angular, FusionCharts, Next.js chunks, npm packages, public CDNs, browser extensions, …, which matches the libraries' real file names only; an entry starting with `!` marks matching files as your code, overriding the built-in list), `hiddenFrames` (wrapper function names, or a path containing `/`), `hints` (`{ match, text }`, matched case-insensitively against error type, message and context values). Max 50 entries per list; entries are single lines, and a hint's `match` can't contain `=>` (the dashboard edits hints as `match => text` lines).
+- **Robustness:** event data is untrusted; the rules read only plain strings and numbers from free-form `context`/breadcrumb `data`, look built-in hints up by own keys only, and use linear-time regexes. If the summary still fails for an event, the issue page falls back to the plain stack trace.
+- **Clock check:** when `timestamp` equals `receivedAt`, the server replaced a missing or > 24 h off client time (`lib/validate.js`); breadcrumbs then show device clock times instead of "N s before the error".
+
 ### Grouping (`lib/grouping.js`)
 
 ```
@@ -250,7 +262,7 @@ fingerprint = sha256( event_type | error.type | normalize(message) | topFrame.fu
 
 | Collection | Contents | Retention |
 | --- | --- | --- |
-| `projects` | name, `ownerId`, `apiKeyHash`, key hint, `allowedOrigins` | — |
+| `projects` | name, `ownerId`, `apiKeyHash`, key hint, `allowedOrigins`, `insights` | — |
 | `users` | email, scrypt hash, role, status, `sessionVersion` | — |
 | `issues` | Grouped problems: count, first/last seen, status, environments | 90 days after last seen |
 | `events` | Every occurrence: indexed summary fields + full payload | 30 days |
@@ -277,7 +289,7 @@ fingerprint = sha256( event_type | error.type | normalize(message) | topFrame.fu
 | `auth` | GET, POST `?action=signup\|login\|logout` | Session |
 | `account` | GET, PATCH, POST `?action=logout-others`, DELETE | Own profile and password |
 | `admin` | GET, PATCH, DELETE | Manage users (admins only) |
-| `projects` | GET, POST (create, `?action=rotate-key`), PATCH `{allowedOrigins}`, DELETE | Projects, API keys and allowed origins |
+| `projects` | GET, POST (create, `?action=rotate-key`), PATCH `{allowedOrigins}` and/or `{insights}`, DELETE | Projects, API keys, allowed origins and issue-insight settings |
 | `issues` | GET (filters, search, pages of 50), DELETE (bulk) | Issue list |
 | `issue` | GET, PATCH `{status}`, DELETE | One issue with its recent events |
 | `event` | GET | One full event |

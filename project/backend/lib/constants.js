@@ -41,6 +41,15 @@ export const MAX_ALLOWED_ORIGINS = 20;
 export const MAX_ORIGIN_LENGTH = 200;
 
 // ---------------------------------------------------------------------------
+// Issue insights (per project: library paths, frames to hide, hints)
+// ---------------------------------------------------------------------------
+/** Per list: library paths, frames to hide, hints. */
+export const MAX_INSIGHT_ENTRIES = 50;
+/** A library path, frame name or hint's `match` text. */
+export const MAX_INSIGHT_PATTERN_LENGTH = 200;
+export const MAX_HINT_TEXT_LENGTH = 1000;
+
+// ---------------------------------------------------------------------------
 // Validation limits (longer strings are truncated, longer arrays cut)
 // ---------------------------------------------------------------------------
 export const MAX_STRING_LENGTH = 2000;

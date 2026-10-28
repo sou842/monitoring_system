@@ -14,6 +14,8 @@
  * built from DOM nodes with textContent only, never innerHTML.
  */
 
+import { analyzeEvent, APP_PATH_PREFIX, BUILT_IN_LIBRARY_NAMES, frameLabel, insightSettings } from './insights.js';
+
 /** Cached data younger than this is used as is; older data is shown and refreshed in the background. */
 const STALE_MS = 10000;
 /** Cached data older than this is never shown, the page waits for fresh data instead. */
@@ -50,6 +52,8 @@ let fieldSeq = 0;
 let pendingKey = null;
 /** Project whose "Allowed origins" panel is open, so it stays open across redraws. */
 let originsOpenFor = null;
+/** Project whose "Issue insights" panel is open. */
+let insightsOpenFor = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1546,6 +1550,104 @@ function originsPanel(project, onChange) {
       status, list, form));
 }
 
+/** Labelled textarea with a hint, for one-entry-per-line settings. */
+function textareaField({ label, hint, value, placeholder, rows }) {
+  const id = `f${++fieldSeq}`;
+  const input = el('textarea', { id, value, placeholder, rows, attrs: { spellcheck: 'false', autocapitalize: 'off' } });
+  return {
+    input,
+    wrap: el('div', { class: 'field' },
+      el('label', { class: 'field-label', text: label, attrs: { for: id } }),
+      input,
+      el('p', { class: 'field-hint', text: hint })),
+  };
+}
+
+const lines = (text) => text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+const HINT_SEPARATOR = '=>';
+
+/**
+ * How the issue page reads this project's errors (public/insights.js):
+ * library paths, frames to hide and the team's own hints. `onChange(settings)`
+ * runs after a save.
+ */
+function insightsPanel(project, onChange) {
+  const s = insightSettings(project.insights);
+  const libraries = textareaField({
+    label: 'Library paths',
+    hint: `One per line. A stack frame whose file URL contains this text is library code: folded away, never "where to look". Start a line with ${APP_PATH_PREFIX} to mark files as your code instead, overriding the built-in list: ${BUILT_IN_LIBRARY_NAMES.join(', ')}.`,
+    value: s.libraryPaths.join('\n'),
+    placeholder: `/vendor/\n${APP_PATH_PREFIX}/js/app/`,
+    rows: 4,
+  });
+  const hidden = textareaField({
+    label: 'Frames to hide',
+    hint: 'One per line: function names of wrappers such as a tracking snippet ("wrapped" also hides "Object.wrapped"), or a path containing / to hide every frame from that file.',
+    value: s.hiddenFrames.join('\n'),
+    placeholder: 'serverError\nwrapped',
+    rows: 3,
+  });
+  const hints = textareaField({
+    label: 'Team hints',
+    hint: `One per line: match ${HINT_SEPARATOR} hint. Shown on an issue when "match" appears in its error type, message or a context value (such as an error code).`,
+    value: s.hints.map((h) => `${h.match} ${HINT_SEPARATOR} ${h.text}`).join('\n'),
+    placeholder: `AppzillonServerError ${HINT_SEPARATOR} An Appzillon server call failed; check the iface and error code under Context.`,
+    rows: 5,
+  });
+  const error = el('p', { class: 'field-error', hidden: true });
+  const saveButton = el('button', { class: 'primary', type: 'submit', text: 'Save' });
+
+  const form = el('form', {
+    class: 'origin-form',
+    noValidate: true,
+    onsubmit: async (event) => {
+      event.preventDefault();
+      error.hidden = true;
+      // Line numbers count blank lines too, so they match what the user sees.
+      const rawLines = hints.input.value.split(/\r?\n/);
+      const bad = rawLines.findIndex((l) => l.trim() !== '' && (!l.includes(HINT_SEPARATOR)
+        || !l.slice(0, l.indexOf(HINT_SEPARATOR)).trim() || !l.slice(l.indexOf(HINT_SEPARATOR) + HINT_SEPARATOR.length).trim()));
+      if (bad !== -1) {
+        error.textContent = `Team hints, line ${bad + 1}: write it as match ${HINT_SEPARATOR} hint`;
+        error.hidden = false;
+        hints.input.focus();
+        return;
+      }
+      const hintLines = lines(hints.input.value);
+      const settings = {
+        libraryPaths: lines(libraries.input.value),
+        hiddenFrames: lines(hidden.input.value),
+        hints: hintLines.map((l) => {
+          const at = l.indexOf(HINT_SEPARATOR);
+          return { match: l.slice(0, at).trim(), text: l.slice(at + HINT_SEPARATOR.length).trim() };
+        }),
+      };
+      setBusy(saveButton, true);
+      try {
+        const res = await api(`/api/projects?id=${project.id}`, { method: 'PATCH', body: { insights: settings } });
+        project.insights = res.project.insights;
+        toast('Issue insights saved');
+        onChange(project.insights);
+      } catch (e) {
+        error.textContent = e.message;
+        error.hidden = false;
+      } finally {
+        setBusy(saveButton, false);
+      }
+    },
+  }, libraries.wrap, hidden.wrap, hints.wrap, error, el('div', { class: 'form-actions' }, saveButton));
+
+  return el('div', { class: 'section' },
+    settingsCard('Issue insights', "How the issue page reads this project's errors: which code is a library, which wrapper frames to skip, and what your team already knows about certain errors. Applies to every issue at once.",
+      form));
+}
+
+function insightsLabel(raw) {
+  const settings = insightSettings(raw);
+  const n = settings.libraryPaths.length + settings.hiddenFrames.length + settings.hints.length;
+  return n === 0 ? 'Issue insights' : `Issue insights: ${n}`;
+}
+
 async function issuesPage(projectId, query) {
   setNav('projects');
   loading();
@@ -1711,6 +1813,21 @@ async function issuesPage(projectId, query) {
         })
       : '');
   }
+  const insightsArea = el('div');
+  const insightsButton = el('button', {
+    class: 'ghost',
+    type: 'button',
+    text: insightsLabel(project.insights),
+    attrs: { 'aria-expanded': 'false' },
+    onclick: () => toggleInsights(insightsOpenFor !== projectId),
+  });
+  function toggleInsights(open) {
+    insightsOpenFor = open ? projectId : null;
+    insightsButton.setAttribute('aria-expanded', String(open));
+    insightsArea.replaceChildren(open
+      ? insightsPanel(project, (settings) => { insightsButton.textContent = insightsLabel(settings); })
+      : '');
+  }
 
   const deleteProject = el('button', {
     class: 'ghost danger',
@@ -1734,9 +1851,10 @@ async function issuesPage(projectId, query) {
   });
 
   show(
-    el('div', { class: 'page-head' }, avatar(project.name, true), el('h1', { text: project.name }), el('span', { class: 'spacer' }), originsButton, rotate, deleteProject),
+    el('div', { class: 'page-head' }, avatar(project.name, true), el('h1', { text: project.name }), el('span', { class: 'spacer' }), originsButton, insightsButton, rotate, deleteProject),
     el('p', { class: 'page-sub', text: `${data.total} issue(s)` }),
     originsArea,
+    insightsArea,
     tabs, filterBar,
     data.issues.length > 0 ? el('div', { class: 'row bulk' }, deleteSelected, el('span', { class: 'spacer' }), clearAll) : null,
     list, pager,
@@ -1744,6 +1862,7 @@ async function issuesPage(projectId, query) {
   // Keep the search box focused across auto-refreshes.
   if (query.get('q')) search.focus();
   if (originsOpenFor === projectId) toggleOrigins(true);
+  if (insightsOpenFor === projectId) toggleInsights(true);
   guardRedraw(() => selected.size === 0);
 }
 
@@ -1823,7 +1942,7 @@ async function issuePage(issueId, query) {
 
   show(header, el('div', { class: 'detail' },
     el('div', {}, el('h2', { text: `Latest events (${data.events.length})` }), eventsList),
-    event ? eventDetail(event) : emptyState('inbox', 'No events stored', 'Older events are deleted after 30 days.'),
+    event ? eventDetail(event, data.project && data.project.insights) : emptyState('inbox', 'No events stored', 'Older events are deleted after 30 days.'),
   ));
 }
 
@@ -1841,9 +1960,97 @@ function section(title, ...content) {
   return el('div', { class: 'card card-body section' }, el('h2', { text: title }), ...content);
 }
 
-function eventDetail(event) {
+/** "What happened": the facts, where to look, and hints (public/insights.js). */
+function summarySection(insight) {
+  const look = insight.whereToLook;
+  return section('What happened',
+    insight.facts.length > 0
+      ? el('dl', { class: 'facts' }, insight.facts.flatMap((f) => [
+          el('dt', { text: f.label }),
+          el('dd', { class: f.tone ? `tone-${f.tone}` : '', text: f.text }),
+        ]))
+      : el('p', { class: 'muted', text: 'Not enough data in this event for a summary.' }),
+    look ? el('div', { class: 'look' },
+      el('span', { class: 'look-label', text: 'Where to look' }),
+      el('code', { text: frameLabel(look.frame) }),
+      look.frame.filename ? el('div', { class: 'muted small mono', text: look.frame.filename }) : null,
+    ) : null,
+    insight.hints.map((h) => el('div', { class: 'hint' },
+      el('span', { class: 'look-label', text: h.source === 'project' ? 'Team hint' : 'Hint' }),
+      el('p', { text: h.text }))),
+  );
+}
+
+/** The breadcrumbs just before the error, oldest first, ending with the error itself. */
+function momentsSection(insight, p) {
+  if (insight.moments.length === 0) return null;
+  const errorText = p.error ? `${p.error.type}: ${p.error.message}` : p.event_type;
+  return section('Last moments',
+    el('ol', { class: 'timeline moments' },
+      insight.moments.map((m) => el('li', { class: m.tone ? `tone-${m.tone}` : '' },
+        el('span', { class: 'muted mono small', text: m.when || (m.at ? new Date(m.at).toLocaleTimeString() : '') }),
+        el('span', { class: 'bc-type' }, badge(m.type, 'info')),
+        el('span', { class: 'moment-msg', text: m.message }))),
+      el('li', { class: 'moment-error' },
+        el('span', { class: 'mono small', text: '0 s' }),
+        el('span', { class: 'bc-type' }, badge(p.event_type, 'error')),
+        el('span', { class: 'moment-msg', text: errorText }))),
+  );
+}
+
+const FRAME_KIND_LABELS = { app: 'your code', native: 'browser', hidden: 'hidden' };
+
+function frameRow(c, focus) {
+  return el('div', { class: `frame mono${focus ? ' focus' : ''}${c.kind === 'app' ? '' : ' dim'}` },
+    el('span', { class: 'fn', text: c.frame.function }), ' ',
+    el('span', { class: 'muted', text: `${c.frame.filename || '?'}${c.frame.lineno !== null ? ':' + c.frame.lineno : ''}${c.frame.colno !== null ? ':' + c.frame.colno : ''}` }),
+    el('span', { class: 'frame-tag', text: c.library || FRAME_KIND_LABELS[c.kind] }));
+}
+
+/** Stack trace with your code shown and runs of library/browser/hidden frames folded away. */
+function stackSection(insight) {
+  const frames = insight.frames;
+  const focus = insight.whereToLook;
+  // A stack with no frames of your code is shown whole: folding everything would hide it all.
+  if (!frames.some((c) => c.kind === 'app')) {
+    return section('Stack trace', el('div', { class: 'frames' }, frames.map((c, i) => frameRow(c, i === 0))));
+  }
+  const groups = [];
+  for (const c of frames) {
+    const last = groups[groups.length - 1];
+    if (c.kind === 'app') groups.push(c);
+    else if (Array.isArray(last)) last.push(c);
+    else groups.push([c]);
+  }
+  return section('Stack trace',
+    el('div', { class: 'frames' }, groups.map((g) => {
+      if (!Array.isArray(g)) return frameRow(g, g === focus);
+      const names = [...new Set(g.map((c) => c.library || FRAME_KIND_LABELS[c.kind]))].join(', ');
+      return el('details', { class: 'frame-group' },
+        el('summary', { text: `${g.length} frame${g.length === 1 ? '' : 's'}: ${names}` }),
+        g.map((c) => frameRow(c, false)));
+    })),
+  );
+}
+
+function eventDetail(event, insightSettings) {
   const p = event.payload;
   const parts = [];
+  let insight = null;
+  try {
+    insight = analyzeEvent(p, insightSettings, event.receivedAt);
+  } catch (error) {
+    // The summary is a convenience: an unexpected event shape must never break the issue page.
+    console.warn('Issue insights failed for this event', error);
+  }
+
+  if (insight) {
+    parts.push(summarySection(insight));
+    parts.push(momentsSection(insight, p));
+  }
+  if (p.stacktrace.length > 0) {
+    parts.push(stackSection(insight || { frames: p.stacktrace.map((frame) => ({ frame, kind: 'app', library: null })), whereToLook: null }));
+  }
 
   parts.push(section('Event',
     kv([
@@ -1859,25 +2066,17 @@ function eventDetail(event) {
     ]),
   ));
 
-  if (p.stacktrace.length > 0) {
-    parts.push(section('Stack trace',
-      el('div', { class: 'frames' },
-        p.stacktrace.map((f) => el('div', { class: 'frame mono' },
-          el('span', { class: 'fn', text: f.function }), ' ',
-          el('span', { class: 'muted', text: `${f.filename || '?'}${f.lineno !== null ? ':' + f.lineno : ''}${f.colno !== null ? ':' + f.colno : ''}` }),
-        )),
-      ),
-    ));
-  }
-
   if (p.breadcrumbs.length > 0) {
-    parts.push(section(`Breadcrumbs (${p.breadcrumbs.length})`,
-      el('ul', { class: 'timeline' },
-        p.breadcrumbs.slice().reverse().map((b) => el('li', {},
-          el('span', { class: 'muted mono small', text: b.timestamp ? new Date(b.timestamp).toLocaleTimeString() : '' }),
-          el('span', { class: 'bc-type' }, badge(b.type, 'info')),
-          el('span', { text: b.message }),
-        )),
+    parts.push(el('div', { class: 'card card-body section' },
+      el('details', {},
+        el('summary', { text: `All breadcrumbs (${p.breadcrumbs.length}), newest first` }),
+        el('ul', { class: 'timeline' },
+          p.breadcrumbs.slice().reverse().map((b) => el('li', {},
+            el('span', { class: 'muted mono small', text: b.timestamp ? new Date(b.timestamp).toLocaleTimeString() : '' }),
+            el('span', { class: 'bc-type' }, badge(b.type, 'info')),
+            el('span', { text: b.message }),
+          )),
+        ),
       ),
     ));
   }

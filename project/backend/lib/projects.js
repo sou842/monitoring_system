@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { API_KEY_BYTES, API_KEY_PREFIX, MAX_PROJECT_NAME_LENGTH, PROJECT_CACHE_TTL_MS } from './constants.js';
+import { emptyInsightSettings, insightSettingsView } from './insights.js';
 
 /**
  * Projects own API keys. Only a SHA-256 hash of each key is stored, so a
@@ -29,7 +30,7 @@ export function cleanProjectName(name) {
 /** Creates a project owned by `ownerId`; returns it together with the one-time plain API key. */
 export async function createProject(db, name, ownerId, now = new Date()) {
   const apiKey = generateApiKey();
-  const doc = { name, ownerId, apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey), allowedOrigins: [], createdAt: now };
+  const doc = { name, ownerId, apiKeyHash: hashApiKey(apiKey), apiKeyHint: keyHint(apiKey), allowedOrigins: [], insights: emptyInsightSettings(), createdAt: now };
   const { insertedId } = await db.collection('projects').insertOne(doc);
   return { project: { _id: insertedId, ...doc }, apiKey };
 }
@@ -48,6 +49,11 @@ export async function rotateApiKey(db, projectId) {
 export async function setAllowedOrigins(db, projectId, origins) {
   await db.collection('projects').updateOne({ _id: projectId }, { $set: { allowedOrigins: origins } });
   clearProjectCache();
+}
+
+/** Replaces a project's issue-insight settings (already validated by `cleanInsightSettings`). */
+export async function setInsightSettings(db, projectId, settings) {
+  await db.collection('projects').updateOne({ _id: projectId }, { $set: { insights: settings } });
 }
 
 // Ingestion looks the key up on every request; a short cache saves a query each time.
@@ -76,6 +82,7 @@ export function projectView(project) {
     name: project.name,
     apiKeyHint: project.apiKeyHint,
     allowedOrigins: Array.isArray(project.allowedOrigins) ? project.allowedOrigins : [],
+    insights: insightSettingsView(project.insights),
     createdAt: project.createdAt,
   };
 }

@@ -122,6 +122,7 @@ describe('NetworkError and HttpError', () => {
     } catch (_e) {
       // jsdom may refuse the real request; only the hooks matter here.
     }
+    Object.defineProperty(xhr, 'readyState', { value: 4 }); // a failed request is DONE with status 0
     xhr.dispatchEvent(new Event('error'));
     xhr.dispatchEvent(new Event('loadend'));
 
