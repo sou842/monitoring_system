@@ -86,7 +86,9 @@ describe('issue insights: a real FusionCharts error', () => {
 
   it('shows the last moments oldest first, ending with the hidden tab', () => {
     const last = insight.moments[insight.moments.length - 1];
-    assert.deepEqual(last, { when: '-16 ms', at: '2026-10-27T12:47:54.430Z', type: 'lifecycle', message: 'Page hidden', tone: 'warn' });
+    assert.deepEqual(last, { when: '-16 ms', at: '2026-10-27T12:47:54.430Z', type: 'lifecycle', message: 'Page hidden', tone: 'warn', index: 16 });
+    // Each row knows its breadcrumb, so the dashboard can jump to it in the raw JSON.
+    for (const m of insight.moments) assert.equal(fusionChartsError.breadcrumbs[m.index].message, m.message);
     assert.ok(insight.moments.some((m) => m.message === 'Clicked Dashboard' && m.tone === 'user'));
     assert.ok(!insight.moments.some((m) => m.message.includes('SecurityParamsDBDetail')), 'older than the window');
   });

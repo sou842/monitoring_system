@@ -1963,8 +1963,62 @@ function section(title, ...content) {
   return el('div', { class: 'card card-body section' }, el('h2', { text: title }), ...content);
 }
 
+/**
+ * `JSON.stringify(value, null, 2)` as DOM nodes (same text), with every array item and
+ * top-level field wrapped in a span marked by its path ("breadcrumbs.3", "stacktrace.0",
+ * "error"), so rows on the issue page can jump to their place in the raw JSON.
+ */
+function jsonNodes(value, path = '', indent = '') {
+  const inner = `${indent}  `;
+  const wrap = (child, childPath) => el('span', { class: 'json-item', attrs: { 'data-json-path': childPath } }, jsonNodes(child, childPath, inner));
+  if (Array.isArray(value)) {
+    if (value.length === 0) return ['[]'];
+    const out = ['[\n'];
+    value.forEach((item, i) => out.push(inner, wrap(item, path ? `${path}.${i}` : String(i)), i < value.length - 1 ? ',\n' : '\n'));
+    out.push(`${indent}]`);
+    return out;
+  }
+  if (value !== null && typeof value === 'object') {
+    const keys = Object.keys(value).filter((key) => value[key] !== undefined && typeof value[key] !== 'function');
+    if (keys.length === 0) return ['{}'];
+    const out = ['{\n'];
+    keys.forEach((key, i) => {
+      const child = path === '' ? [wrap(value[key], key)] : jsonNodes(value[key], `${path}.${key}`, inner);
+      out.push(`${inner}${JSON.stringify(key)}: `, ...child, i < keys.length - 1 ? ',\n' : '\n');
+    });
+    out.push(`${indent}}`);
+    return out;
+  }
+  return [JSON.stringify(value)];
+}
+
+/** Opens the raw event JSON, scrolls to the item at `path` and highlights it. */
+function showInJson(path) {
+  const box = document.querySelector('.raw-json');
+  const target = box && box.querySelector(`[data-json-path="${CSS.escape(path)}"]`);
+  if (!target) return;
+  box.open = true;
+  for (const old of box.querySelectorAll('.json-hit')) old.classList.remove('json-hit');
+  target.classList.add('json-hit');
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+/** Props that make a row jump to `path` in the raw JSON on click, Enter or Space. */
+function jumpProps(path, className = '') {
+  return {
+    class: `${className} jump`.trim(),
+    attrs: { role: 'button', tabindex: '0', title: 'Show in the raw event JSON' },
+    onclick: () => showInJson(path),
+    onkeydown: (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      showInJson(path);
+    },
+  };
+}
+
 /** "What happened": the facts, where to look, and hints (public/insights.js). */
-function summarySection(insight) {
+function summarySection(insight, payload) {
   const look = insight.whereToLook;
   return section('What happened',
     insight.facts.length > 0
@@ -1973,7 +2027,7 @@ function summarySection(insight) {
           el('dd', { class: f.tone ? `tone-${f.tone}` : '', text: f.text }),
         ]))
       : el('p', { class: 'muted', text: 'Not enough data in this event for a summary.' }),
-    look ? el('div', { class: 'look' },
+    look ? el('div', jumpProps(`stacktrace.${payload.stacktrace.indexOf(look.frame)}`, 'look'),
       el('span', { class: 'look-label', text: 'Where to look' }),
       el('code', { text: frameLabel(look.frame) }),
       look.frame.filename ? el('div', { class: 'muted small mono', text: look.frame.filename }) : null,
@@ -1991,11 +2045,11 @@ function momentsSection(insight, p) {
   // Newest first: the error on top, then what led up to it, going back in time.
   return section('Last moments (newest first)',
     el('ol', { class: 'timeline moments' },
-      el('li', { class: 'moment-error' },
+      el('li', jumpProps(p.error ? 'error' : 'event_type', 'moment-error'),
         el('span', { class: 'mono small', text: '0 s' }),
         el('span', { class: 'bc-type' }, badge(p.event_type, 'error')),
         el('span', { class: 'moment-msg', text: errorText })),
-      insight.moments.slice().reverse().map((m) => el('li', { class: m.tone ? `tone-${m.tone}` : '' },
+      insight.moments.slice().reverse().map((m) => el('li', m.index >= 0 ? jumpProps(`breadcrumbs.${m.index}`, m.tone ? `tone-${m.tone}` : '') : { class: m.tone ? `tone-${m.tone}` : '' },
         el('span', { class: 'muted mono small', text: m.when || (m.at ? new Date(m.at).toLocaleTimeString() : '') }),
         el('span', { class: 'bc-type' }, badge(m.type, 'info')),
         el('span', { class: 'moment-msg', text: m.message })))),
@@ -2004,8 +2058,8 @@ function momentsSection(insight, p) {
 
 const FRAME_KIND_LABELS = { app: 'your code', native: 'browser', hidden: 'hidden' };
 
-function frameRow(c, focus) {
-  return el('div', { class: `frame mono${focus ? ' focus' : ''}${c.kind === 'app' ? '' : ' dim'}` },
+function frameRow(c, focus, payload) {
+  return el('div', jumpProps(`stacktrace.${payload.stacktrace.indexOf(c.frame)}`, `frame mono${focus ? ' focus' : ''}${c.kind === 'app' ? '' : ' dim'}`),
     el('span', { class: 'fn', text: c.frame.function }), ' ',
     el('span', { class: 'muted', text: `${c.frame.filename || '?'}${c.frame.lineno !== null ? ':' + c.frame.lineno : ''}${c.frame.colno !== null ? ':' + c.frame.colno : ''}` }),
     el('span', { class: 'frame-tag', text: c.library || FRAME_KIND_LABELS[c.kind] }));
@@ -2029,7 +2083,7 @@ function stackSection(insight, payload) {
   const focus = insight.whereToLook;
   // A stack with no frames of your code is shown whole: folding everything would hide it all.
   if (!frames.some((c) => c.kind === 'app')) {
-    return section('Stack trace', el('div', { class: 'frames' }, frames.map((c, i) => frameRow(c, i === 0))), stackTextBlock(payload));
+    return section('Stack trace', el('div', { class: 'frames' }, frames.map((c, i) => frameRow(c, i === 0, payload))), stackTextBlock(payload));
   }
   const groups = [];
   for (const c of frames) {
@@ -2040,11 +2094,11 @@ function stackSection(insight, payload) {
   }
   return section('Stack trace',
     el('div', { class: 'frames' }, groups.map((g) => {
-      if (!Array.isArray(g)) return frameRow(g, g === focus);
+      if (!Array.isArray(g)) return frameRow(g, g === focus, payload);
       const names = [...new Set(g.map((c) => c.library || FRAME_KIND_LABELS[c.kind]))].join(', ');
       return el('details', { class: 'frame-group' },
         el('summary', { text: `${g.length} frame${g.length === 1 ? '' : 's'}: ${names}` }),
-        g.map((c) => frameRow(c, false)));
+        g.map((c) => frameRow(c, false, payload)));
     })),
     stackTextBlock(payload),
   );
@@ -2062,7 +2116,7 @@ function eventDetail(event, insightSettings) {
   }
 
   if (insight) {
-    parts.push(summarySection(insight));
+    parts.push(summarySection(insight, p));
     parts.push(momentsSection(insight, p));
   }
   if (p.stacktrace.length > 0) {
@@ -2089,7 +2143,7 @@ function eventDetail(event, insightSettings) {
       el('details', {},
         el('summary', { text: `All breadcrumbs (${p.breadcrumbs.length}), newest first` }),
         el('ul', { class: 'timeline' },
-          p.breadcrumbs.slice().reverse().map((b) => el('li', {},
+          p.breadcrumbs.slice().reverse().map((b, i) => el('li', jumpProps(`breadcrumbs.${p.breadcrumbs.length - 1 - i}`),
             el('span', { class: 'muted mono small', text: b.timestamp ? new Date(b.timestamp).toLocaleTimeString() : '' }),
             el('span', { class: 'bc-type' }, badge(b.type, 'info')),
             el('span', { text: b.message }),
@@ -2127,7 +2181,8 @@ function eventDetail(event, insightSettings) {
       : null,
   ));
 
-  parts.push(el('details', { class: 'section' }, el('summary', { text: 'Raw event JSON' }), el('pre', { text: JSON.stringify(p, null, 2) })));
+  // Rows above (breadcrumbs, stack frames, the error) jump to their item here: see showInJson().
+  parts.push(el('details', { class: 'section raw-json' }, el('summary', { text: 'Raw event JSON' }), el('pre', {}, jsonNodes(p))));
   return el('div', {}, parts);
 }
 

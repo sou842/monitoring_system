@@ -230,7 +230,9 @@ export function errorTime(event, receivedAt) {
  * tab hidden/visible noise are folded into one row. With no usable error time
  * (`errorAt` null) it shows the newest breadcrumbs, without relative times.
  *
- * @returns {Array<{ when: string | null, at: string | null, type: string, message: string, tone: string }>}
+ * `index` is the row's position in `breadcrumbs` (the first one of a folded run).
+ *
+ * @returns {Array<{ when: string | null, at: string | null, type: string, message: string, tone: string, index: number }>}
  */
 export function lastMoments(breadcrumbs, errorAt) {
   const crumbs = (breadcrumbs || []).filter((b) => b && typeof b.message === 'string');
@@ -241,6 +243,8 @@ export function lastMoments(breadcrumbs, errorAt) {
   if (picked.length < LAST_MOMENTS_MIN_ITEMS) picked = crumbs.slice(-LAST_MOMENTS_MIN_ITEMS);
   picked = picked.slice(-LAST_MOMENTS_MAX_ITEMS);
 
+  // Position in the event's breadcrumbs array, so the dashboard can point at it in the raw JSON.
+  const indexOf = (b) => breadcrumbs.indexOf(b);
   const before = (b) => (known && timeOf(b) !== null ? errorAt - timeOf(b) : null);
   const at = (b) => (timeOf(b) === null ? null : new Date(timeOf(b)).toISOString());
   const rows = [];
@@ -250,13 +254,13 @@ export function lastMoments(breadcrumbs, errorAt) {
     // Fold a long run of lifecycle crumbs, but keep its last one: it says the tab's state at the error.
     if (j - i >= LIFECYCLE_FOLD_MIN) {
       const first = before(picked[i]);
-      rows.push({ when: first === null ? null : relativeTime(first), at: at(picked[i]), type: 'lifecycle', message: `Tab hidden/shown ${j - i - 1} times`, tone: '' });
+      rows.push({ when: first === null ? null : relativeTime(first), at: at(picked[i]), type: 'lifecycle', message: `Tab hidden/shown ${j - i - 1} times`, tone: '', index: indexOf(picked[i]) });
       i = j - 2;
       continue;
     }
     const b = picked[i];
     const ms = before(b);
-    rows.push({ when: ms === null ? null : relativeTime(ms), at: at(b), type: asText(b.type), message: b.message, tone: crumbTone(b, ms) });
+    rows.push({ when: ms === null ? null : relativeTime(ms), at: at(b), type: asText(b.type), message: b.message, tone: crumbTone(b, ms), index: indexOf(b) });
   }
   return rows;
 }
