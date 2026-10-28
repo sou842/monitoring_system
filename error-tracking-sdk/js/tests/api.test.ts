@@ -405,6 +405,24 @@ describe('ErrorTracker public API', () => {
       expect(received[1].breadcrumbs).toContainEqual(expect.objectContaining({ type: 'api', message: 'GET http://localhost:3000/api/missing → 404' }));
     });
 
+    it('gives every request its own _id, the same in api_calls, its breadcrumb and the HttpError context', async () => {
+      ErrorTracker.init(BASE_CONFIG);
+      await window.fetch('/api/ok');
+      await window.fetch('/api/fail', { method: 'POST' });
+      await ErrorTracker.flush();
+
+      const [event] = received;
+      const calls = event.performance.api_calls;
+      expect(calls.map((c) => c.url)).toEqual(['http://localhost:3000/api/ok', 'http://localhost:3000/api/fail']);
+      calls.forEach((c) => expect(c._id).toMatch(/^[0-9a-f]{16}$/));
+      expect(calls[0]._id).not.toBe(calls[1]._id);
+
+      const failed = calls[1];
+      expect(event.context).toMatchObject({ _id: failed._id, url: failed.url, status: 500 });
+      const crumbIds = event.breadcrumbs.filter((b) => b.type === 'api').map((b) => b.data && b.data._id);
+      expect(crumbIds).toEqual([calls[0]._id, failed._id]);
+    });
+
     it('skips 4xx statuses that are normal app flow by default', async () => {
       ErrorTracker.init(BASE_CONFIG);
       await window.fetch('/api/login');

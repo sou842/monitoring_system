@@ -103,7 +103,7 @@ const SHARED_SCHEMA = {
   frame: ['filename', 'lineno', 'colno', 'function'],
   breadcrumb: ['timestamp', 'type', 'message', 'data'],
   performance: ['page_load_ms', 'ttfb_ms', 'fcp_ms', 'lcp_ms', 'startup_ms', 'frame_rate_fps', 'slow_screen', 'api_calls', 'slow_api_calls'],
-  apiCall: ['url', 'method', 'status', 'duration_ms'],
+  apiCall: ['_id', 'url', 'method', 'status', 'duration_ms'],
   memory: ['used_mb', 'total_mb', 'leak_suspected', 'oom_kill'],
   device: ['platform', 'os', 'os_version', 'manufacturer', 'model', 'browser', 'browser_version', 'screen_width', 'screen_height', 'url', 'locale'],
 };

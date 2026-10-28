@@ -1286,7 +1286,8 @@ async function endpointDetail(toolbar, link, path, key) {
       el('td', {}, badge(row.failure || String(row.status), row.failed ? 'error' : 'info')),
       el('td', { class: 'wrap' }, el('a', { href: link({ page: row.page }), text: row.page })),
       el('td', { class: 'muted', text: [row.browser, row.os].filter(Boolean).join(' · ') || '–' }),
-      el('td', { class: 'muted', text: timeAgo(row.receivedAt), title: formatDate(row.receivedAt) })));
+      el('td', { class: 'muted', text: timeAgo(row.receivedAt), title: formatDate(row.receivedAt) }),
+      el('td', { class: 'mono small muted', text: row._id || '–' })));
 
   show(toolbar,
     el('div', { class: 'page-head perf-head' }, el('h1', { class: 'endpoint-title' }, el('span', { class: 'method', text: s.method }), el('span', { text: `${s.origin}${s.path}` }))),
@@ -1303,7 +1304,7 @@ async function endpointDetail(toolbar, link, path, key) {
       data.samples.length === 0
         ? el('p', { class: 'muted pad', text: 'No recent calls kept for this endpoint.' })
         : el('table', { class: 'table' },
-            el('thead', {}, el('tr', {}, ['Duration', 'Server', 'Download', 'Size', 'Status', 'Page', 'Browser', 'When'].map((h, i) =>
+            el('thead', {}, el('tr', {}, ['Duration', 'Server', 'Download', 'Size', 'Status', 'Page', 'Browser', 'When', 'Call id'].map((h, i) =>
               el('th', { class: i < 4 ? 'num' : '', text: h })))),
             el('tbody', {}, samples))));
 }
@@ -1684,7 +1685,7 @@ async function issuesPage(projectId, query) {
     })),
   );
 
-  const search = el('input', { type: 'search', placeholder: 'Search message, type or location…', value: filters.q, attrs: { 'aria-label': 'Search issues' } });
+  const search = el('input', { type: 'search', placeholder: 'Search message, type, location or API call id…', value: filters.q, attrs: { 'aria-label': 'Search issues' } });
   search.addEventListener('keydown', (e) => { if (e.key === 'Enter') setFilter({ q: search.value.trim() }); });
   const select = (label, value, options, key) =>
     el('select', { attrs: { 'aria-label': label }, onchange: (e) => setFilter({ [key]: e.target.value }) },
@@ -1737,7 +1738,9 @@ async function issuesPage(projectId, query) {
         box.addEventListener('change', () => { if (box.checked) selected.add(issue.id); else selected.delete(issue.id); updateSelection(); });
         box.addEventListener('click', (e) => e.stopPropagation());
         boxes.push(box);
-        return el('a', { class: `issue-row sev-${issue.eventType}`, href: `#/i/${issue.id}`, onmouseenter: () => prefetch(`/api/issue?id=${issue.id}`), onfocus: () => prefetch(`/api/issue?id=${issue.id}`) },
+        // Found by an API call's _id: open the event that recorded that call.
+        const href = issue.matchedEventId ? `#/i/${issue.id}?event=${issue.matchedEventId}` : `#/i/${issue.id}`;
+        return el('a', { class: `issue-row sev-${issue.eventType}`, href, onmouseenter: () => prefetch(`/api/issue?id=${issue.id}`), onfocus: () => prefetch(`/api/issue?id=${issue.id}`) },
           box,
           el('div', { attrs: { style: 'min-width:0' } },
             el('div', { class: 'issue-title' }, badge(issue.eventType), issue.errorType,
@@ -2119,7 +2122,8 @@ function eventDetail(event, insightSettings) {
     ]),
     perf.api_calls.length > 0
       ? el('details', { class: 'section' }, el('summary', { text: `API calls (${perf.api_calls.length})` }),
-          el('pre', { text: perf.api_calls.map((c) => `${c.method} ${c.url} → ${c.status} (${c.duration_ms} ms)`).join('\n') }))
+          // The _id (SDK 0.9.0+) can be pasted into the issue search to find every event that recorded the call.
+          el('pre', { text: perf.api_calls.map((c) => `${c._id ? `${c._id}  ` : ''}${c.method} ${c.url} → ${c.status} (${c.duration_ms} ms)`).join('\n') }))
       : null,
   ));
 

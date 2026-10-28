@@ -80,7 +80,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
     "page_load_ms": 4200, "ttfb_ms": 320, "fcp_ms": 1800, "lcp_ms": 2400,
     "cls": 0.05,                // (JS extension*)
     "startup_ms": null, "frame_rate_fps": 58, "slow_screen": false,
-    "api_calls": [ { "url": "/api/cart", "method": "POST", "status": 200, "duration_ms": 230 } ],
+    "api_calls": [ { "_id": "9f3c2a7b41d0e865", "url": "/api/cart", "method": "POST", "status": 200, "duration_ms": 230 } ],   // _id: SDK 0.9.0+, else null
     "slow_api_calls": []
   },
   "memory": { "used_mb": 142, "total_mb": 256, "leak_suspected": false, "oom_kill": null },
@@ -124,7 +124,7 @@ Each page view sends one `transaction` event (a web route, iOS view controller o
   "background": false,
   "vitals": { "ttfb_ms": 300, "fcp_ms": 900, "lcp_ms": 1500, "cls": 0.02, "inp_ms": 120, "page_load_ms": 2100 },
   "long_tasks": { "count": 2, "blocking_ms": 140 },
-  "spans": [ { "op": "http", "method": "GET", "url": "https://api.example.com/orders/42", "status": 200,
+  "spans": [ { "_id": "4b1e09c7d2a35f80", "op": "http", "method": "GET", "url": "https://api.example.com/orders/42", "status": 200,
                "failure": null, "start_ms": 100, "duration_ms": 600, "server_ms": 500,
                "download_ms": 80, "size_bytes": 2048, "background": false } ],
   "dropped_spans": 0
@@ -133,6 +133,7 @@ Each page view sends one `transaction` event (a web route, iOS view controller o
 
 - **When a view ends:** on a route change, a screen change (`setScreen()`, same URL), when the tab or app goes to the background, on page unload, or after 30 minutes. A new view for the same page that starts after the tab returns from the background, or after a 30-minute split, has `kind: "continued"`.
 - **Span limits:** at most 100 spans per view; any further requests are only counted in `dropped_spans`.
+- **API call `_id` (SDK 0.9.0+):** each request has one unique `_id` (≤ 64 characters), the same in `api_calls`, `slow_api_calls`, its `api` breadcrumb (`data._id`), its span and the `context` of an `HttpError` / `NetworkError` / `SlowApiCall` it caused. Missing → stored as `null`. Lookups: `db.events.find({ "payload.performance.api_calls._id": id })` and `db.transactions.find({ "spans._id": id })`, both indexed; the dashboard issue search accepts an `_id` too and opens the event that recorded it.
 - **Sampling:** `performanceSampleRate` (default 1.0) is decided once per page load and is separate from `sampleRate`.
 - **Rate limits:** the SDK sends at most 30 transactions per minute; the server accepts 1000 page views per project per minute.
 

@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.8.0';
+export const SDK_VERSION = '0.9.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -112,6 +112,8 @@ export const HTTP_STATUS_CODE_MIN = 100;
 export const HTTP_STATUS_CODE_MAX = 599;
 /** Number of most recent API calls attached to every payload. */
 export const MAX_API_CALLS_TRACKED = 20;
+/** Random bytes in each API call's `_id` (8 bytes = 16 hex characters). */
+export const REQUEST_ID_BYTES = 8;
 /** Delay after window `load` so loadEventEnd is populated. */
 export const PAGE_LOAD_SETTLE_MS = 0;
 /** CLS session window rules (per the web-vitals definition). */

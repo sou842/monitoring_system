@@ -266,6 +266,10 @@ ErrorTracker.setScreen(null);           // clear it
 - Names are trimmed and cut to 200 characters. Use stable names (`OrderDetails`, not `Order 42`): every distinct name becomes its own row in the Performance page.
 - URL route changes still start page views as before. If an app uses both, the screen stays until you change or clear it.
 
+### Request ids
+
+*Added in 0.9.0.* Every fetch/XHR call gets a random `_id` (16 hex characters, e.g. `9f3c2a7b41d0e865`). The same call carries the same `_id` everywhere it is recorded: `performance.api_calls` and `slow_api_calls`, its `api` breadcrumb (`data._id`), its page-view span, and the `context` of the `HttpError` / `NetworkError` / `SlowApiCall` event it caused. Search for an id to find every event that saw that call. The id is only recorded in events; it is **not** sent to your API as a header.
+
 Other public methods: `flush(): Promise<void>` sends everything now (and never rejects). `close(): Promise<void>` flushes, removes every hook and persists anything unsent. `isInitialized(): boolean`.
 
 ## What is collected
@@ -349,7 +353,7 @@ Every event follows the shared cross-platform schema. Every field is always pres
   "performance": {
     "page_load_ms": 4200, "ttfb_ms": 320, "fcp_ms": 1800, "lcp_ms": 2400, "cls": 0.02,
     "startup_ms": null, "frame_rate_fps": null, "slow_screen": true,
-    "api_calls": [{ "url": "https://app.example.com/api/cart", "method": "POST", "status": 200, "duration_ms": 230 }],
+    "api_calls": [{ "_id": "9f3c2a7b41d0e865", "url": "https://app.example.com/api/cart", "method": "POST", "status": 200, "duration_ms": 230 }],
     "slow_api_calls": []
   },
   "memory": { "used_mb": 142.3, "total_mb": 256, "leak_suspected": false, "oom_kill": null },
@@ -370,7 +374,7 @@ A page view (`event_type: "transaction"`, level `info`) has `error: null`, empty
   "name": "/orders/42", "kind": "pageload", "start": "2026-10-23T10:00:00.000Z", "duration_ms": 5000, "background": false,
   "vitals": { "ttfb_ms": 120, "fcp_ms": 800, "lcp_ms": 1400, "cls": 0.05, "inp_ms": 96, "page_load_ms": 1900 },
   "long_tasks": { "count": 2, "blocking_ms": 80 },
-  "spans": [{ "op": "http", "method": "GET", "url": "https://app.example.com/api/orders/42", "status": 200, "failure": null,
+  "spans": [{ "_id": "4b1e09c7d2a35f80", "op": "http", "method": "GET", "url": "https://app.example.com/api/orders/42", "status": 200, "failure": null,
               "start_ms": 100, "duration_ms": 600, "server_ms": 500, "download_ms": 80, "size_bytes": 2048, "background": false }],
   "dropped_spans": 0
 }

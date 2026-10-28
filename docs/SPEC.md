@@ -187,7 +187,7 @@ All three SDKs must send events in this exact JSON shape. Any field not availabl
     "frame_rate_fps": 58,
     "slow_screen": false,
     "api_calls": [
-      { "url": "/api/cart", "method": "POST", "status": 200, "duration_ms": 230 }
+      { "_id": "9f3c2a7b41d0e865", "url": "/api/cart", "method": "POST", "status": 200, "duration_ms": 230 }
     ],
     "slow_api_calls": []
   },
@@ -225,7 +225,7 @@ Added after the original spec, for Sentry-style performance monitoring. Every SD
   "background": false,                  // the app/tab was in the background at some point during the view
   "vitals": { "ttfb_ms": null, "fcp_ms": null, "lcp_ms": null, "cls": null, "inp_ms": null, "page_load_ms": null },
   "long_tasks": { "count": 0, "blocking_ms": 0 },
-  "spans": [{ "op": "http", "method": "GET", "url": "https://api.example.com/orders/42", "status": 200, "failure": null,
+  "spans": [{ "_id": "4b1e09c7d2a35f80", "op": "http", "method": "GET", "url": "https://api.example.com/orders/42", "status": 200, "failure": null,
               "start_ms": 100, "duration_ms": 600, "server_ms": 500, "download_ms": 80, "size_bytes": 2048, "background": false }],
   "dropped_spans": 0
 }
@@ -243,6 +243,15 @@ Every event has a top-level `"screen": string | null`: the app screen the event 
 - A new screen leaves a `navigation` breadcrumb (`Screen: <name>`, data `{ from, to, trigger: "setScreen" }`) and starts a new page view (`kind: "navigation"`, same `transaction.name`). A transaction event carries the screen of **its** view, even when it is sent after the next screen was set.
 - The backend groups page views by `screen` when present, otherwise by the normalized URL route. The dashboard shows `screen` next to the page URL.
 - iOS/Android should send the same field. A sensible default is `null` with `setScreen` only, so automatic view-controller or Activity names stay in `transaction.name`.
+
+### Addition (2026-10-28, JS 0.9.0): API call `_id`
+Every recorded HTTP request gets a unique `"_id": string` (JS: 16 random lowercase hex characters, from `crypto.getRandomValues` with a `Math.random` fallback), created once when the request finishes. The same call carries the **same** `_id` everywhere it appears:
+- `performance.api_calls[]._id` and `performance.slow_api_calls[]._id`
+- the `api` breadcrumb's `data._id`
+- the page view's `transaction.spans[]._id`
+- `context._id` of the `HttpError`, `NetworkError` or `SlowApiCall` event the call caused
+
+It lets you find every stored event that recorded one call. It is **not** sent to the app's API as a header (not distributed tracing). The backend keeps strings up to 64 characters and stores `null` for older SDKs; iOS/Android should send the same field (any unique string ≤ 64 characters, e.g. 16 hex characters).
 
 ---
 

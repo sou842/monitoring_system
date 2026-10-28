@@ -41,7 +41,7 @@ function harness(options: { sampleRate?: number; random?: number; load?: Partial
     /** A finished request, as the network interceptor reports it. */
     request(url: string, start: number, end: number, status = 200, method = 'GET') {
       clock = end;
-      const call: ApiCall = { url: url.replace(/[?#].*$/, ''), method: method, status: status, duration_ms: end - start };
+      const call: ApiCall = { _id: 'req' + start, url: url.replace(/[?#].*$/, ''), method: method, status: status, duration_ms: end - start };
       const details: RequestDetails = { failure: null, error: null, callSite: () => [], startTime: start, endTime: end, rawUrl: url };
       if (listener !== null) listener(call, details);
     },
@@ -103,6 +103,7 @@ describe('PageViewCollector', () => {
       long_tasks: { count: 2, blocking_ms: 80 },
       spans: [
         {
+          _id: 'req100',
           op: 'http',
           method: 'GET',
           url: 'http://localhost:3000/api/cart',

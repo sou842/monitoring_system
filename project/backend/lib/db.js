@@ -55,6 +55,8 @@ export async function ensureIndexes(db) {
 
     db.collection('events').createIndex({ issueId: 1, receivedAt: -1 }),
     db.collection('events').createIndex({ projectId: 1, receivedAt: -1 }),
+    // Find the events that recorded one API call by its `_id` (multikey: one entry per call).
+    db.collection('events').createIndex({ 'payload.performance.api_calls._id': 1 }),
     // Events older than 30 days are removed automatically.
     db.collection('events').createIndex({ receivedAt: 1 }, { expireAfterSeconds: EVENT_RETENTION_DAYS * SECONDS_PER_DAY }),
 
@@ -62,6 +64,7 @@ export async function ensureIndexes(db) {
     db.collection('transactions').createIndex({ projectId: 1, receivedAt: -1 }),
     db.collection('transactions').createIndex({ projectId: 1, route: 1, receivedAt: -1 }),
     db.collection('transactions').createIndex({ projectId: 1, 'spans.key': 1, receivedAt: -1 }),
+    db.collection('transactions').createIndex({ 'spans._id': 1 }),
     db.collection('transactions').createIndex({ receivedAt: 1 }, { expireAfterSeconds: TRANSACTION_RETENTION_DAYS * SECONDS_PER_DAY }),
     // One rollup row per (project, hour, environment, page or endpoint).
     db.collection('perf_rollups').createIndex({ projectId: 1, kind: 1, key: 1, environment: 1, hour: 1 }, { unique: true }),

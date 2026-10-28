@@ -243,6 +243,7 @@ export class PageViewCollector implements Collector {
       rawUrl: details.rawUrl,
       startTime: details.startTime,
       span: {
+        _id: call._id,
         op: 'http',
         method: call.method,
         url: call.url,

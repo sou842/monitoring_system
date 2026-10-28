@@ -250,6 +250,7 @@ export class PerformanceCollector implements Collector {
     this.lastSlowReport[key] = now;
     // The duration goes in context, not the message, so repeats of one slow endpoint group together.
     this.sink.onPerformanceIssue('SlowApiCall', 'Slow API call: ' + key, {
+      _id: call._id,
       url: call.url,
       method: call.method,
       status: call.status,

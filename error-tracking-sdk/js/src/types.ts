@@ -159,6 +159,12 @@ export interface Breadcrumb {
 }
 
 export interface ApiCall {
+  /**
+   * Unique id of this request (16 hex characters). The same call carries the
+   * same id everywhere it appears: `api_calls`, `slow_api_calls`, its `api`
+   * breadcrumb, its transaction span and an HttpError/NetworkError `context`.
+   */
+  _id: string;
   url: string;
   method: string;
   /** HTTP status; 0 when the request failed before a response arrived. */
@@ -205,6 +211,8 @@ export interface DevicePayload {
 
 /** One timed operation inside a page view. Only HTTP requests for now. */
 export interface Span {
+  /** The request's `ApiCall._id`. */
+  _id: string;
   op: 'http';
   method: string;
   /** Query string and fragment removed. */

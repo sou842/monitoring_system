@@ -132,7 +132,8 @@ export async function computeEndpointDetail(db, { projectIds, range, key, enviro
       { $limit: SLOWEST_SAMPLES_LIMIT },
       {
         $project: {
-          _id: 0,
+          // The call's own id (null for spans from SDKs before 0.9.0), not the page view's.
+          _id: { $ifNull: ['$spans._id', null] },
           receivedAt: 1,
           page: { $ifNull: ['$screen', '$name'] },
           environment: 1,

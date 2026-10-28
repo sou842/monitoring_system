@@ -151,7 +151,7 @@ export class BreadcrumbCollector implements Collector {
       self.sink.onBreadcrumb({
         type: 'api',
         message: call.method + ' ' + call.url + ' → ' + outcome,
-        data: { url: call.url, method: call.method, status: call.status, duration_ms: call.duration_ms, failure: details.failure },
+        data: { _id: call._id, url: call.url, method: call.method, status: call.status, duration_ms: call.duration_ms, failure: details.failure },
       });
     });
   }

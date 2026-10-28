@@ -25,7 +25,7 @@ export function httpErrorFromCall(call: ApiCall, details?: RequestDetails): Capt
       handled: true,
     },
     stacktrace: details !== undefined ? details.callSite() : [],
-    context: { url: call.url, method: call.method, status: call.status, duration_ms: call.duration_ms },
+    context: { _id: call._id, url: call.url, method: call.method, status: call.status, duration_ms: call.duration_ms },
   };
 }
 
@@ -40,7 +40,7 @@ export function networkErrorFromCall(call: ApiCall, details: RequestDetails): Ca
       handled: true,
     },
     stacktrace: details.callSite(),
-    context: { url: call.url, method: call.method, failure: failure, duration_ms: call.duration_ms },
+    context: { _id: call._id, url: call.url, method: call.method, failure: failure, duration_ms: call.duration_ms },
   };
 }
 

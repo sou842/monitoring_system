@@ -265,17 +265,17 @@ describe('PerformanceCollector', () => {
 
   it('flags API calls over 2000ms as slow and reports them', () => {
     const { sink, collector } = makeCollector();
-    collector.recordApiCall({ url: '/api/cart', method: 'POST', status: 200, duration_ms: 230 });
-    collector.recordApiCall({ url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 });
+    collector.recordApiCall({ _id: 'c0', url: '/api/cart', method: 'POST', status: 200, duration_ms: 230 });
+    collector.recordApiCall({ _id: 'c1', url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 });
 
     const snap = collector.snapshot();
     expect(snap.api_calls).toHaveLength(2);
-    expect(snap.slow_api_calls).toEqual([{ url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 }]);
+    expect(snap.slow_api_calls).toEqual([{ _id: 'c1', url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 }]);
     expect(sink.issues).toEqual([
       {
         kind: 'SlowApiCall',
         message: 'Slow API call: GET /api/search',
-        context: { url: '/api/search', method: 'GET', status: 200, duration_ms: 2500, threshold_ms: 2000 },
+        context: { _id: 'c1', url: '/api/search', method: 'GET', status: 200, duration_ms: 2500, threshold_ms: 2000 },
       },
     ]);
   });
@@ -286,8 +286,8 @@ describe('PerformanceCollector', () => {
       slowApiCallMs: 3000,
       slowPageLoadMs: 5000,
     });
-    collector.recordApiCall({ url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 });
-    collector.recordApiCall({ url: '/api/report', method: 'GET', status: 200, duration_ms: 3100 });
+    collector.recordApiCall({ _id: 'c2', url: '/api/search', method: 'GET', status: 200, duration_ms: 2500 });
+    collector.recordApiCall({ _id: 'c3', url: '/api/report', method: 'GET', status: 200, duration_ms: 3100 });
     vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
       { startTime: 0, loadEventEnd: 4200, responseStart: 320 } as unknown as PerformanceEntry,
     ]);

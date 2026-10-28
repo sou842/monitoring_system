@@ -127,6 +127,11 @@ describe('issue insights: a failed Appzillon server call', () => {
     ] };
     assert.deepEqual(hintsFor(serverCallFailed, settings).map((h) => h.text), ['Type hint', 'Iface hint']);
   });
+
+  it("never matches a team hint on a request's random _id", () => {
+    const notFound = { error: { type: 'HttpError', message: 'GET /a → 404' }, context: { _id: '9f500c2a7b41d0e8', url: '/a', method: 'GET', status: 404 } };
+    assert.deepEqual(hintsFor(notFound, { hints: [{ match: '500', text: 'Server down' }] }).filter((h) => h.source === 'project'), []);
+  });
 });
 
 describe('issue insights: rules', () => {

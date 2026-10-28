@@ -1,12 +1,14 @@
 import { ownedProject } from '../lib/access.js';
 import { requireUser } from '../lib/auth.js';
-import { ISSUE_EVENT_TYPES as EVENT_TYPES, ISSUES_PAGE_SIZE, ISSUE_STATUSES } from '../lib/constants.js';
+import { ISSUE_EVENT_TYPES as EVENT_TYPES, ISSUES_PAGE_SIZE, ISSUE_STATUSES, MAX_REQUEST_ID_LENGTH } from '../lib/constants.js';
 import { deleteIssues } from '../lib/deletion.js';
 import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
 import { issueView } from '../lib/views.js';
 
 const SORTS = { lastSeen: { lastSeen: -1 }, count: { count: -1, lastSeen: -1 }, firstSeen: { firstSeen: -1 } };
 const MAX_SEARCH_LENGTH = 200;
+/** Events read when the search text is an API call `_id` (one call is in at most a few dozen events). */
+const MAX_REQUEST_ID_EVENTS = 100;
 
 function escapeRegex(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -16,7 +18,9 @@ function escapeRegex(text) {
  * GET /api/issues?projectId=…  (required)
  *   &status=open|resolved|ignored|all   (default open)
  *   &type=error|message|performance|crash
- *   &env=production   &q=search text   &sort=lastSeen|count|firstSeen   &page=1
+ *   &env=production   &q=search text or an API call _id   &sort=lastSeen|count|firstSeen   &page=1
+ *
+ * When `q` is an API call `_id`, each matching issue has `matchedEventId`: the newest event that recorded the call.
  *
  * Returns the page of issues plus per-status counts and the project's environments for filters.
  */
@@ -41,9 +45,23 @@ export const GET = handle(async (request) => {
   const env = params.get('env');
   if (env) filter.environments = env;
   const q = (params.get('q') || '').trim().slice(0, MAX_SEARCH_LENGTH);
+  // Issue id → newest event that recorded the API call searched for, so the list can open that event.
+  const matchedEvents = new Map();
   if (q) {
     const pattern = new RegExp(escapeRegex(q), 'i');
     filter.$or = [{ message: pattern }, { errorType: pattern }, { culprit: pattern }];
+    // The text may be an API call's `_id` (shown on the issue page and the Performance view).
+    if (q.length <= MAX_REQUEST_ID_LENGTH) {
+      const hits = await db.collection('events')
+        .find({ 'payload.performance.api_calls._id': q, projectId }, { projection: { issueId: 1 } })
+        .sort({ receivedAt: -1 })
+        .limit(MAX_REQUEST_ID_EVENTS)
+        .toArray();
+      for (const hit of hits) {
+        if (!matchedEvents.has(String(hit.issueId))) matchedEvents.set(String(hit.issueId), String(hit._id));
+      }
+      if (hits.length > 0) filter.$or.push({ _id: { $in: hits.map((hit) => hit.issueId) } });
+    }
   }
   const sort = SORTS[params.get('sort')] || SORTS.lastSeen;
   const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
@@ -59,7 +77,8 @@ export const GET = handle(async (request) => {
   const counts = Object.fromEntries(ISSUE_STATUSES.map((s) => [s, 0]));
   for (const row of statusCounts) counts[row._id] = row.n;
 
-  return json({ issues: rows.map(issueView), total, page, pageSize: ISSUES_PAGE_SIZE, counts, environments: environments.sort() });
+  const issueRows = rows.map((row) => ({ ...issueView(row), matchedEventId: matchedEvents.get(String(row._id)) || null }));
+  return json({ issues: issueRows, total, page, pageSize: ISSUES_PAGE_SIZE, counts, environments: environments.sort() });
 });
 
 const MAX_DELETE_IDS = 500;

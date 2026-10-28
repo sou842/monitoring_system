@@ -60,6 +60,8 @@ export const MAX_SCREEN_LENGTH = 200;
 export const MAX_STACK_FRAMES = 100;
 export const MAX_BREADCRUMBS = 100;
 export const MAX_API_CALLS = 50;
+/** Longest API-call `_id` kept (`api_calls[]._id`, `spans[]._id`); the JS SDK sends 16 hex characters. */
+export const MAX_REQUEST_ID_LENGTH = 64;
 /** Max size of the free-form `context` / breadcrumb `data` objects once serialized. */
 export const MAX_JSON_FIELD_BYTES = 16 * 1024;
 /** Events whose timestamp is further than this from server time use the server time instead. */

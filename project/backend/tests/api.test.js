@@ -185,6 +185,42 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal(env.total, 1);
     });
 
+    it("finds the issue and the exact event that recorded an API call, by the call's _id", async () => {
+      const created = await (await api.projects.POST(authed('/api/projects', { method: 'POST', body: { name: 'Call ids' } }))).json();
+      const id = created.project.id;
+      const callId = '9f3c2a7b41d0e865';
+      const call = (_id, url) => ({ _id, url, method: 'POST', status: 200, duration_ms: 812 });
+      const failing = (message, calls) =>
+        sampleEvent({ error: { message, type: 'AppzillonServerError', handled: true }, performance: { ...sampleEvent().performance, api_calls: calls } });
+      await ingest(created.apiKey, [
+        failing('Server returned error: OrdersQuery', [call('0000000000000001', 'https://shop.test/a'), call(callId, 'https://shop.test/AppzillonWeb')]),
+        failing('Server returned error: UsersQuery', [call('0000000000000002', 'https://shop.test/b')]),
+      ]);
+      await ingest(created.apiKey, [failing('Server returned error: OrdersQuery', [call(callId, 'https://shop.test/AppzillonWeb')])]);
+
+      const found = await (await api.issues.GET(authed(`/api/issues?projectId=${id}&q=${callId}`))).json();
+      assert.deepEqual(found.issues.map((i) => i.message), ['Server returned error: OrdersQuery']);
+      const withCall = await db.collection('events').find({ 'payload.performance.api_calls._id': callId }).toArray();
+      assert.equal(withCall.length, 2);
+      assert.ok(withCall.some((e) => String(e._id) === found.issues[0].matchedEventId), 'links to an event that recorded the call');
+      const opened = await (await api.event.GET(authed(`/api/event?id=${found.issues[0].matchedEventId}`))).json();
+      assert.ok(opened.event.payload.performance.api_calls.some((c) => c._id === callId));
+
+      const plain = await (await api.issues.GET(authed(`/api/issues?projectId=${id}&q=UsersQuery`))).json();
+      assert.deepEqual(plain.issues.map((i) => i.matchedEventId), [null], 'a text search links no event');
+      const unknown = await (await api.issues.GET(authed(`/api/issues?projectId=${id}&q=ffffffffffffffff`))).json();
+      assert.equal(unknown.total, 0);
+      const otherProject = await (await api.issues.GET(authed(`/api/issues?projectId=${projectId}&q=${callId}`))).json();
+      assert.equal(otherProject.total, 0, 'only events of the searched project count');
+
+      const plan = await db.collection('events').find({ 'payload.performance.api_calls._id': callId }).explain();
+      assert.match(JSON.stringify(plan.queryPlanner.winningPlan), /IXSCAN/, 'the lookup uses the index');
+      const spanPlan = await db.collection('transactions').find({ 'spans._id': callId }).explain();
+      assert.match(JSON.stringify(spanPlan.queryPlanner.winningPlan), /IXSCAN/);
+
+      await api.projects.DELETE(authed(`/api/projects?id=${id}`, { method: 'DELETE' }));
+    });
+
     it('shows an issue with its events, changes status, and reopens a resolved issue on regression', async () => {
       const list = await (await api.issues.GET(authed(`/api/issues?projectId=${projectId}&q=payment`))).json();
       const id = list.issues[0].id;
@@ -447,6 +483,7 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal(endpoint.series.length, 24);
       assert.equal(endpoint.samples[0].duration_ms, 600, 'slowest call first');
       assert.equal(endpoint.samples[0].server_ms, 500);
+      assert.equal(endpoint.samples[0]._id, '4b1e09c7d2a35f80', "each sample carries the call's _id");
 
       const page = await (await api.stats.GET(authed(`/api/stats?view=performance&projectId=${id}&page=${encodeURIComponent('/ai/vault/{id}')}`))).json();
       assert.equal(page.summary.views, 1);

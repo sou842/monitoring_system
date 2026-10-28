@@ -9,7 +9,7 @@ import { culprit, fingerprint, normalizeFilename, normalizeMessage } from '../li
 import { cleanOriginList, isOriginAllowed, normalizeOrigin } from '../lib/origins.js';
 import { consumeEventBudget, ipBucket } from '../lib/rateLimit.js';
 import { validateEvent } from '../lib/validate.js';
-import { sampleEvent } from './helpers.js';
+import { sampleEvent, samplePageView } from './helpers.js';
 
 process.env.SESSION_SECRET = 'test-secret';
 
@@ -95,6 +95,18 @@ describe('validateEvent', () => {
     assert.equal(validateEvent(sampleEvent({ screen: 42 })).event.screen, null);
     assert.equal(validateEvent(sampleEvent({ screen: '' })).event.screen, null);
     assert.ok(validateEvent(sampleEvent({ screen: 'S'.repeat(1000) })).event.screen.length <= 201);
+  });
+
+  it("keeps each API call's _id, and null when it is missing or not a short string", () => {
+    const call = { url: 'https://shop.test/api/cart', method: 'POST', status: 200, duration_ms: 230 };
+    const calls = [{ _id: '9f3c2a7b41d0e865', ...call }, call, { _id: 42, ...call }, { _id: '', ...call }, { _id: 'x'.repeat(65), ...call }];
+    const event = validated({ performance: { ...sampleEvent().performance, api_calls: calls, slow_api_calls: calls.slice(0, 1) } });
+    assert.deepEqual(event.performance.api_calls.map((c) => c._id), ['9f3c2a7b41d0e865', null, null, null, null]);
+    assert.deepEqual(Object.keys(event.performance.api_calls[0]), ['_id', 'url', 'method', 'status', 'duration_ms']);
+    assert.equal(event.performance.slow_api_calls[0]._id, '9f3c2a7b41d0e865');
+
+    const spans = validateEvent(samplePageView()).event.transaction.spans;
+    assert.deepEqual(spans.map((s) => s._id), ['4b1e09c7d2a35f80', null, null]); // older SDKs send no _id
   });
 
   it('replaces timestamps that are invalid or far from server time', () => {

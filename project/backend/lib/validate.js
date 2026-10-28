@@ -6,6 +6,7 @@ import {
   MAX_CLOCK_SKEW_MS,
   MAX_JSON_FIELD_BYTES,
   MAX_MESSAGE_LENGTH,
+  MAX_REQUEST_ID_LENGTH,
   MAX_SCREEN_LENGTH,
   MAX_SPANS,
   MAX_STACK_FRAMES,
@@ -81,9 +82,14 @@ function frame(value) {
   };
 }
 
+/** An API call's id (same call, same id in every event); null from older SDKs or when it isn't a short string. */
+function requestId(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_REQUEST_ID_LENGTH ? value : null;
+}
+
 function apiCall(value) {
   const c = isObject(value) ? value : {};
-  return { url: str(c.url, MAX_URL_LENGTH) || '', method: str(c.method) || 'GET', status: num(c.status) ?? 0, duration_ms: num(c.duration_ms) ?? 0 };
+  return { _id: requestId(c._id), url: str(c.url, MAX_URL_LENGTH) || '', method: str(c.method) || 'GET', status: num(c.status) ?? 0, duration_ms: num(c.duration_ms) ?? 0 };
 }
 
 function breadcrumb(value) {
@@ -106,6 +112,7 @@ function nonNegative(value) {
 function span(value) {
   const s = isObject(value) ? value : {};
   return {
+    _id: requestId(s._id),
     op: 'http',
     method: (str(s.method) || 'GET').toUpperCase(),
     url: str(s.url, MAX_URL_LENGTH) || '',

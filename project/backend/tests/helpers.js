@@ -65,7 +65,7 @@ export function samplePageView(transaction = {}, overrides = {}) {
       vitals: { ttfb_ms: 120, fcp_ms: 800, lcp_ms: 1400, cls: 0.05, inp_ms: 96, page_load_ms: 1900 },
       long_tasks: { count: 2, blocking_ms: 80 },
       spans: [
-        { op: 'http', method: 'get', url: 'https://app.test/api/vault/6ad200e254521077e9b11bb2', status: 200, failure: null, start_ms: 100, duration_ms: 600, server_ms: 500, download_ms: 80, size_bytes: 2048, background: false },
+        { _id: '4b1e09c7d2a35f80', op: 'http', method: 'get', url: 'https://app.test/api/vault/6ad200e254521077e9b11bb2', status: 200, failure: null, start_ms: 100, duration_ms: 600, server_ms: 500, download_ms: 80, size_bytes: 2048, background: false },
         { op: 'http', method: 'GET', url: 'https://app.test/api/vault/9f31aa00bb22cc33dd44ee55', status: 500, failure: null, start_ms: 900, duration_ms: 300, server_ms: null, download_ms: null, size_bytes: null, background: false },
         { op: 'http', method: 'GET', url: 'https://app.test/api/session', status: 200, failure: null, start_ms: 1000, duration_ms: 9000, server_ms: null, download_ms: null, size_bytes: null, background: true },
       ],

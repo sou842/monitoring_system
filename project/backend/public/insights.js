@@ -328,7 +328,10 @@ const MESSAGE_HINTS = [
 function hintHaystack(event) {
   const parts = [event.error && event.error.type, event.error && event.error.message];
   if (event.context && typeof event.context === 'object') {
-    for (const value of Object.values(event.context)) if (typeof value === 'string' || typeof value === 'number') parts.push(value);
+    for (const [key, value] of Object.entries(event.context)) {
+      // `_id` is a random request id: a hint like "500" must not match it by chance.
+      if (key !== '_id' && (typeof value === 'string' || typeof value === 'number')) parts.push(value);
+    }
   }
   return parts.filter((v) => v !== null && v !== undefined).map(lower);
 }

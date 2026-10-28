@@ -74,7 +74,7 @@ describe('buildEvent', () => {
     const scope = makeScope();
     const event = buildEvent(ERROR_INPUT, scope, TIMESTAMP);
     scope.breadcrumbs.push({ timestamp: TIMESTAMP, type: 'log', message: 'later', data: {} });
-    scope.performance.api_calls.push({ url: '/x', method: 'GET', status: 200, duration_ms: 1 });
+    scope.performance.api_calls.push({ _id: 'c1', url: '/x', method: 'GET', status: 200, duration_ms: 1 });
     expect(event.breadcrumbs).toHaveLength(0);
     expect(event.performance.api_calls).toHaveLength(0);
   });

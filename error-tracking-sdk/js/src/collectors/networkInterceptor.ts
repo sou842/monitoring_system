@@ -1,4 +1,5 @@
 import { absoluteUrl, getWindow, isOnline, nowMs, stripQuery } from '../core/env';
+import { randomRequestId } from '../core/ids';
 import { Logger } from '../core/logger';
 import { safelyRun } from '../core/safe';
 import { parseStack } from '../core/stackParser';
@@ -162,6 +163,7 @@ export class NetworkInterceptor implements Collector {
     const endTime = nowMs();
     const absolute = absoluteUrl(rawUrl);
     const call: ApiCall = {
+      _id: randomRequestId(),
       url: stripQuery(absolute),
       method: method.toUpperCase(),
       status: status,
