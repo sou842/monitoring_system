@@ -3,13 +3,14 @@ import { requireUser } from '../lib/auth.js';
 import { MAX_PROJECTS_PER_USER } from '../lib/constants.js';
 import { deleteProject } from '../lib/deletion.js';
 import { errorResponse, handle, json, parseObjectId, readJson } from '../lib/http.js';
+import { cleanInsightSettings } from '../lib/insights.js';
 import { cleanOriginList } from '../lib/origins.js';
-import { cleanProjectName, createProject, projectView, rotateApiKey, setAllowedOrigins } from '../lib/projects.js';
+import { cleanProjectName, createProject, projectView, rotateApiKey, setAllowedOrigins, setInsightSettings } from '../lib/projects.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 2048;
-/** Room for MAX_ALLOWED_ORIGINS origins of MAX_ORIGIN_LENGTH characters each. */
-const MAX_ORIGINS_BODY_BYTES = 8192;
+/** Room for full insight settings (3 lists of MAX_INSIGHT_ENTRIES, up to 3 UTF-8 bytes per character) or the origin list. */
+const MAX_SETTINGS_BODY_BYTES = 256 * 1024;
 
 /** GET /api/projects — your projects with open-issue and last-24h event counts, plus your project limit (null = none). */
 export const GET = handle(async (request) => {
@@ -64,9 +65,12 @@ export const POST = handle(async (request) => {
 });
 
 /**
- * PATCH /api/projects?id=…  `{ allowedOrigins: ["https://myapp.com", "http://localhost:3000"] }`
- * Replaces the websites allowed to send events with this project's key
- * (empty list = any website). 400 `invalid_origins` lists each bad entry.
+ * PATCH /api/projects?id=…  with either or both of:
+ * - `{ allowedOrigins: ["https://myapp.com", "http://localhost:3000"] }`: replaces
+ *   the websites allowed to send events with this project's key (empty list =
+ *   any website). 400 `invalid_origins` lists each bad entry.
+ * - `{ insights: { libraryPaths, hiddenFrames, hints } }`: replaces the issue
+ *   page's insight settings (lib/insights.js). 400 `invalid_insights`.
  */
 export const PATCH = handle(async (request) => {
   const auth = await requireUser(request);
@@ -76,11 +80,19 @@ export const PATCH = handle(async (request) => {
   if (id === null) return errorResponse(400, 'invalid_id', 'Missing or invalid project id');
   if ((await ownedProject(db, user, id)) === null) return errorResponse(404, 'not_found', 'Project not found');
 
-  const body = await readJson(request, MAX_ORIGINS_BODY_BYTES);
+  const body = await readJson(request, MAX_SETTINGS_BODY_BYTES);
   if (!body.ok) return body.response;
-  const cleaned = cleanOriginList(body.value && body.value.allowedOrigins);
-  if (!cleaned.ok) return json({ error: { code: 'invalid_origins', message: cleaned.message, details: cleaned.errors } }, 400);
-  await setAllowedOrigins(db, id, cleaned.origins);
+  const value = body.value && typeof body.value === 'object' ? body.value : {};
+  if (!('allowedOrigins' in value) && !('insights' in value)) {
+    return errorResponse(400, 'nothing_to_update', 'Send allowedOrigins and/or insights');
+  }
+  // Validate everything before saving anything.
+  const origins = 'allowedOrigins' in value ? cleanOriginList(value.allowedOrigins) : null;
+  if (origins && !origins.ok) return json({ error: { code: 'invalid_origins', message: origins.message, details: origins.errors } }, 400);
+  const insights = 'insights' in value ? cleanInsightSettings(value.insights) : null;
+  if (insights && !insights.ok) return errorResponse(400, 'invalid_insights', insights.message);
+  if (origins) await setAllowedOrigins(db, id, origins.origins);
+  if (insights) await setInsightSettings(db, id, insights.settings);
   const project = await db.collection('projects').findOne({ _id: id });
   return json({ project: projectView(project) });
 });

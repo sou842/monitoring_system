@@ -272,6 +272,31 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal((await fromOrigin('https://evil.test')).status, 202, 'an empty list allows any origin again');
     });
 
+    it('saves issue-insight settings and hands them to the issue page', async () => {
+      const patch = (body) => api.projects.PATCH(authed(`/api/projects?id=${projectId}`, { method: 'PATCH', body }));
+      const settings = { libraryPaths: [' /vendor/ ', '/vendor/'], hiddenFrames: ['wrapped'], hints: [{ match: 'PaymentError', text: 'Check the payment gateway.' }] };
+      const saved = { libraryPaths: ['/vendor/'], hiddenFrames: ['wrapped'], hints: [{ match: 'PaymentError', text: 'Check the payment gateway.' }] };
+
+      assert.equal((await patch({})).status, 400, 'nothing to update');
+      const bad = await patch({ insights: { hints: [{ match: 'x' }] } });
+      assert.equal(bad.status, 400);
+      assert.equal((await bad.json()).error.code, 'invalid_insights');
+      const both = await patch({ allowedOrigins: ['https://shop.test'], insights: { libraryPaths: 'x' } });
+      assert.equal(both.status, 400);
+      const unchanged = await (await api.projects.GET(authed('/api/projects'))).json();
+      assert.deepEqual(unchanged.projects.find((p) => p.id === projectId).allowedOrigins, [], 'nothing saved when any part is invalid');
+
+      const res = await patch({ insights: settings });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.project.insights, saved);
+      assert.deepEqual(body.project.allowedOrigins, [], 'origins untouched');
+
+      const list = await (await api.issues.GET(authed(`/api/issues?projectId=${projectId}&q=payment`))).json();
+      const detail = await (await api.issue.GET(authed(`/api/issue?id=${list.issues[0].id}`))).json();
+      assert.deepEqual(detail.project.insights, saved);
+    });
+
     it('limits events per IP', async () => {
       // Each half must run inside one rate-limit window (one minute): start in a fresh one if little is left.
       const freshWindow = async () => {
