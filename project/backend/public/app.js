@@ -1242,10 +1242,10 @@ async function performancePage(query) {
       el('td', { class: 'num' }, p.cls === null ? '–' : p.cls.toFixed(3), ' ', ratingDot('cls', p.cls)),
       el('td', { class: 'num muted', text: formatMs(p.ttfb) })));
   const pagesTable = el('section', { class: 'card table-wrap section' },
-    el('div', { class: 'table-title' }, el('h3', { text: 'Pages' }), el('span', { class: 'muted small', text: 'p75 per route. IDs in paths are grouped as {id}.' })),
+    el('div', { class: 'table-title' }, el('h3', { text: 'Pages' }), el('span', { class: 'muted small', text: 'p75 per route, or per screen when the app names screens (setScreen). IDs in paths are grouped as {id}.' })),
     el('table', { class: 'table' },
       el('thead', {}, el('tr', {},
-        el('th', { text: 'Route' }),
+        el('th', { text: 'Route / screen' }),
         sortHeader('Views', 'views', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
         sortHeader('Load', 'load', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
         sortHeader('LCP', 'lcp', pageSort, (s) => go(link({ psort: s, sort: endpointSort }))),
@@ -1936,7 +1936,7 @@ async function issuePage(issueId, query) {
       onclick: () => go(`#/i/${issueId}?event=${e.id}`),
     },
       el('div', { text: timeAgo(e.receivedAt), title: formatDate(e.receivedAt) }),
-      el('div', { class: 'muted small', text: [e.environment, e.browser, e.userId ? `user ${e.userId}` : null].filter(Boolean).join(' · ') }),
+      el('div', { class: 'muted small', text: [e.screen, e.environment, e.browser, e.userId ? `user ${e.userId}` : null].filter(Boolean).join(' · ') }),
     )),
   );
 
@@ -2060,6 +2060,7 @@ function eventDetail(event, insightSettings) {
       ['App version', p.app_version],
       ['Level', p.level],
       ['Handled', p.error ? (p.error.handled ? 'yes' : 'no') : null],
+      ['Screen', p.screen],
       ['Page', p.device.url],
       ['User', [p.user.id, p.user.name, p.user.email].filter(Boolean).join(' · ')],
       ['SDK', `${p.sdk.name} ${p.sdk.version || ''}`],

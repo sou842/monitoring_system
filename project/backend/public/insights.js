@@ -400,8 +400,15 @@ export function analyzeEvent(event, settings, receivedAt) {
     const failed = requestFailed(request.crumb);
     facts.push({ label: failed ? 'Failed request' : 'Last request', text: `${request.crumb.message}${ago(request.beforeMs)}`, tone: failed ? 'bad' : '' });
   }
+  // The screen the app named (setScreen) beats the last URL change: on one-URL apps the URL says nothing.
+  const named = typeof event.screen === 'string' && event.screen.length > 0 ? event.screen : null;
   const screen = lastCrumb(crumbs, errorAt, (b) => b.type === 'navigation');
-  if (screen) facts.push({ label: 'Screen', text: `${screen.crumb.message}${ago(screen.beforeMs)}` });
+  if (named) {
+    const opened = screen && screen.crumb.message === `Screen: ${named}` ? ago(screen.beforeMs) : '';
+    facts.push({ label: 'Screen', text: `${named}${opened}` });
+  } else if (screen) {
+    facts.push({ label: 'Screen', text: `${screen.crumb.message}${ago(screen.beforeMs)}` });
+  }
   const click = lastCrumb(crumbs, errorAt, (b) => b.type === 'click');
   if (click) facts.push({ label: 'User did', text: `${click.crumb.message}${ago(click.beforeMs)}` });
 

@@ -273,6 +273,11 @@ export interface TrackerEvent {
   environment: string;
   app_version: string | null;
   user: UserPayload;
+  /**
+   * The app screen the event happened on, as set with `setScreen()`; null when
+   * the app never set one. For apps whose screens change without the URL changing.
+   */
+  screen: string | null;
   error: ErrorPayload | null;
   stacktrace: StackFrame[];
   breadcrumbs: Breadcrumb[];

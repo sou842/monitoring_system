@@ -1,4 +1,10 @@
-import { DROPPED_EVENTS_REPORT_DELAY_MS, MAX_MESSAGE_LENGTH, RATE_LIMIT_WINDOW_MS, TRANSACTION_RATE_LIMIT_MAX } from '../constants';
+import {
+  DROPPED_EVENTS_REPORT_DELAY_MS,
+  MAX_MESSAGE_LENGTH,
+  MAX_SCREEN_NAME_LENGTH,
+  RATE_LIMIT_WINDOW_MS,
+  TRANSACTION_RATE_LIMIT_MAX,
+} from '../constants';
 import { BreadcrumbCollector } from '../collectors/breadcrumbCollector';
 import { CapturedError, Collector, CollectorSink, PerformanceIssueKind } from '../collectors/collector';
 import { CspCollector } from '../collectors/cspCollector';
@@ -63,6 +69,7 @@ export class Client implements CollectorSink {
   private readonly responsiveness: ResponsivenessCollector;
   private readonly collectors: Collector[];
   private user: TrackedUser | null = null;
+  private screen: string | null = null;
   private rateLimitWarned = false;
   /** Events dropped by the rate limiter since the last summary event. */
   private droppedCount = 0;
@@ -101,7 +108,7 @@ export class Client implements CollectorSink {
       this.visibility,
     );
     this.pageViews = new PageViewCollector(
-      (payload: TransactionPayload) => this.captureTransaction(payload),
+      (payload: TransactionPayload, screen: string | null) => this.captureTransaction(payload, screen),
       this.network,
       this.performance,
       this.visibility,
@@ -317,6 +324,31 @@ export class Client implements CollectorSink {
     this.user = { id: String(user.id), email: user.email, name: user.name };
   }
 
+  /**
+   * Records the screen the app now shows. A new screen leaves a navigation
+   * breadcrumb and starts a new page view; repeating the current one does nothing.
+   */
+  setScreen(name: string | null): void {
+    let next: string | null = null;
+    if (name !== null && name !== undefined) {
+      if (typeof name !== 'string') {
+        this.logger.warn('setScreen requires a string or null; ignoring');
+        return;
+      }
+      const trimmed = name.replace(/^\s+|\s+$/g, '');
+      next = trimmed.length > 0 ? truncate(trimmed, MAX_SCREEN_NAME_LENGTH) : null;
+    }
+    if (next === this.screen) return;
+    const from = this.screen;
+    this.screen = next;
+    this.onBreadcrumb({
+      type: 'navigation',
+      message: next !== null ? 'Screen: ' + next : 'Screen cleared',
+      data: { from: from, to: next, trigger: 'setScreen' },
+    });
+    this.pageViews.onScreenChange(next);
+  }
+
   // -------------------------------------------------------------------------
   // CollectorSink
   // -------------------------------------------------------------------------
@@ -364,12 +396,14 @@ export class Client implements CollectorSink {
    * dedup and the error rate limit (they were sampled with
    * `performanceSampleRate` when the page loaded) and have their own budget.
    */
-  private captureTransaction(payload: TransactionPayload): void {
+  private captureTransaction(payload: TransactionPayload, screen: string | null): void {
     if (!this.transactionLimiter.tryAcquire()) {
       this.logger.info('page view dropped by the transaction rate limit');
       return;
     }
     const scope = this.scope();
+    // The view's own screen: a view ended by a screen change is sent after the new screen is set.
+    scope.screen = screen;
     // The page view carries its own timings; the error-oriented blocks stay empty to keep it small.
     scope.breadcrumbs = [];
     scope.performance = emptyPerformance();
@@ -468,6 +502,7 @@ export class Client implements CollectorSink {
       environment: this.config.environment,
       appVersion: this.config.appVersion,
       user: this.user,
+      screen: this.screen,
       breadcrumbs: this.breadcrumbs.toArray(),
       performance: performance,
       memory: this.memory.snapshot(),

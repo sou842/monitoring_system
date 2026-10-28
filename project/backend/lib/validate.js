@@ -6,6 +6,7 @@ import {
   MAX_CLOCK_SKEW_MS,
   MAX_JSON_FIELD_BYTES,
   MAX_MESSAGE_LENGTH,
+  MAX_SCREEN_LENGTH,
   MAX_SPANS,
   MAX_STACK_FRAMES,
   MAX_STRING_LENGTH,
@@ -184,6 +185,8 @@ export function validateEvent(raw, now = new Date()) {
       environment: str(raw.environment) || 'production',
       app_version: str(raw.app_version),
       user: { id: str(user.id), email: str(user.email), name: str(user.name) },
+      // Older SDKs don't send it: null, like any other missing field.
+      screen: str(raw.screen, MAX_SCREEN_LENGTH) || null,
       error,
       stacktrace: list(raw.stacktrace, MAX_STACK_FRAMES).map(frame),
       breadcrumbs: list(raw.breadcrumbs, MAX_BREADCRUMBS).map(breadcrumb),

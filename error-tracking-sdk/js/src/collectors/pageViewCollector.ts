@@ -47,6 +47,8 @@ interface PendingSpan {
 
 interface OpenView {
   name: string;
+  /** The app screen (`setScreen()`) when the view started; a view never spans two screens. */
+  screen: string | null;
   kind: TransactionPayload['kind'];
   startTime: number;
   spans: PendingSpan[];
@@ -95,8 +97,8 @@ export interface PageViewOptions {
 /**
  * Records each page view as a `transaction` event: its route, duration, Web
  * Vitals, INP, long tasks and every fetch/XHR request as a span with the
- * browser's server/download breakdown. A view ends when the app changes route,
- * the tab is hidden or closed, or after 30 minutes (it then continues as a new
+ * browser's server/download breakdown. A view ends when the app changes route
+ * or screen (`setScreen()`), the tab is hidden or closed, or after 30 minutes (it then continues as a new
  * view); hidden time is never part of a view.
  *
  * Whether a page load is recorded is decided once, from `sampleRate`, so a
@@ -106,6 +108,7 @@ export class PageViewCollector implements Collector {
   private installed = false;
   private sampled = false;
   private view: OpenView | null = null;
+  private screen: string | null = null;
   private resources: ResourceTiming[] = [];
   private observers: PerformanceObserver[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -119,7 +122,7 @@ export class PageViewCollector implements Collector {
   private readonly onRequest: NetworkListener;
 
   constructor(
-    private readonly report: (payload: TransactionPayload) => void,
+    private readonly report: (payload: TransactionPayload, screen: string | null) => void,
     private readonly network: { subscribe(listener: NetworkListener): void },
     private readonly pageLoad: { snapshot(): PerformancePayload },
     private readonly visibility: VisibilityTracker,
@@ -209,6 +212,25 @@ export class PageViewCollector implements Collector {
     if (doc === null || doc.visibilityState !== 'hidden') this.begin('navigation', path, this.now());
   }
 
+  /**
+   * Called when the app reports a different screen (`setScreen()`): like a
+   * route change, the current view ends and a new one starts on the same URL.
+   * A view without a screen just takes the name: it was that screen all along
+   * (typically the app naming its first screen right after the page load, whose
+   * vitals would otherwise land in a short unnamed view).
+   */
+  onScreenChange(screen: string | null): void {
+    this.screen = screen;
+    if (!this.installed || !this.sampled) return;
+    if (this.view !== null && this.view.screen === null && screen !== null) {
+      this.view.screen = screen;
+      return;
+    }
+    const doc = getDocument();
+    this.finish(false);
+    if (doc === null || doc.visibilityState !== 'hidden') this.begin('navigation', this.currentPath(), this.now());
+  }
+
   /** Adds a finished request to the open view; exposed for tests. */
   recordRequest(call: ApiCall, details: RequestDetails): void {
     const view = this.view;
@@ -296,7 +318,7 @@ export class PageViewCollector implements Collector {
       payload.spans = view.spans.map(function complete(pending) {
         return self.withBreakdown(pending);
       });
-      self.report(payload);
+      self.report(payload, view.screen);
     };
     if (immediate) {
       send();
@@ -325,6 +347,7 @@ export class PageViewCollector implements Collector {
   private begin(kind: TransactionPayload['kind'], name: string, startTime: number): void {
     this.view = {
       name: name,
+      screen: this.screen,
       kind: kind,
       startTime: startTime,
       spans: [],

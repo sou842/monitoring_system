@@ -134,7 +134,7 @@ export async function computeEndpointDetail(db, { projectIds, range, key, enviro
         $project: {
           _id: 0,
           receivedAt: 1,
-          page: '$name',
+          page: { $ifNull: ['$screen', '$name'] },
           environment: 1,
           browser: 1,
           os: 1,

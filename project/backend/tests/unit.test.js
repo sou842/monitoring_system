@@ -89,6 +89,14 @@ describe('validateEvent', () => {
     assert.deepEqual(event.context, { _where: 1, a_b: { _gt: 2 } });
   });
 
+  it('keeps the app screen as a capped string, and null when missing or not a string', () => {
+    assert.equal(validateEvent(sampleEvent({ screen: 'LoanApproval' })).event.screen, 'LoanApproval');
+    assert.equal(validateEvent(sampleEvent()).event.screen, null); // older SDKs don't send it
+    assert.equal(validateEvent(sampleEvent({ screen: 42 })).event.screen, null);
+    assert.equal(validateEvent(sampleEvent({ screen: '' })).event.screen, null);
+    assert.ok(validateEvent(sampleEvent({ screen: 'S'.repeat(1000) })).event.screen.length <= 201);
+  });
+
   it('replaces timestamps that are invalid or far from server time', () => {
     const now = new Date('2026-10-17T12:00:00Z');
     assert.equal(validateEvent(sampleEvent({ timestamp: '1999-01-01T00:00:00Z' }), now).event.timestamp.getTime(), now.getTime());

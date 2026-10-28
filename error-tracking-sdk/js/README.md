@@ -57,6 +57,8 @@ ErrorTracker.captureMessage('Checkout started', 'info'); // 'info' | 'warning' |
 ErrorTracker.setUser({ id: 'usr_8821', email: 'jane@example.com', name: 'Jane' });
 ErrorTracker.setUser(null); // on logout
 
+ErrorTracker.setScreen('LoanApproval'); // see "Screens" below
+
 ErrorTracker.addBreadcrumb({ type: 'cart', message: 'Applied coupon', data: { code: 'SPRING' } });
 ```
 
@@ -250,6 +252,20 @@ ErrorTracker.init({ apiKey, endpoint, performanceSampleRate: 0.2 }); // record 1
 
 Page views have their own budget (30 per minute in the SDK, separate limits on the server), so they never crowd out errors. They include `device`, `user` and `app_version` but no breadcrumbs.
 
+### Screens (apps whose URL doesn't change)
+
+*Added in 0.8.0.* Some apps show many screens on one URL (Appzillon, wizards, tab UIs). Every event would then show the same page. Tell the SDK which screen is showing:
+
+```ts
+ErrorTracker.setScreen('LoanApproval'); // call it whenever the app shows another screen
+ErrorTracker.setScreen(null);           // clear it
+```
+
+- Every later event carries the name in the top-level `screen` field (`null` until you set one). The dashboard shows it next to the page URL.
+- A new screen leaves a `navigation` breadcrumb (`Screen: LoanApproval`) and starts a new page view, so the Performance page lists each screen separately instead of one URL. Repeating the current screen does nothing.
+- Names are trimmed and cut to 200 characters. Use stable names (`OrderDetails`, not `Order 42`): every distinct name becomes its own row in the Performance page.
+- URL route changes still start page views as before. If an app uses both, the screen stays until you change or clear it.
+
 Other public methods: `flush(): Promise<void>` sends everything now (and never rejects). `close(): Promise<void>` flushes, removes every hook and persists anything unsent. `isInitialized(): boolean`.
 
 ## What is collected
@@ -326,6 +342,7 @@ Every event follows the shared cross-platform schema. Every field is always pres
   "environment": "production",
   "app_version": "2.1.4",
   "user": { "id": "usr_8821", "email": null, "name": null },
+  "screen": null,
   "error": { "message": "Cannot read properties of undefined (reading 'price')", "type": "TypeError", "handled": false },
   "stacktrace": [{ "filename": "https://app.example.com/static/cart.js", "lineno": 142, "colno": 12, "function": "handlePayment" }],
   "breadcrumbs": [{ "timestamp": "2026-10-17T10:42:14.100Z", "type": "click", "message": "Clicked Pay Now", "data": { "tag": "button", "text": "Pay Now", "selector": "form#checkout > button.primary" } }],

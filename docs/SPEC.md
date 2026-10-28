@@ -237,6 +237,13 @@ Added after the original spec, for Sentry-style performance monitoring. Every SD
 - **Sampling:** `performanceSampleRate` (default 1.0), decided once per app launch / page load. Separate from `sampleRate`. Use `beforeSendTransaction` to scrub or drop.
 - Per-request `SlowApiCall` / `SlowPageLoad` issue events are opt-in (`captureSlowEvents`, default false).
 
+### Addition (2026-10-28, JS 0.8.0): `screen`
+Every event has a top-level `"screen": string | null`: the app screen the event happened on, set by the app with `setScreen(name | null)`, and `null` until the app sets one. It exists for apps whose screens change without the URL changing (Appzillon, wizards, tab UIs). It is not the same as `device.url`, which is always the page URL.
+- `setScreen` trims the name and cuts it to 200 characters. A non-string is ignored, an empty name clears the screen, and repeating the current screen does nothing.
+- A new screen leaves a `navigation` breadcrumb (`Screen: <name>`, data `{ from, to, trigger: "setScreen" }`) and starts a new page view (`kind: "navigation"`, same `transaction.name`). A transaction event carries the screen of **its** view, even when it is sent after the next screen was set.
+- The backend groups page views by `screen` when present, otherwise by the normalized URL route. The dashboard shows `screen` next to the page URL.
+- iOS/Android should send the same field. A sensible default is `null` with `setScreen` only, so automatic view-controller or Activity names stay in `transaction.name`.
+
 ---
 
 ## Test scenarios (⏳ to do, after the SDKs are built)

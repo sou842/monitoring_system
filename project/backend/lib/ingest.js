@@ -1,6 +1,6 @@
 import { MONGO_DUPLICATE_KEY } from './constants.js';
 import { culprit, fingerprint } from './grouping.js';
-import { endpointOf, mergeUpdates, normalizePath, rollupUpdates } from './performance.js';
+import { endpointOf, mergeUpdates, pageRouteOf, rollupUpdates } from './performance.js';
 import { validateEvent } from './validate.js';
 
 /**
@@ -69,8 +69,9 @@ function pageViewDocument(projectId, view, now) {
     browser: view.device.browser,
     browserVersion: view.device.browser_version,
     os: view.device.os,
-    route: normalizePath(t.name),
+    route: pageRouteOf(view),
     name: t.name,
+    screen: view.screen,
     kind: t.kind,
     start: t.start,
     duration_ms: t.duration_ms,
@@ -135,6 +136,7 @@ function eventDocument(projectId, issueId, event, now) {
     handled: event.error ? event.error.handled : null,
     userId: event.user.id,
     url: event.device.url,
+    screen: event.screen,
     platform: event.device.platform,
     payload: event,
   };

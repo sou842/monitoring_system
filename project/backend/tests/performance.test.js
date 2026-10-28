@@ -10,6 +10,7 @@ import {
   isFailure,
   mergeUpdates,
   normalizePath,
+  pageRouteOf,
   pageSummary,
   percentile,
   rateVital,
@@ -116,6 +117,14 @@ describe('rollups', () => {
     const session = byKey['GET https://app.test/api/session'];
     assert.equal(session.inc.background, 1);
     assert.equal(Object.keys(session.inc).some((k) => k.startsWith('h.')), false);
+  });
+
+  it('groups a page view under its app screen when the app named one', () => {
+    const onScreen = validateEvent({ ...pageView(), screen: 'LoanApproval' }).event;
+    const pages = rollupUpdates(projectId, onScreen, at).filter((u) => u.filter.kind === 'page');
+    assert.deepEqual(pages.map((u) => u.filter.key), ['LoanApproval']);
+    assert.equal(pageRouteOf(onScreen), 'LoanApproval');
+    assert.equal(pageRouteOf(view), '/ai/vault/{id}');
   });
 
   it('merges updates for the same row within a batch', () => {

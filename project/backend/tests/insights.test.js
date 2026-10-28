@@ -30,6 +30,14 @@ describe('issue insights: a real FusionCharts error', () => {
     assert.match(fact(insight, 'Caught').text, /^yes/);
   });
 
+  it('prefers the screen the app named with setScreen, with when it opened', () => {
+    const crumbs = [...fusionChartsError.breadcrumbs, { timestamp: '2026-10-27T12:47:50.000Z', type: 'navigation', message: 'Screen: Dashboard', data: {} }];
+    const named = analyzeEvent({ ...fusionChartsError, screen: 'Dashboard', breadcrumbs: crumbs }, {});
+    assert.match(fact(named, 'Screen').text, /^Dashboard · .* before the error$/);
+    const noCrumb = analyzeEvent({ ...fusionChartsError, screen: 'Settings' }, {});
+    assert.equal(fact(noCrumb, 'Screen').text, 'Settings');
+  });
+
   it('explains the message, naming the property', () => {
     assert.equal(insight.hints.length, 1);
     assert.match(insight.hints[0].text, /^"node" was read from a value that was undefined or null/);

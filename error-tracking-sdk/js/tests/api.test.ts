@@ -503,6 +503,105 @@ describe('ErrorTracker public API', () => {
     });
   });
 
+  describe('screens (setScreen)', () => {
+    it('sends screen: null until the app sets one', async () => {
+      ErrorTracker.init(BASE_CONFIG);
+      ErrorTracker.captureMessage('before');
+      await ErrorTracker.flush();
+      const [event] = sentEvents();
+      expectSchemaShape(event);
+      expect(event.screen).toBeNull();
+    });
+
+    it('attaches the current screen to later events and leaves a navigation breadcrumb', async () => {
+      ErrorTracker.init(BASE_CONFIG);
+      ErrorTracker.setScreen('  LoanApproval ');
+      ErrorTracker.captureError(new Error('on loan screen'));
+      ErrorTracker.setScreen('Dashboard');
+      ErrorTracker.captureError(new Error('on dashboard'));
+      ErrorTracker.setScreen(null);
+      ErrorTracker.captureError(new Error('after clearing'));
+      await ErrorTracker.flush();
+
+      const events = sentEvents();
+      expect(events.map((e) => e.screen)).toEqual(['LoanApproval', 'Dashboard', null]);
+      expect(events[1].breadcrumbs).toContainEqual(
+        expect.objectContaining({ type: 'navigation', message: 'Screen: Dashboard', data: { from: 'LoanApproval', to: 'Dashboard', trigger: 'setScreen' } }),
+      );
+      expect(events[2].breadcrumbs).toContainEqual(expect.objectContaining({ type: 'navigation', message: 'Screen cleared' }));
+    });
+
+    it('ignores repeats of the current screen, empty names and non-strings', async () => {
+      ErrorTracker.init(BASE_CONFIG);
+      ErrorTracker.setScreen('Home');
+      ErrorTracker.setScreen('Home');
+      ErrorTracker.setScreen(42 as unknown as string);
+      ErrorTracker.captureMessage('check');
+      await ErrorTracker.flush();
+      const [event] = sentEvents();
+      expect(event.screen).toBe('Home');
+      expect(event.breadcrumbs.filter((b) => b.type === 'navigation')).toHaveLength(1);
+    });
+
+    it('cuts long screen names', async () => {
+      ErrorTracker.init(BASE_CONFIG);
+      ErrorTracker.setScreen('S'.repeat(500));
+      ErrorTracker.captureMessage('check');
+      await ErrorTracker.flush();
+      const screen = sentEvents()[0].screen;
+      expect(screen !== null && screen.length).toBeLessThanOrEqual(201);
+    });
+
+    it('applies a setScreen() call made before init()', async () => {
+      ErrorTracker.setScreen('Login');
+      ErrorTracker.init(BASE_CONFIG);
+      ErrorTracker.captureMessage('check');
+      await ErrorTracker.flush();
+      expect(sentEvents()[0].screen).toBe('Login');
+    });
+
+    it('starts a new page view per screen on the same URL, each sent with its own screen', async () => {
+      ErrorTracker.init({ ...BASE_CONFIG, performanceSampleRate: 1 });
+      await window.fetch('https://app.test/api/config', { method: 'POST', body: '{"events":[]}' });
+      // The first screen names the page-load view instead of splitting it, so its vitals belong to "Login".
+      ErrorTracker.setScreen('Login');
+      await window.fetch('https://app.test/api/login', { method: 'POST', body: '{"events":[]}' });
+      ErrorTracker.setScreen('Dashboard');
+      await window.fetch('https://app.test/api/summary', { method: 'POST', body: '{"events":[]}' });
+      ErrorTracker.setScreen(null);
+      ErrorTracker.setScreen('Settings');
+      await ErrorTracker.close();
+
+      const views = sentEvents().filter((e) => e.event_type === 'transaction');
+      expect(views.map((e) => [e.screen, e.transaction !== null && e.transaction.kind, e.transaction !== null && e.transaction.name])).toEqual([
+        ['Login', 'pageload', '/'],
+        ['Dashboard', 'navigation', '/'],
+        // Clearing ends the Dashboard view; the unnamed view that follows takes the next name.
+        ['Settings', 'navigation', '/'],
+      ]);
+      expect(views[0].transaction && views[0].transaction.spans.map((s) => s.url)).toEqual(['https://app.test/api/config', 'https://app.test/api/login']);
+      expect(views[1].transaction && views[1].transaction.spans.map((s) => s.url)).toEqual(['https://app.test/api/summary']);
+    });
+
+    it('sends a transaction ended by a screen change with the old screen, though it is sent later', async () => {
+      vi.useFakeTimers();
+      try {
+        ErrorTracker.init({ ...BASE_CONFIG, performanceSampleRate: 1 });
+        ErrorTracker.setScreen('A');
+        ErrorTracker.setScreen('B'); // view "A" ends; it is reported ~250 ms later, after "B" is current
+        await vi.advanceTimersByTimeAsync(1000);
+        ErrorTracker.setScreen('C');
+        await vi.advanceTimersByTimeAsync(1000);
+        await ErrorTracker.flush();
+        const views = sentEvents().filter((e) => e.event_type === 'transaction');
+        expect(views.map((e) => e.screen)).toEqual(['A', 'B']);
+      } finally {
+        await ErrorTracker.close();
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('memory leaks', () => {
     const MB = 1024 * 1024;
 

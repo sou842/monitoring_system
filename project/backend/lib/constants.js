@@ -55,6 +55,8 @@ export const MAX_HINT_TEXT_LENGTH = 1000;
 export const MAX_STRING_LENGTH = 2000;
 export const MAX_MESSAGE_LENGTH = 4000;
 export const MAX_URL_LENGTH = 2000;
+/** Longest app screen name kept (`screen`, set with the SDK's setScreen()); the JS SDK sends at most 200. */
+export const MAX_SCREEN_LENGTH = 200;
 export const MAX_STACK_FRAMES = 100;
 export const MAX_BREADCRUMBS = 100;
 export const MAX_API_CALLS = 50;

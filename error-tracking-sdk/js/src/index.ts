@@ -111,6 +111,20 @@ function setUser(user: TrackedUser | null): void {
 }
 
 /**
+ * Names the screen the app is showing; every later event carries it in
+ * `screen`. Use it when screens change without the URL changing (Appzillon,
+ * tab or wizard UIs, apps on one URL). A new screen also starts a new page
+ * view, so the Performance view shows each screen separately. Pass `null` to
+ * clear it. Calling it again with the current screen does nothing.
+ * @param name Screen name, e.g. `'LoanApproval'`; trimmed, and cut to 200 characters.
+ */
+function setScreen(name: string | null): void {
+  withClient('setScreen', function run(c) {
+    c.setScreen(name);
+  });
+}
+
+/**
  * Records a custom breadcrumb in the trail attached to future events.
  */
 function addBreadcrumb(breadcrumb: BreadcrumbInput): void {
@@ -154,6 +168,7 @@ export const ErrorTracker = {
   captureMessage: captureMessage,
   capturePageNotFound: capturePageNotFound,
   setUser: setUser,
+  setScreen: setScreen,
   addBreadcrumb: addBreadcrumb,
   flush: flush,
   close: close,
@@ -161,7 +176,7 @@ export const ErrorTracker = {
   version: SDK_VERSION,
 };
 
-export { init, captureError, captureMessage, capturePageNotFound, setUser, addBreadcrumb, flush, close, isInitialized };
+export { init, captureError, captureMessage, capturePageNotFound, setUser, setScreen, addBreadcrumb, flush, close, isInitialized };
 export default ErrorTracker;
 
 export type {

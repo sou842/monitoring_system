@@ -71,6 +71,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
   "environment": "production",
   "app_version": "2.1.4",
   "user": { "id": "usr_8821", "email": null, "name": null },
+  "screen": null,               // app screen from setScreen(), or null (SDK 0.8.0+; older SDKs omit it → stored as null)
   "error": { "message": "Cannot read property 'price' of undefined", "type": "TypeError", "handled": false },
   "stacktrace": [ { "filename": "cart.js", "lineno": 142, "colno": 12, "function": "handlePayment" } ],
   "breadcrumbs": [ { "timestamp": "ISO8601", "type": "click", "message": "button#pay", "data": {} } ],
@@ -130,7 +131,7 @@ Each page view sends one `transaction` event (a web route, iOS view controller o
 }
 ```
 
-- **When a view ends:** on a route change, when the tab or app goes to the background, on page unload, or after 30 minutes. A new view for the same page that starts after the tab returns from the background, or after a 30-minute split, has `kind: "continued"`.
+- **When a view ends:** on a route change, a screen change (`setScreen()`, same URL), when the tab or app goes to the background, on page unload, or after 30 minutes. A new view for the same page that starts after the tab returns from the background, or after a 30-minute split, has `kind: "continued"`.
 - **Span limits:** at most 100 spans per view; any further requests are only counted in `dropped_spans`.
 - **Sampling:** `performanceSampleRate` (default 1.0) is decided once per page load and is separate from `sampleRate`.
 - **Rate limits:** the SDK sends at most 30 transactions per minute; the server accepts 1000 page views per project per minute.
@@ -267,7 +268,7 @@ fingerprint = sha256( event_type | error.type | normalize(message) | topFrame.fu
 | `issues` | Grouped problems: count, first/last seen, status, environments | 90 days after last seen |
 | `events` | Every occurrence: indexed summary fields + full payload | 30 days |
 | `transactions` | Raw page views ("slowest samples") | 7 days |
-| `perf_rollups` | Per project / hour / environment / route or endpoint: counts and a log histogram (base 1.15 → percentiles ±7%) | 90 days |
+| `perf_rollups` | Per project / hour / environment / page (the event's `screen` if set, else the normalized route) or endpoint: counts and a log histogram (base 1.15 → percentiles ±7%) | 90 days |
 | `rate_limits` | Fixed-window counters | Expire on their own |
 
 ### Dashboard authentication and access

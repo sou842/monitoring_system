@@ -32,6 +32,8 @@ export interface EventScope {
   environment: string;
   appVersion: string | null;
   user: TrackedUser | null;
+  /** Current screen from `setScreen()`, or null. */
+  screen: string | null;
   breadcrumbs: Breadcrumb[];
   performance: PerformancePayload;
   memory: MemoryPayload;
@@ -82,6 +84,7 @@ export function buildEvent(input: EventInput, scope: EventScope, timestamp: stri
     environment: scope.environment,
     app_version: scope.appVersion,
     user: buildUser(scope.user),
+    screen: scope.screen,
     error: input.error !== null ? { message: input.error.message, type: input.error.type, handled: input.error.handled } : null,
     stacktrace: input.stacktrace.slice(),
     breadcrumbs: scope.breadcrumbs.slice(),
@@ -132,6 +135,7 @@ const EVENT_FIELDS: Record<keyof TrackerEvent, true> = {
   environment: true,
   app_version: true,
   user: true,
+  screen: true,
   error: true,
   stacktrace: true,
   breadcrumbs: true,

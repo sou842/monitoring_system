@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.7.1';
+export const SDK_VERSION = '0.8.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -72,6 +72,8 @@ export const MAX_SERIALIZE_DEPTH = 5;
 export const MAX_SERIALIZE_KEYS = 50;
 export const MAX_STRING_LENGTH = 1000;
 export const MAX_MESSAGE_LENGTH = 2000;
+/** Longest screen name kept by `setScreen()`; longer names are truncated. */
+export const MAX_SCREEN_NAME_LENGTH = 200;
 export const UNKNOWN_FUNCTION = '<anonymous>';
 
 // ---------------------------------------------------------------------------

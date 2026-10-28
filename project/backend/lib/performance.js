@@ -87,6 +87,14 @@ export function normalizePath(path) {
     .join('/');
 }
 
+/**
+ * What a page view is grouped under: its app screen when the app named one
+ * (screens that share one URL), otherwise its URL route.
+ */
+export function pageRouteOf(view) {
+  return view.screen || normalizePath(view.transaction.name);
+}
+
 /** Grouping key and labels for a request: method + origin + route. */
 export function endpointOf(method, url) {
   let origin = '';
@@ -146,7 +154,7 @@ export function rollupUpdates(projectId, view, receivedAt) {
     inc[field] = (inc[field] || 0) + amount;
   };
 
-  const page = row('page', normalizePath(t.name), {});
+  const page = row('page', pageRouteOf(view), {});
   add(page, 'count');
   if (t.background) add(page, 'background');
   if (t.kind === 'pageload') add(page, 'loads');
