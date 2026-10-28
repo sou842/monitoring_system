@@ -2060,8 +2060,8 @@ function eventDetail(event, insightSettings) {
       ['App version', p.app_version],
       ['Level', p.level],
       ['Handled', p.error ? (p.error.handled ? 'yes' : 'no') : null],
-      ['Screen', p.screen],
-      ['Page', p.device.url],
+      // One-URL apps (Appzillon) name their screens: the screen says where the user was, the URL doesn't.
+      ['Page', [p.screen, p.device.url].filter(Boolean).join('  ·  ')],
       ['User', [p.user.id, p.user.name, p.user.email].filter(Boolean).join(' · ')],
       ['SDK', `${p.sdk.name} ${p.sdk.version || ''}`],
     ]),
