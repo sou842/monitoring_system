@@ -2012,7 +2012,7 @@ function frameRow(c, focus) {
 function stackTextBlock(payload) {
   const text = stackText(payload.error, payload.stacktrace);
   return el('details', { class: 'stack-text' },
-    el('summary', { text: 'As text (like the browser console)' }),
+    el('summary', { text: 'Raw Error' }),
     el('div', { class: 'row stack-text-bar' },
       el('span', { class: 'muted small', text: 'Every frame, nothing folded.' }),
       el('span', { class: 'spacer' }),
