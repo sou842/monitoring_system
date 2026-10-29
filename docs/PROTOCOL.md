@@ -101,14 +101,14 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
 
 | `event_type` | `error.type` values | `handled` |
 | --- | --- | --- |
-| `error` | Native types (`TypeError`, …), plus SDK-built types: `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError`, `PageNotFound` | See the rule below |
+| `error` | Native types (`TypeError`, …), plus SDK-built types: `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError`, `PageNotFound`, `BlankPage` | See the rule below |
 | `performance` | `SlowPageLoad`, `SlowApiCall`, `MemoryLeakSuspected`, `MainThreadBlocked`, `LowFrameRate` | always `true` |
 | `message` | From `captureMessage`, or `EventsDropped` (with `context.dropped_count`) | `true` |
 | `crash` | Native crashes (mobile) | `false` |
 | `transaction` | One page view (see below). `error: null`. | — |
 
 **`handled` rule:**
-- `false`: the error broke something before app code had a chance to deal with it (uncaught exceptions and rejections, failed resources, CSP violations, workers).
+- `false`: the error broke something before app code had a chance to deal with it (uncaught exceptions and rejections, failed resources, CSP violations, workers, blank pages).
 - `true`: the error was handed back to the app (HTTP error status, rejected request, JSON parse error, `console.error`, performance issues, `captureError`).
 
 ### Transaction (page view) events
@@ -187,6 +187,7 @@ collector / capture* ─► sample ─► dedup ─► rate limit ─► build p
 | `HttpError` | Status in `[400, 404, 405, 413, [500, 599]]` (401/403/409/422/429 are normal app flow) | `httpErrorStatuses` |
 | `NetworkError` | No response (offline, timeout, CORS, DNS/SSL). Requests the user cancelled are never reported. | `captureNetworkErrors` |
 | `PageNotFound` | Navigation Timing `responseStatus` of 404/410, or a manual `capturePageNotFound()` call (SPAs) | `detectPageNotFound` |
+| `BlankPage` | Nothing visible at 17 viewport points nor at the in-view content elements for 2 s (up to 10 s while requests run); checked after load, a screen/route change, an uncaught error or a quiet DOM change; once per screen, max 5 per page. `context.cause` is `page_http_error`, `resource_failed`, `code_load_failed`, `csp_blocked`, `js_error`, `session_expired`, `api_failed`, `api_pending`, `main_thread_blocked`, `covered_by_overlay` or `nothing_rendered`, with `context.error` / `context.request` (incl. `_id`). `handled: false`. | `detectBlankPage` |
 | `SlowPageLoad` | > 3000 ms. Opt-in, and not reported if the tab was hidden before load. | `slowPageLoadMs`, `captureSlowEvents` |
 | `SlowApiCall` | > 2000 ms, opt-in, at most once per endpoint every 5 min | `slowApiCallMs`, `captureSlowEvents` |
 | `MainThreadBlocked` | A long task > 1000 ms (Long Tasks API); at most one report every 30 s | `mainThreadBlockedMs` |

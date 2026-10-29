@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.9.0';
+export const SDK_VERSION = '0.10.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -219,3 +219,37 @@ export const MEMORY_READINGS_PER_WINDOW = 4;
 /** Readings this soon after init are not used for leak detection: apps load most of their screens and caches at startup. */
 export const MEMORY_WARMUP_MS = 60000;
 export const BYTES_PER_MB = 1024 * 1024;
+
+// ---------------------------------------------------------------------------
+// Blank page
+// ---------------------------------------------------------------------------
+/** The page is checked once the DOM has been quiet (no mutations) for this long. */
+export const BLANK_PAGE_QUIET_MS = 1000;
+/** A page whose DOM never stops changing is still checked this long after the first change. */
+export const BLANK_PAGE_MAX_WAIT_MS = 5000;
+/** A page must stay blank this long before it is reported, so a screen that is about to render is not. */
+export const BLANK_PAGE_CONFIRM_MS = 2000;
+/** While API calls are still running, a blank page is given up to this long (from going blank) before it is reported. */
+export const BLANK_PAGE_PENDING_MAX_MS = 10000;
+/** Errors, failed requests and freezes this long before the page went blank are considered as its cause. */
+export const BLANK_PAGE_CAUSE_WINDOW_MS = 10000;
+/** Points sampled along each centre line of the viewport, at 1/N … (N-1)/N of its width and height. */
+export const BLANK_PAGE_GRID_STEPS = 10;
+/** Recent errors and failed requests remembered for the cause. */
+export const BLANK_PAGE_MAX_SIGNALS = 20;
+/** Blank pages reported per page load, at most once per screen. */
+export const BLANK_PAGE_MAX_REPORTS = 5;
+/** Ancestors checked for `opacity: 0` above a content element. */
+export const BLANK_PAGE_MAX_ANCESTORS = 30;
+/** API statuses that mean the user's session ended; a blank page after one is reported as `session_expired`. */
+export const BLANK_PAGE_SESSION_STATUSES: readonly number[] = [401];
+/** When the grid finds nothing, up to this many content elements in the viewport are checked at their own position. */
+export const BLANK_PAGE_MAX_CANDIDATES = 50;
+/** DOM nodes looked at while searching for those content elements. */
+export const BLANK_PAGE_MAX_NODES_SCANNED = 2000;
+/** Content elements smaller than this (px, either side) are ignored, e.g. 1×1 screen-reader-only text. */
+export const BLANK_PAGE_MIN_CONTENT_PX = 2;
+/** Nested shadow roots looked into for content at a point. */
+export const BLANK_PAGE_MAX_SHADOW_DEPTH = 3;
+/** The element scan stops after finding this many content elements under an opaque layer (an overlay). */
+export const BLANK_PAGE_MAX_COVERED_ELEMENTS = 10;

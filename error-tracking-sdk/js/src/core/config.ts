@@ -49,6 +49,7 @@ export interface ResolvedConfig {
   captureNetworkErrors: boolean;
   captureConsoleErrors: boolean;
   detectPageNotFound: boolean;
+  detectBlankPage: boolean;
   beforeSend: ((event: TrackerEvent) => TrackerEvent | null) | null;
   beforeSendTransaction: ((event: TrackerEvent) => TrackerEvent | null) | null;
   performanceSampleRate: number;
@@ -144,6 +145,7 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
       captureNetworkErrors: input.captureNetworkErrors !== false,
       captureConsoleErrors: input.captureConsoleErrors === true,
       detectPageNotFound: input.detectPageNotFound !== false,
+      detectBlankPage: input.detectBlankPage !== false,
       beforeSend: typeof input.beforeSend === 'function' ? input.beforeSend : null,
       beforeSendTransaction: typeof input.beforeSendTransaction === 'function' ? input.beforeSendTransaction : null,
       performanceSampleRate: numberOption(input.performanceSampleRate, DEFAULT_PERFORMANCE_SAMPLE_RATE, 0, 1, false),

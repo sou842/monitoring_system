@@ -107,6 +107,8 @@ export class NetworkInterceptor implements Collector {
   private patchedSend: XMLHttpRequest['send'] | null = null;
   private patchedAbort: XMLHttpRequest['abort'] | null = null;
   private readonly ignoredUrl: string;
+  /** Requests started and not finished yet (the SDK's own excluded). */
+  private inFlight = 0;
 
   constructor(
     sdkEndpoint: string,
@@ -117,6 +119,11 @@ export class NetworkInterceptor implements Collector {
 
   subscribe(listener: NetworkListener): void {
     this.listeners.push(listener);
+  }
+
+  /** Number of app requests that have started and not finished yet. */
+  pendingRequests(): number {
+    return this.inFlight;
   }
 
   /** True for the SDK's own ingestion endpoint, which must never be tracked. */
@@ -155,11 +162,22 @@ export class NetworkInterceptor implements Collector {
     this.patchedSend = null;
     this.patchedAbort = null;
     this.listeners = [];
+    this.inFlight = 0;
     this.installed = false;
+  }
+
+  private requestStarted(rawUrl: string): void {
+    if (!this.isSdkUrl(rawUrl)) this.inFlight++;
+  }
+
+  /** A started request that will never be emitted. */
+  private requestAbandoned(rawUrl: string): void {
+    if (!this.isSdkUrl(rawUrl) && this.inFlight > 0) this.inFlight--;
   }
 
   private emit(method: string, rawUrl: string, status: number, startedAt: number, wrapper: WrapperDetails): void {
     if (this.isSdkUrl(rawUrl)) return;
+    if (this.inFlight > 0) this.inFlight--;
     const endTime = nowMs();
     const absolute = absoluteUrl(rawUrl);
     const call: ApiCall = {
@@ -206,9 +224,18 @@ export class NetworkInterceptor implements Collector {
           method = (input as Request).method || method;
         }
         if (init !== undefined && init !== null && typeof init.method === 'string') method = init.method;
+        self.requestStarted(url);
       });
 
-      return original.call(this === undefined ? win : this, input, init).then(
+      let pending: Promise<Response>;
+      try {
+        pending = original.call(this === undefined ? win : this, input, init);
+      } catch (error) {
+        // A fetch replacement that throws instead of rejecting: the request never started.
+        self.requestAbandoned(url);
+        throw error;
+      }
+      return pending.then(
         function onResponse(response: Response) {
           self.emit(method, url, response.status, startedAt, { failure: null, error: null, callSite: callSite });
           return response;
@@ -296,6 +323,8 @@ export class NetworkInterceptor implements Collector {
 
     proto.open = function trackedOpen(this: TrackedXhr, method: string, url: string | URL) {
       safelyRun(self.logger, 'XHR open tracking', () => {
+        // open() on a running request cancels it without any event: it will never finish.
+        if (this.__et_sent && !this.__et_done) self.requestAbandoned(this.__et_url || '');
         this.__et_method = method;
         this.__et_url = typeof url === 'string' ? url : url.href;
         this.__et_failure = null;
@@ -319,6 +348,7 @@ export class NetworkInterceptor implements Collector {
         xhr.__et_failure = null;
         xhr.__et_sent = true;
         xhr.__et_done = false;
+        self.requestStarted(xhr.__et_url || '');
       });
       return originalSend.call(this, body);
     };

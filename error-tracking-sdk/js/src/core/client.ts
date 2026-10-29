@@ -5,6 +5,7 @@ import {
   RATE_LIMIT_WINDOW_MS,
   TRANSACTION_RATE_LIMIT_MAX,
 } from '../constants';
+import { BlankPageCollector, BlankPageSample } from '../collectors/blankPageCollector';
 import { BreadcrumbCollector } from '../collectors/breadcrumbCollector';
 import { CapturedError, Collector, CollectorSink, PerformanceIssueKind } from '../collectors/collector';
 import { CspCollector } from '../collectors/cspCollector';
@@ -44,6 +45,7 @@ export interface ClientDependencies {
   readMemory?: () => MemoryReading | null;
   queueRetryDelaysMs?: readonly number[];
   queueFlushDelayMs?: number;
+  sampleBlankPage?: (hint: Element | null) => BlankPageSample;
 }
 
 /**
@@ -67,6 +69,7 @@ export class Client implements CollectorSink {
   private readonly transactionLimiter = new RateLimiter(TRANSACTION_RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   private readonly memory: MemoryCollector;
   private readonly responsiveness: ResponsivenessCollector;
+  private readonly blankPage: BlankPageCollector | null = null;
   private readonly collectors: Collector[];
   private user: TrackedUser | null = null;
   private screen: string | null = null;
@@ -154,6 +157,16 @@ export class Client implements CollectorSink {
           networkErrors: config.captureNetworkErrors,
         }),
       );
+    }
+    if (config.detectBlankPage) {
+      this.blankPage = new BlankPageCollector(
+        (message: string, context: JsonObject) => this.reportBlankPage(message, context),
+        this.network,
+        () => this.blankPageKey(),
+        this.logger,
+        deps.sampleBlankPage,
+      );
+      this.collectors.push(this.blankPage);
     }
     this.collectors.push(
       // Installed last: subscribers above register before requests start flowing.
@@ -247,6 +260,8 @@ export class Client implements CollectorSink {
 
   captureError(thrown: unknown, context?: object): void {
     const captured = captureFromThrown(thrown, true);
+    // Error boundaries report through here; the screen they leave behind may be empty.
+    if (this.blankPage !== null) this.blankPage.noteError(captured.error, null);
     this.capture(
       {
         eventType: 'error',
@@ -347,6 +362,26 @@ export class Client implements CollectorSink {
       data: { from: from, to: next, trigger: 'setScreen' },
     });
     this.pageViews.onScreenChange(next);
+    if (this.blankPage !== null) this.blankPage.scheduleCheck('screen_change');
+  }
+
+  /** One blank-page report per screen: the screen name, else the page path. */
+  private blankPageKey(): string {
+    if (this.screen !== null) return 'screen:' + this.screen;
+    const win = getWindow();
+    return win !== null ? 'path:' + win.location.pathname : '';
+  }
+
+  private reportBlankPage(message: string, context: JsonObject): void {
+    this.capture(
+      {
+        eventType: 'error',
+        level: 'error',
+        error: { message: message, type: 'BlankPage', handled: false },
+        stacktrace: [],
+        context: context,
+      },
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -354,6 +389,9 @@ export class Client implements CollectorSink {
   // -------------------------------------------------------------------------
 
   onError(captured: CapturedError): void {
+    if (this.blankPage !== null && !captured.error.handled) {
+      this.blankPage.noteError(captured.error, captured.context !== undefined ? captured.context : null);
+    }
     this.capture(
       {
         eventType: 'error',
@@ -376,6 +414,9 @@ export class Client implements CollectorSink {
   }
 
   onPerformanceIssue(kind: PerformanceIssueKind, message: string, context?: JsonObject): void {
+    if (this.blankPage !== null && kind === 'MainThreadBlocked' && context !== undefined && typeof context.duration_ms === 'number') {
+      this.blankPage.noteLongTask(context.duration_ms);
+    }
     this.capture(
       {
         eventType: 'performance',
@@ -389,6 +430,7 @@ export class Client implements CollectorSink {
 
   onNavigation(url: string): void {
     this.pageViews.onNavigation(url);
+    if (this.blankPage !== null) this.blankPage.scheduleCheck('navigation');
   }
 
   /**

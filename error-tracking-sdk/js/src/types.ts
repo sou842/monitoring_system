@@ -59,6 +59,12 @@ export interface ErrorTrackerConfig {
    * 410 status (Chromium 109+ and Firefox). Defaults to true.
    */
   detectPageNotFound?: boolean;
+  /**
+   * Report a `BlankPage` event when the user is left looking at an empty screen
+   * for a few seconds (after load, a screen change, an error or any DOM change),
+   * with the most likely cause in `context.cause`. Defaults to true.
+   */
+  detectBlankPage?: boolean;
   /** A fetch/XHR call slower than this (ms) is reported as `SlowApiCall`. Defaults to 2000 (allowed 100–600000). */
   slowApiCallMs?: number;
   /** A page load slower than this (ms) is reported as `SlowPageLoad`. Defaults to 3000 (allowed 100–600000). */

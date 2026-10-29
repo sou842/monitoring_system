@@ -121,6 +121,7 @@ app.config.errorHandler = (err, instance, info) => {
 | `captureNetworkErrors` | `boolean` | `true` | Report fetch/XHR requests that got no response (offline, timeout, refused, DNS/SSL, CORS) as `NetworkError`. Requests the app aborts are never reported. |
 | `captureConsoleErrors` | `boolean` | `false` | Report each `console.error(...)` call as an event. Off by default because libraries log a lot of noise there. |
 | `detectPageNotFound` | `boolean` | `true` | Report a `PageNotFound` event when the page itself was served with a 404 or 410 status. See [Missing pages](#missing-pages-404). |
+| `detectBlankPage` | `boolean` | `true` | Report a `BlankPage` event, with its likely cause, when the user is left looking at an empty screen. See [Blank pages](#blank-pages). |
 | `beforeSend` | `(event) => event \| null` | — | Scrub or drop events before they are queued. If the hook throws, the original event is sent. Not called for page views; see `beforeSendTransaction`. |
 | `performanceSampleRate` | `number` | `1.0` | 0–1. Share of page loads whose page views are recorded. See [Performance monitoring](#performance-monitoring). *Added in 0.5.0.* |
 | `beforeSendTransaction` | `(event) => event \| null` | — | Like `beforeSend`, for page-view (`transaction`) events, e.g. to scrub URLs. *Added in 0.5.0.* |
@@ -231,6 +232,44 @@ export default function NotFound() {
 
 `capturePageNotFound(url?)` uses the current page URL when called without an argument. On a page the SDK already reported automatically, the second report is dropped, so you get exactly one event. Turn off automatic detection with `detectPageNotFound: false`. Manual calls still work.
 
+### Blank pages
+
+*Added in 0.10.0.* When the user is left looking at an empty screen (a render crash, a missing chunk after a deploy, an expired session, a screen that renders nothing), the SDK sends one `BlankPage` event with the most likely cause:
+
+```json
+{
+  "error": { "type": "BlankPage", "message": "Blank page after the session expired", "handled": false },
+  "screen": "Dashboard",
+  "context": {
+    "cause": "session_expired", "trigger": "screen_change", "blank_for_ms": 2002,
+    "request": { "_id": "4c375d3b2910394a", "url": "https://app.example/api/session", "method": "GET", "status": 401, "failure": null, "ms_before_blank": 1006 },
+    "error": null, "pending_requests": 0, "main_thread_blocked_ms": null, "page_status": 200
+  }
+}
+```
+
+**How it decides the page is blank.** The SDK asks the browser what is drawn (`elementsFromPoint`), cheapest first: at the element where it saw content last time, then at each content element inside the viewport (text, images, inputs, …), then at 17 points on the two centre lines of the viewport (for background images and shadow DOM content). Transparent click-catching layers are looked through; an opaque empty layer on top of real content counts as an overlay. Text smaller than 2 px (screen-reader-only links), `visibility: hidden` and `opacity: 0` don't count; `pointer-events: none` content does. A check costs about 0.5 ms on a page with 9 000 elements (one hit test while the content stays), up to about 20 ms on a page that really is blank. Nothing is captured: no screenshots and no HTML, only the counts in `context`.
+
+**When it checks.** After the page loads, after `setScreen()` or a route change, after an uncaught error, and whenever the DOM changes and then stays quiet for 1 s (at most 5 s after the first change). Hidden tabs are checked when shown again. The page must stay blank for 2 s before it is reported (up to 10 s while API calls are still running). At most once per screen (screen name, else path) and 5 times per page load.
+
+**`context.cause`**, from what happened in the 10 s before the page went blank (first match wins):
+
+| Cause | Meaning |
+| --- | --- |
+| `page_http_error` | The page itself came back with a 4xx/5xx status |
+| `resource_failed` | A `<script>` or stylesheet failed to load |
+| `code_load_failed` | A lazily loaded chunk or `import()` failed (typical right after a deploy) |
+| `csp_blocked` | Content Security Policy blocked something |
+| `js_error` | An uncaught error, or one the app reported with `captureError` (error boundaries); see `context.error` |
+| `session_expired` | An API call returned 401 (seen here even though 401 is not an `HttpError` by default); see `context.request` and its `_id` |
+| `api_failed` | An API call failed (4xx/5xx or no response) |
+| `api_pending` | Still waiting for an API call after 10 s |
+| `main_thread_blocked` | A long main-thread task |
+| `covered_by_overlay` | The page has content, but an empty opaque layer (stuck modal backdrop, loader) covers it |
+| `nothing_rendered` | No error at all: the app rendered nothing (permission check, empty data, missing route view) |
+
+`context` also holds `trigger` (`load`, `dom_change`, `screen_change`, `navigation`, `error`), `blank_for_ms`, `url`, `page_status`, `points_sampled` (0 when an element was seen first), `points_covered`, `points_covering_content`, `elements_checked`, `visible_text_chars`, `dom_elements`, `pending_requests`, `main_thread_blocked_ms`, and `error` / `request`: the nearest uncaught error and failed call, even when they weren't picked as the cause. Each cause has a fixed message, so the dashboard groups one issue per cause. Turn detection off with `detectBlankPage: false`.
+
 ### Performance monitoring
 
 *Added in 0.5.0.* Every page view is recorded and sent as one `transaction` event. The dashboard's **Performance** page turns them into Web Vitals at the 75th percentile (rated good / needs improvement / poor, as Google does), p50/p75/p95 latency per endpoint, timings per route, and the slowest recent calls and page loads. Nothing is reported as an issue: performance is judged from percentiles, not from single slow requests.
@@ -279,6 +318,7 @@ Other public methods: `flush(): Promise<void>` sends everything now (and never r
 | **Errors** | `error` events (capture phase) and `unhandledrejection`. Stack traces are parsed from V8, Firefox and Safari formats into `{ filename, lineno, colno, function }` (max 50 frames, no source maps applied). Errors from other-origin scripts loaded without CORS are labelled `CrossOriginScriptError` (see below). |
 | **Network** | `HttpError` for fetch/XHR responses with an error status (all 5xx plus 400, 404, 405 and 413 by default, e.g. `GET https://app.example.com/api/cart → 500`; see [Which HTTP statuses are reported](#which-http-statuses-are-reported)). `NetworkError` for requests that got no response: offline, timeout, connection refused, DNS/SSL failure, CORS (`context.failure` says which, as far as the browser reveals). Requests the app aborts itself are not reported. `InvalidJsonResponse` when `response.json()` fails, even if the app catches it. The stack trace of all three points at the app code that made the request. |
 | **Missing pages** | `PageNotFound` (level `warning`) when the page itself was served with 404/410 (Chromium 109+, Firefox), or when the app calls `capturePageNotFound()`. See [Missing pages](#missing-pages-404). |
+| **Blank pages** | `BlankPage` when the screen stays empty for 2 s, with `context.cause` (render crash, failed chunk, expired session, failed API call, overlay, nothing rendered, …). See [Blank pages](#blank-pages). |
 | **Resources** | `ResourceError` for failed `<img>`/`<script>`/`<link>` loads, web fonts (`document.fonts`), and CSS background images / `@import`s with a 4xx/5xx status. Failures that happened while the HTML was still loading, before the SDK started, are picked up from Resource Timing. Failed `<link rel="preload">` hints are skipped, since the element using the file reports it. CSS-image and pre-start checks are Chromium 109+ only, and same-origin (or `Timing-Allow-Origin`) only. |
 | **Security & workers** | `CspViolation` for Content-Security-Policy violations, both enforced and report-only. In Chromium a buffered `ReportingObserver` also catches violations from before the SDK started. `WorkerError` for uncaught errors inside dedicated Web Workers, and workers that fail to start. |
 | **Console** | Opt-in (`captureConsoleErrors: true`): each `console.error(...)` becomes a `ConsoleError` event, or the passed Error's own type. Errors the SDK has already reported are skipped. |
@@ -385,7 +425,7 @@ A page view (`event_type: "transaction"`, level `info`) has `error: null`, empty
 **JS-specific fields** that are not part of the shared schema: `level` (severity of `captureMessage`), `context` (the second argument to `captureError`), `performance.cls`, and `device.referrer`. `transaction` is part of the shared schema from 0.5.0.
 
 **Event types:**
-- `error` covers uncaught and captured errors, plus `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError` and `PageNotFound` in `error.type`.
+- `error` covers uncaught and captured errors, plus `HttpError`, `NetworkError`, `InvalidJsonResponse`, `ResourceError`, `CspViolation`, `WorkerError`, `ConsoleError`, `CrossOriginScriptError`, `PageNotFound` and `BlankPage` in `error.type`.
 - `message` comes from `captureMessage`, and also carries the `EventsDropped` summary.
 - `performance` carries `MemoryLeakSuspected`, `MainThreadBlocked` and `LowFrameRate` in `error.type`, and `SlowPageLoad` / `SlowApiCall` with `captureSlowEvents`.
 - `transaction` is one page view (see [Performance monitoring](#performance-monitoring)). It never becomes an issue.
