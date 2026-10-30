@@ -18,7 +18,7 @@ npm run typecheck            # app + tests
 npm test                     # unit + integration tests (node:test)
 ```
 
-The demo pages use the local SDK (`file:../../error-tracking-sdk/js`): after an SDK change, run `npm run build` in the SDK, then restart `npm run dev` (delete `.next/` if the change doesn't show).
+The demo pages use the local SDK (`file:../../error-tracking-sdk/js`); `npm run build` builds it first if its `dist/` is missing (`scripts/build-sdk.ts`, needed on Vercel because `dist/` is not in git). After an SDK change, run `npm run build` in the SDK, then restart `npm run dev` (delete `.next/` if the change doesn't show).
 
 Integration tests use a throwaway database (`monitor_test_<random>`) on `MONGODB_URI` and drop its collections afterwards; they are skipped without `MONGODB_URI`. Any MongoDB works, e.g. a local `mongod`:
 

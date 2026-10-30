@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/build-sdk.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
