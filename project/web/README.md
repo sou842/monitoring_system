@@ -64,7 +64,7 @@ Limits (in `server/constants.ts`): no limit on projects per user or on errors pe
 
 The existing Vercel project (https://monitoringsystem-backend.vercel.app) is reused, so SDK endpoints don't change:
 
-1. **Vercel → Project → Settings → Build and Deployment:** Root Directory `project/web`, Framework Preset **Next.js** (build/output settings: defaults). Keep "Include files outside the root directory" on (the demo uses the SDK from `error-tracking-sdk/js`, see below).
+1. **Vercel → Project → Settings → Build and Deployment:** Root Directory `project/web`. Framework, install/build commands and output directory (`.next`) are pinned in `vercel.json`, which overrides the dashboard (the old project had Output Directory `public`). Keep "Include files outside the root directory" on (the demo uses the SDK from `error-tracking-sdk/js`, see below).
 2. **Environment Variables:** the same `MONGODB_URI`, `MONGODB_DB`, `SESSION_SECRET` as before. Optionally `NEXT_PUBLIC_ET_API_KEY` (a project key) so the app monitors itself. Remove `DASHBOARD_PASSWORD` if it is still there.
 3. Deploy, then check `https://<app>/api/health` → `{"ok":true,"database":"up"}`.
 4. MongoDB Atlas → Network Access must allow `0.0.0.0/0` (Vercel has no fixed IPs).
