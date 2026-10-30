@@ -32,6 +32,8 @@ const NAV: Array<{ href: string; label: string; icon: IconName; match: string[];
   { href: '/admin', label: 'Admin', icon: 'shield', match: ['/admin'], admin: true },
 ];
 
+const COLLAPSED_KEY = 'et_sidebar_collapsed';
+
 const isUnder = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 
 /**
@@ -44,6 +46,18 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   const router = useRouter();
   const pathname = usePathname();
   const { action } = useToast();
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try { setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1'); } catch { /* storage blocked */ }
+  }, []);
+
+  const toggleSidebar = () => {
+    setCollapsed((was) => {
+      try { localStorage.setItem(COLLAPSED_KEY, was ? '0' : '1'); } catch { /* storage blocked */ }
+      return !was;
+    });
+  };
 
   useEffect(() => setUser(initialUser), [initialUser]);
   useEffect(() => {
@@ -62,14 +76,20 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
 
   return (
     <SessionContext.Provider value={{ user, setUser }}>
-      <div className="shell">
+      <div className={`shell${collapsed ? ' collapsed' : ''}`}>
         <aside className="sidebar">
-          <Link className="brand" href="/dashboard"><span className="brand-mark" />ERROR&nbsp;TRACKER</Link>
+          <div className="sidebar-head">
+            <Link className="brand" href="/dashboard" title="Error Tracker"><span className="brand-mark" /><span className="nav-label">ERROR&nbsp;TRACKER</span></Link>
+            <button className="sidebar-toggle" type="button" onClick={toggleSidebar} aria-expanded={!collapsed}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+              <Icon name="sidebar" />
+            </button>
+          </div>
           <nav className="nav" aria-label="Main">
             {NAV.filter((item) => !item.admin || user.role === 'admin').map((item) => (
-              <Link key={item.href} href={item.href} className={item.match.some((m) => isUnder(pathname, m)) ? 'active' : ''}>
+              <Link key={item.href} href={item.href} className={item.match.some((m) => isUnder(pathname, m)) ? 'active' : ''} title={collapsed ? item.label : undefined}>
                 <Icon name={item.icon} />
-                {item.label}
+                <span className="nav-label">{item.label}</span>
               </Link>
             ))}
           </nav>
@@ -78,9 +98,9 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
               <Avatar name={user.name} size="sm" />
               <span className="user-meta"><b>{user.name}</b><small>{user.email}</small></span>
             </Link>
-            <button className="nav-btn" type="button" onClick={logout}>
+            <button className="nav-btn" type="button" onClick={logout} title={collapsed ? 'Log out' : undefined}>
               <Icon name="logout" />
-              Log out
+              <span className="nav-label">Log out</span>
             </button>
           </div>
         </aside>

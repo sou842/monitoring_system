@@ -126,6 +126,19 @@
   .nav a.active { color: var(--fg); background: var(--panel-2); box-shadow: inset 2px 0 0 var(--fg); }
   .nav svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
   .nav-bottom { margin-top: auto; }
+  .sidebar { transition: width 0.15s ease, padding 0.15s ease; }
+  .sidebar-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+  .sidebar-head .brand { min-width: 0; overflow: hidden; white-space: nowrap; }
+  .sidebar-toggle { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; box-shadow: none; flex: none; }
+  .sidebar-toggle:hover { color: var(--fg); background: var(--panel-2); }
+  .sidebar-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  /* Collapsed: an icon-only rail; each link keeps its name in a title tooltip. */
+  .shell.collapsed .sidebar { width: 64px; padding: 20px 10px; }
+  .shell.collapsed .sidebar-head { flex-direction: column; align-items: center; gap: 4px; padding-bottom: 18px; }
+  .shell.collapsed .sidebar-head .brand { padding: 4px 0 8px; }
+  .shell.collapsed .nav-label, .shell.collapsed .user-meta { display: none; }
+  .shell.collapsed .nav a, .shell.collapsed .nav-btn { justify-content: center; gap: 0; padding: 9px 0; }
+  .shell.collapsed .nav a.user-chip { padding: 6px 0; }
   
   .topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 32px; background: var(--bg); border-bottom: 1px solid var(--line); }
   .crumbs { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--muted); }
@@ -361,6 +374,8 @@
     .nav a svg, .nav-btn svg { display: none; }
     .nav a.active { box-shadow: none; }
     .nav-bottom { margin-left: auto; margin-top: 0; }
+    .sidebar-toggle { display: none; }
+    .sidebar-head .brand { padding: 0 8px 0 0; }
     .topbar { height: 54px; padding: 0 16px; }
     .app-main { padding: 20px 16px 60px; }
     .dash-grid { grid-template-columns: 1fr; }
