@@ -92,7 +92,7 @@ export function IssueView({ issueId }: { issueId: string }) {
           </div>
           <div className="row">
             <button type="button" className={`ai-toggle${aiOpen ? ' active' : ''}`} aria-expanded={aiOpen} onClick={() => { setAiUsed(true); setAiOpen((o) => !o); }}>
-              <Icon name="sparkles" />Ask AI
+              <Icon name="ghost" />Ask AI
             </button>
             {issue.status !== 'resolved' ? <Button className="primary" busy={busyStatus === 'resolved'} onClick={setStatus('resolved')}>Resolve</Button> : null}
             {issue.status !== 'ignored' ? <Button busy={busyStatus === 'ignored'} onClick={setStatus('ignored')}>Ignore</Button> : null}

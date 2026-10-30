@@ -10,6 +10,15 @@ import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-e
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from '@/components/ai-elements/tool';
 import { Icon } from '../ui/Icon';
+import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
+
+const WIDTH_KEY = 'et_ai_panel_width';
+/** Panel width in px: default and smallest; the widest leaves AI_PANEL_PAGE_ROOM for the page. */
+const AI_PANEL_WIDTH = 440;
+const AI_PANEL_MIN_WIDTH = 320;
+const AI_PANEL_MAX_WIDTH = 960;
+const AI_PANEL_PAGE_ROOM = 560;
+const aiPanelMaxWidth = () => Math.min(AI_PANEL_MAX_WIDTH, window.innerWidth - AI_PANEL_PAGE_ROOM);
 
 const SUGGESTIONS = [
   'Why did this happen?',
@@ -93,6 +102,12 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
     body: () => ({ issueId, eventId: eventRef.current }),
   }), [issueId]);
   const { messages, sendMessage, status, stop, error, setMessages, clearError } = useChat({ transport });
+  const panel = usePanelWidth(WIDTH_KEY, AI_PANEL_WIDTH, AI_PANEL_MIN_WIDTH, aiPanelMaxWidth);
+  // On <html>, so the page next to the panel (.content) can make room for it.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--ai-panel-w', `${panel.width}px`);
+    return () => { document.documentElement.style.removeProperty('--ai-panel-w'); };
+  }, [panel.width]);
   const busy = status === 'submitted' || status === 'streaming';
 
   useEffect(() => {
@@ -117,8 +132,9 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
 
   return (
     <aside className="ai-panel" data-open={open ? '' : undefined} hidden={!open} aria-label="AI assistant">
+      <ResizeHandle panel={panel} edge="left" label="Resize AI panel" />
       <div className="ai-panel-head">
-        <Icon name="sparkles" />
+        <Icon name="ghost" />
         <b>Ask AI</b>
         <span className="spacer" />
         <button type="button" className="icon-btn" onClick={newChat} disabled={messages.length === 0 && !error} title="Start a new chat">
@@ -129,12 +145,12 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
         </button>
       </div>
 
-      <Conversation className="ai-panel-chat">
+      <Conversation className="ai-panel-chat bg-black/90">
         <ConversationContent className="gap-5 px-4">
           {messages.length === 0 ? (
             <ConversationEmptyState
               className="ai-empty"
-              icon={<Icon name="sparkles" />}
+              icon={<Icon name="ghost" />}
               title="Ask about this issue"
               description="The assistant sees this issue, the event on screen and the issue's other events. Chats aren't saved."
             />

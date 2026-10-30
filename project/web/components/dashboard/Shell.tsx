@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, clearCache, onUnauthorized } from '@/lib/client/api';
 import type { UserView } from '@/lib/types';
 import { Avatar } from '../ui/bits';
 import { Icon, type IconName } from '../ui/Icon';
+import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { useToast } from '../ui/Toasts';
 
 interface Session {
@@ -33,6 +34,11 @@ const NAV: Array<{ href: string; label: string; icon: IconName; match: string[];
 ];
 
 const COLLAPSED_KEY = 'et_sidebar_collapsed';
+const WIDTH_KEY = 'et_sidebar_width';
+/** Sidebar width in px: default, and the range the drag handle allows. */
+const SIDEBAR_WIDTH = 232;
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 420;
 
 const isUnder = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 
@@ -47,6 +53,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   const pathname = usePathname();
   const { action } = useToast();
   const [collapsed, setCollapsed] = useState(false);
+  const sidebar = usePanelWidth(WIDTH_KEY, SIDEBAR_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
 
   useEffect(() => {
     try { setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1'); } catch { /* storage blocked */ }
@@ -77,7 +84,8 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   return (
     <SessionContext.Provider value={{ user, setUser }}>
       <div className={`shell${collapsed ? ' collapsed' : ''}`}>
-        <aside className="sidebar">
+        <aside className="sidebar" style={{ '--sidebar-w': `${sidebar.width}px` } as CSSProperties}>
+          {collapsed ? null : <ResizeHandle panel={sidebar} edge="right" label="Resize sidebar" />}
           <div className="sidebar-head">
             <Link className="brand" href="/dashboard" title="Error Tracker"><span className="brand-mark" /><span className="nav-label">ERROR&nbsp;TRACKER</span></Link>
             <button className="sidebar-toggle" type="button" onClick={toggleSidebar} aria-expanded={!collapsed}
