@@ -177,3 +177,32 @@ export const VITAL_THRESHOLDS: Record<string, { good: number; poor: number }> = 
   cls: { good: 0.1, poor: 0.25 },
   ttfb: { good: 800, poor: 1800 },
 };
+
+// ---------------------------------------------------------------------------
+// AI assistant on the issue page (POST /api/ai/chat, NVIDIA NIM)
+// ---------------------------------------------------------------------------
+export const AI_BASE_URL = 'https://integrate.api.nvidia.com/v1';
+export const AI_MODEL = 'nvidia/nemotron-3.5-super-vl-120b-a12b';
+/** Upper bound for one answer (reasoning + text), per model call. */
+export const AI_MAX_OUTPUT_TOKENS = 8192;
+/** Model calls per question: answer + tool round trips (list/get events). */
+export const AI_MAX_STEPS = 6;
+/** Messages a user may send per window; each one costs model calls. */
+export const AI_MESSAGES_PER_USER = 60;
+export const AI_RATE_WINDOW_MS = 60 * 60 * 1000;
+/** Request body limit: the chat history comes back with every question, tool results included. */
+export const AI_MAX_REQUEST_BYTES = 2 * 1024 * 1024;
+/** Only the newest messages are sent to the model. */
+export const AI_MAX_HISTORY_MESSAGES = 40;
+/** Longest question accepted, in characters. */
+export const AI_MAX_QUESTION_CHARS = 8000;
+/** An event's JSON is cut at this many characters before it goes to the model. */
+export const AI_MAX_EVENT_JSON_CHARS = 60000;
+/** Events read for the issue-wide breakdown (screens, browsers, versions…). */
+export const AI_BREAKDOWN_EVENTS = 1000;
+/** Rows per breakdown table (the most frequent values). */
+export const AI_BREAKDOWN_TOP = 8;
+/** Events listed per `list_events` tool call. */
+export const AI_LIST_EVENTS_MAX = 50;
+/** Time limit for a whole answer (reasoning, tool steps, text); below the route's maxDuration (300 s). The model can think for 2 minutes on hard questions. */
+export const AI_REQUEST_TIMEOUT_MS = 280 * 1000;

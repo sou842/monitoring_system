@@ -5,6 +5,11 @@
  * Theme tokens are exposed to Tailwind (bg-panel, text-muted, border-line, font-mono, ...).
  */
 @import "tailwindcss";
+/* Animations used by the shadcn / AI Elements components (animate-in, fade-in…). */
+@import "tw-animate-css";
+/* Markdown and code-block classes inside the AI answers come from these packages. */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
 
 /* light:/dark: variants follow the theme switch (data-theme on <html>), not only the OS setting. */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
@@ -27,6 +32,27 @@
   --color-invert-fg: var(--invert-fg);
   --font-mono: var(--mono);
   --font-ui: var(--font);
+
+  /* shadcn / AI Elements colour names (components/shadcn, components/ai-elements), mapped to the dashboard tokens
+     so they follow the light/dark switch. "muted" is taken by the dashboard (grey text), so those components use
+     bg-secondary where shadcn has bg-muted; text-muted-foreground is the same grey. */
+  --color-background: var(--panel);
+  --color-foreground: var(--fg);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--invert-bg);
+  --color-primary-foreground: var(--invert-fg);
+  --color-secondary: var(--panel-2);
+  --color-secondary-foreground: var(--fg);
+  --color-accent: var(--panel-2);
+  --color-accent-foreground: var(--fg);
+  --color-muted-foreground: var(--muted);
+  --color-destructive: var(--danger);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--muted);
 }
 
 @layer base {
@@ -155,23 +181,23 @@
   .app-main { width: 100%; max-width: 1280px; margin: 0 auto; padding: 28px 32px 80px; }
   
   /* ---------- Controls ---------- */
-  button, .button {
+  button:where(:not([data-slot])), .button {
     font: inherit; cursor: pointer; border-radius: 4px; padding: 7px 14px; border: 1px solid var(--line-strong);
     background: var(--panel); color: var(--fg); transition: background 0.12s, border-color 0.12s, color 0.12s;
   }
-  button:hover:not(:disabled) { background: var(--panel-2); border-color: var(--muted); }
-  button.primary { background: var(--invert-bg); border-color: var(--invert-bg); color: var(--invert-fg); font-weight: 700; }
-  button.primary:hover:not(:disabled) { background: var(--fg-2); border-color: var(--fg-2); }
-  button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
-  button.ghost:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--fg); }
-  button.danger { color: var(--danger); }
-  button.danger:hover:not(:disabled) { border-color: var(--danger); }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  input, select { font: inherit; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--fg); }
-  input::placeholder { color: var(--faint); }
-  input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 1px solid var(--fg); outline-offset: 2px; }
-  input[type='checkbox'] { accent-color: var(--fg); cursor: pointer; width: 15px; height: 15px; margin: 2px 0 0; padding: 0; }
-  select { cursor: pointer; }
+  button:where(:not([data-slot])):hover:not(:disabled) { background: var(--panel-2); border-color: var(--muted); }
+  button:where(:not([data-slot])).primary { background: var(--invert-bg); border-color: var(--invert-bg); color: var(--invert-fg); font-weight: 700; }
+  button:where(:not([data-slot])).primary:hover:not(:disabled) { background: var(--fg-2); border-color: var(--fg-2); }
+  button:where(:not([data-slot])).ghost { border-color: transparent; background: transparent; color: var(--muted); }
+  button:where(:not([data-slot])).ghost:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--fg); }
+  button:where(:not([data-slot])).danger { color: var(--danger); }
+  button:where(:not([data-slot])).danger:hover:not(:disabled) { border-color: var(--danger); }
+  button:where(:not([data-slot])):disabled { opacity: 0.4; cursor: not-allowed; }
+  input:where(:not([data-slot])), select:where(:not([data-slot])) { font: inherit; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--fg); }
+  input:where(:not([data-slot]))::placeholder { color: var(--faint); }
+  input:where(:not([data-slot])):focus, select:where(:not([data-slot])):focus, button:where(:not([data-slot])):focus-visible, a:focus-visible { outline: 1px solid var(--fg); outline-offset: 2px; }
+  input:where(:not([data-slot]))[type='checkbox'] { accent-color: var(--fg); cursor: pointer; width: 15px; height: 15px; margin: 2px 0 0; padding: 0; }
+  select:where(:not([data-slot])) { cursor: pointer; }
   
   /* ---------- Panels ---------- */
   .card, .panel { background: var(--panel); border: 1px solid var(--line); position: relative; }
@@ -360,6 +386,38 @@
   .json-hit { background: var(--line-strong); color: var(--fg); }
   :root[data-theme='light'] .json-hit { background: var(--accent-soft); color: var(--invert-bg); }
   
+  /* ---------- AI assistant panel (issue page) ---------- */
+  .ai-toggle { display: inline-flex; align-items: center; gap: 7px; }
+  .ai-toggle svg, .ai-panel-head svg, .ai-empty svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .ai-toggle.active { background: var(--panel-2); border-color: var(--fg); }
+  .ai-panel {
+    --ai-panel-w: 440px;
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; width: var(--ai-panel-w); max-width: 100vw;
+    display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line);
+  }
+  .ai-panel[hidden] { display: none; }
+  .ai-panel-head { display: flex; align-items: center; gap: 8px; height: 64px; flex: none; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
+  .ai-panel-head .icon-btn { height: 32px; padding: 0 10px; }
+  .ai-panel-chat { flex: 1; min-height: 0; }
+  .ai-panel-input { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+  .ai-empty svg { width: 22px; height: 22px; }
+  .ai-error { padding: 10px 12px; border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); font-size: 12.5px; }
+  /* Markdown in answers: undo the dashboard's heading look (small uppercase labels). */
+  .ai-panel :where(h1, h2, h3, h4) { text-transform: none; letter-spacing: normal; color: var(--fg); margin: 0.9em 0 0.4em; }
+  .ai-panel :where(h1) { font-size: 16px; }
+  .ai-panel :where(h2) { font-size: 14.5px; }
+  .ai-panel :where(h3, h4) { font-size: 13.5px; }
+  @media (min-width: 1100px) {
+    /* Room for the panel next to the page instead of on top of it. */
+    .shell:has(.ai-panel[data-open]) .content { margin-right: 440px; }
+  }
+  @media (max-width: 1099px) {
+    .ai-panel { box-shadow: var(--modal-shadow); }
+  }
+  @media (max-width: 760px) {
+    .ai-panel { --ai-panel-w: 100vw; border-left: 0; }
+    .ai-panel-head { height: 54px; }
+  }
   /* ---------- Responsive ---------- */
   @media (max-width: 1000px) {
     .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -426,18 +484,18 @@
   :root[data-theme='light'] .theme-toggle button { border-radius: 999px; }
   
   /* controls */
-  :root[data-theme='light'] button, :root[data-theme='light'] .button { border-radius: var(--radius-sm); box-shadow: 0 1px 2px rgba(20, 38, 90, 0.05); }
-  :root[data-theme='light'] button.primary { background: var(--invert-bg); border-color: var(--invert-bg); font-weight: 600; box-shadow: 0 4px 12px rgba(18, 40, 90, 0.25); }
-  :root[data-theme='light'] button.primary:hover:not(:disabled) { background: #1c3a80; border-color: #1c3a80; }
+  :root[data-theme='light'] button:where(:not([data-slot])), :root[data-theme='light'] .button { border-radius: var(--radius-sm); box-shadow: 0 1px 2px rgba(20, 38, 90, 0.05); }
+  :root[data-theme='light'] button:where(:not([data-slot])).primary { background: var(--invert-bg); border-color: var(--invert-bg); font-weight: 600; box-shadow: 0 4px 12px rgba(18, 40, 90, 0.25); }
+  :root[data-theme='light'] button:where(:not([data-slot])).primary:hover:not(:disabled) { background: #1c3a80; border-color: #1c3a80; }
   :root[data-theme='light'] button.ghost,
   :root[data-theme='light'] .tabs button,
   :root[data-theme='light'] .theme-toggle button,
   :root[data-theme='light'] .nav-btn,
   :root[data-theme='light'] .events-list button { box-shadow: none; }
-  :root[data-theme='light'] input, :root[data-theme='light'] select { border-radius: var(--radius-sm); }
+  :root[data-theme='light'] input:where(:not([data-slot])), :root[data-theme='light'] select:where(:not([data-slot])) { border-radius: var(--radius-sm); }
   :root[data-theme='light'] input:focus, :root[data-theme='light'] select:focus,
-  :root[data-theme='light'] button:focus-visible, :root[data-theme='light'] a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  :root[data-theme='light'] input[type='checkbox'] { accent-color: var(--accent); }
+  :root[data-theme='light'] button:where(:not([data-slot])):focus-visible, :root[data-theme='light'] a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  :root[data-theme='light'] input:where(:not([data-slot]))[type='checkbox'] { accent-color: var(--accent); }
   :root[data-theme='light'] .seg { border-radius: 999px; padding: 3px; background: var(--panel); }
   :root[data-theme='light'] .seg button { border-radius: 999px; border: 0; box-shadow: none; background: transparent; }
   :root[data-theme='light'] .seg button + button { border-left: 0; }
@@ -574,18 +632,18 @@
   .card-title { margin: 0 0 16px; font-size: 15px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
   
   /* ---------- Buttons: sizes, solid danger, busy spinner ---------- */
-  button.block { width: 100%; padding: 11px 14px; }
-  button.sm { padding: 4px 10px; font-size: 12px; }
-  button.danger.solid { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 700; }
-  button.danger.solid:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); filter: brightness(0.92); }
-  button.busy { position: relative; color: transparent !important; }
-  button.busy::after {
+  button:where(:not([data-slot])).block { width: 100%; padding: 11px 14px; }
+  button:where(:not([data-slot])).sm { padding: 4px 10px; font-size: 12px; }
+  button:where(:not([data-slot])).danger.solid { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 700; }
+  button:where(:not([data-slot])).danger.solid:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); filter: brightness(0.92); }
+  button:where(:not([data-slot])).busy { position: relative; color: transparent !important; }
+  button:where(:not([data-slot])).busy::after {
     content: ""; position: absolute; inset: 0; margin: auto; width: 14px; height: 14px; border-radius: 50%;
     border: 2px solid rgba(128, 128, 128, 0.35); border-top-color: var(--fg); animation: spin 0.7s linear infinite;
   }
-  button.primary.busy::after { border-top-color: var(--invert-fg); }
-  button.danger.solid.busy::after { border-top-color: #fff; }
-  button.busy:disabled { opacity: 0.85; cursor: progress; }
+  button:where(:not([data-slot])).primary.busy::after { border-top-color: var(--invert-fg); }
+  button:where(:not([data-slot])).danger.solid.busy::after { border-top-color: #fff; }
+  button:where(:not([data-slot])).busy:disabled { opacity: 0.85; cursor: progress; }
   
   /* ---------- Dialog ---------- */
   .modal { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); background: var(--panel); color: var(--fg); box-shadow: var(--modal-shadow); }
@@ -631,7 +689,7 @@
   .usage-pill.full { color: var(--danger); border-color: var(--danger); }
   
   /* ---------- Allowed origins ---------- */
-  button.ghost.warn { color: var(--amber); }
+  button:where(:not([data-slot])).ghost.warn { color: var(--amber); }
   .notice.warn { margin: 0; color: var(--amber); border-color: var(--amber); background: transparent; }
   :root[data-theme='light'] .notice.warn { background: var(--amber-soft); border-color: transparent; }
   .origin-list { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
@@ -764,4 +822,11 @@
     .profile-row .usage { text-align: left; }
     :root[data-theme='light'] .nav a.active { box-shadow: 0 0 0 1px var(--line-strong); }
   }
+}
+
+/* The Markdown renderer in AI answers (streamdown, in node_modules) uses shadcn's bg-muted, which here would be the
+   dashboard's grey text colour. Inside the panel it gets the soft panel background instead (utilities layer, so it wins). */
+@layer utilities {
+  .ai-panel :is([class~='bg-muted'], [class~='bg-muted/80']),
+  .ai-panel :is([class~='hover:bg-muted'], [class~='hover:bg-muted/40']):hover { background-color: var(--panel-2); }
 }

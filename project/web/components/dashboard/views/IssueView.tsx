@@ -1,7 +1,8 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api, useApi } from '@/lib/client/api';
 import { formatDate, timeAgo } from '@/lib/format';
 import type { IssueStatus } from '@/lib/schema';
@@ -9,8 +10,12 @@ import type { ClientEvent, EventResponse, IssueResponse } from '@/lib/types';
 import { Badge, Button, EmptyState, ErrorNotice, Loading } from '../../ui/bits';
 import { useDialog } from '../../ui/Dialog';
 import { useToast } from '../../ui/Toasts';
+import { Icon } from '../../ui/Icon';
 import { EventDetail } from '../EventDetail';
 import { Page } from '../Page';
+
+/** Loaded on the first click on "Ask AI": the chat UI (Markdown, code highlighting) is most of the page's code. */
+const AiPanel = dynamic(() => import('../AiPanel').then((m) => m.AiPanel), { ssr: false });
 
 const STATUS_TOASTS: Record<IssueStatus, string> = { resolved: 'Issue resolved', ignored: 'Issue ignored', open: 'Issue reopened' };
 
@@ -25,6 +30,10 @@ export function IssueView({ issueId }: { issueId: string }) {
   const openDialog = useDialog();
   const { toast, action } = useToast();
   const [busyStatus, setBusyStatus] = useState<IssueStatus | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  // Stays true after closing, so the chat survives closing and reopening the panel.
+  const [aiUsed, setAiUsed] = useState(false);
+  const closeAi = useCallback(() => setAiOpen(false), []);
 
   const issueState = useApi<IssueResponse>(`/api/issue?id=${encodeURIComponent(issueId)}`);
   const data = issueState.data;
@@ -82,6 +91,9 @@ export function IssueView({ issueId }: { issueId: string }) {
             {issue.culprit ? <div className="culprit mono small">{issue.culprit}</div> : null}
           </div>
           <div className="row">
+            <button type="button" className={`ai-toggle${aiOpen ? ' active' : ''}`} aria-expanded={aiOpen} onClick={() => { setAiUsed(true); setAiOpen((o) => !o); }}>
+              <Icon name="sparkles" />Ask AI
+            </button>
             {issue.status !== 'resolved' ? <Button className="primary" busy={busyStatus === 'resolved'} onClick={setStatus('resolved')}>Resolve</Button> : null}
             {issue.status !== 'ignored' ? <Button busy={busyStatus === 'ignored'} onClick={setStatus('ignored')}>Ignore</Button> : null}
             {issue.status !== 'open' ? <Button busy={busyStatus === 'open'} onClick={setStatus('open')}>Reopen</Button> : null}
@@ -124,6 +136,7 @@ export function IssueView({ issueId }: { issueId: string }) {
           <Loading />
         )}
       </div>
+      {aiUsed ? <AiPanel key={issueId} issueId={issueId} eventId={selectedId} open={aiOpen} onClose={closeAi} /> : null}
     </Page>
   );
 }

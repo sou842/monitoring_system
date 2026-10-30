@@ -56,16 +56,17 @@ It also gives your account every project that has no owner yet (projects created
 | `MONGODB_DB` | Database name (default `monitor`). |
 | `SESSION_SECRET` | Long random string that signs login cookies. Changing it logs everyone out. |
 | `NEXT_PUBLIC_ET_API_KEY` | Optional: a project key, so the app reports its own errors (dashboard and `/demo`). |
+| `NVIDIA_API_KEY` | Key(s) for the "Ask AI" panel on the issue page (NVIDIA NIM, build.nvidia.com). Several keys, comma-separated, are used in turn. Without it the panel answers "not set up". |
 | `NEXT_PUBLIC_ET_ENDPOINT`, `ET_SERVER_ENDPOINT` | Optional: where the app's own SDK sends. Unset = this app (`/api/v1/events`). `NEXT_PUBLIC_*` values are baked in at build time. |
 
-Limits (in `server/constants.ts`): no limit on projects per user or on errors per project (both `null`), 150 events and 150 page views per IP per project per minute, 1000 page views per project per minute, passwords 8–128 characters, 5 sign-ups per IP per hour, 10 login attempts per account and 50 per IP per 15 minutes.
+Limits (in `server/constants.ts`): no limit on projects per user or on errors per project (both `null`), 150 events and 150 page views per IP per project per minute, 1000 page views per project per minute, passwords 8–128 characters, 60 AI questions per user per hour, 5 sign-ups per IP per hour, 10 login attempts per account and 50 per IP per 15 minutes.
 
 ## Deploy to Vercel
 
 The existing Vercel project (https://monitoringsystem-backend.vercel.app) is reused, so SDK endpoints don't change:
 
 1. **Vercel → Project → Settings → Build and Deployment:** Root Directory `project/web`. Framework, install/build commands and output directory (`.next`) are pinned in `vercel.json`, which overrides the dashboard (the old project had Output Directory `public`). Keep "Include files outside the root directory" on (the demo uses the SDK from `error-tracking-sdk/js`, see below).
-2. **Environment Variables:** the same `MONGODB_URI`, `MONGODB_DB`, `SESSION_SECRET` as before. Optionally `NEXT_PUBLIC_ET_API_KEY` (a project key) so the app monitors itself. Remove `DASHBOARD_PASSWORD` if it is still there.
+2. **Environment Variables:** the same `MONGODB_URI`, `MONGODB_DB`, `SESSION_SECRET` as before. `NVIDIA_API_KEY` for the AI panel. Optionally `NEXT_PUBLIC_ET_API_KEY` (a project key) so the app monitors itself. Remove `DASHBOARD_PASSWORD` if it is still there.
 3. Deploy, then check `https://<app>/api/health` → `{"ok":true,"database":"up"}`.
 4. MongoDB Atlas → Network Access must allow `0.0.0.0/0` (Vercel has no fixed IPs).
 
