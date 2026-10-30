@@ -3,7 +3,7 @@
 > Source: "Claude Code Prompt — Error Tracking SDK", 17 Oct 2026, by Sourav Samanta.
 > Saved here so the requirements survive across chat sessions. Content reproduced from the original.
 
-> **Status note (2026-10-26):** this file is the original requirement text and is kept as written. Later changes: a backend and dashboard were added (`project/backend/`, so "client-side SDK only" below is no longer the whole project), the JS memory-leak rule was rewritten in 0.4.0 (heap floors instead of 3 readings), and the schema gained `level`, `context`, `performance.cls`, `device.referrer` and the `transaction` event. For the current behaviour and numbers, see [PROTOCOL.md](PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+> **Status note (2026-10-26):** this file is the original requirement text and is kept as written. Later changes: a backend and dashboard were added (`project/backend/`, merged into the Next.js app `project/web/` on 2026-10-30, so "client-side SDK only" below is no longer the whole project), the JS memory-leak rule was rewritten in 0.4.0 (heap floors instead of 3 readings), and the schema gained `level`, `context`, `performance.cls`, `device.referrer` and the `transaction` event. For the current behaviour and numbers, see [PROTOCOL.md](PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Project overview
 You are building a production-grade error tracking SDK from scratch, similar to Bugsnag or Sentry but owned entirely by our company. This is not a wrapper around any existing library. Every line of code must be original, clean, and written as if it will be maintained long-term by a professional engineering team.

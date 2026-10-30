@@ -1,0 +1,8 @@
+{
+  // Tests read untyped JSON responses (`await res.json()` is `any` in the DOM typings), so
+  // callback parameters over them may stay unannotated. Every other strict check stays on.
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noImplicitAny": false, "incremental": false },
+  "include": ["**/*.ts"],
+  "exclude": []
+}

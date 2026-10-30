@@ -2,15 +2,33 @@
   "name": "web",
   "version": "0.1.0",
   "private": true,
+  "description": "Error Tracker: dashboard, ingestion API and SDK demo pages in one Next.js app.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "make-admin": "node scripts/make-admin.ts"
   },
   "dependencies": {
     "@sourav732/error-tracker-js": "file:../../error-tracking-sdk/js",
+    "mongodb": "^7.7.0",
     "next": "^15.5.28",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3"
   }
 }

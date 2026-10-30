@@ -1,0 +1,17 @@
+/*
+ * SDK demo pages: a plain look, separate from the dashboard. Scoped to .demo and
+ * outside Tailwind's layers, so it wins over the dashboard styles in globals.css.
+ */
+.demo { min-height: 100vh; font-family: system-ui, sans-serif; font-size: 16px; line-height: 1.4; background: #52a9ff; color: #111; }
+.demo nav { display: flex; gap: 16px; padding: 16px; background: #222; }
+.demo nav a { color: #fff; text-decoration: none; }
+.demo main { padding: 16px; }
+.demo h1 { font-size: 2em; font-weight: 700; margin: 0.67em 0; }
+.demo h2 { font-size: 1.5em; font-weight: 700; margin: 0.83em 0; text-transform: none; letter-spacing: 0; color: inherit; }
+.demo h3 { font-size: 1.17em; font-weight: 700; margin: 1em 0; }
+.demo p { margin: 1em 0; }
+.demo a { color: #0b2a8a; text-decoration: underline; }
+.demo code { font-family: ui-monospace, monospace; }
+.demo button { margin: 4px; padding: 8px 12px; cursor: pointer; font: 13px system-ui, sans-serif; color: #111; background: #efefef; border: 1px solid #767676; border-radius: 3px; }
+.demo button:disabled { opacity: 0.5; cursor: default; }
+.demo .card { border: 1px solid #ddd; padding: 12px; margin: 8px 0; border-radius: 6px; }

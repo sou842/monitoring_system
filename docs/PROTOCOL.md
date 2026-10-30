@@ -3,7 +3,7 @@
 This document covers the SDK ↔ backend wire protocol and the technical rules that every SDK (JS, iOS, Android) and the backend follow.
 For the component diagrams, see [ARCHITECTURE.md](ARCHITECTURE.md). For the original requirements, see [SPEC.md](SPEC.md).
 
-All numbers below come from `error-tracking-sdk/js/src/constants.ts` (SDK) and `project/backend/lib/constants.js` (backend). If this document and those files disagree, the constants files are correct.
+All numbers below come from `error-tracking-sdk/js/src/constants.ts` (SDK) and `project/web/server/constants.ts` (backend). If this document and those files disagree, the constants files are correct.
 
 ---
 
@@ -207,7 +207,7 @@ collector / capture* ─► sample ─► dedup ─► rate limit ─► build p
 
 ## 4. Backend technical approach
 
-### Ingestion pipeline (`api/v1/events.js` → `lib/ingest.js`)
+### Ingestion pipeline (`server/routes/events.ts` → `server/ingest.ts`)
 
 ```
 X-API-Key ─► SHA-256 ─► project lookup (cached 60 s) ─► disabled? 403
@@ -229,8 +229,8 @@ A browser app's API key is public: anyone can copy it from the page. It can only
 
 | Check | Rule | Stops | Doesn't stop |
 | --- | --- | --- | --- |
-| **Allowed origins** (`lib/origins.js`) | Per project, a list of exact origins (scheme + host + port, e.g. `http://localhost:3000`, `https://myapp.com`), max 20, no wildcards. Empty list = any origin. No `Origin` header = allowed (server-side SDKs, mobile apps). `Origin: null` (file:// pages) = refused when a list exists. | Other websites using a copied key through their visitors' browsers (browsers set `Origin` themselves) | Scripts outside a browser, which can fake the header |
-| **Per-IP limit** (`lib/rateLimit.js`) | 150 events and 150 page views per minute per project + client IP (`x-forwarded-for`, set by Vercel; IPv6 counted per /64). | One source flooding a project with errors | Many IPs at once (only key rotation helps there, since errors have no per-project limit) |
+| **Allowed origins** (`server/origins.ts`) | Per project, a list of exact origins (scheme + host + port, e.g. `http://localhost:3000`, `https://myapp.com`), max 20, no wildcards. Empty list = any origin. No `Origin` header = allowed (server-side SDKs, mobile apps). `Origin: null` (file:// pages) = refused when a list exists. | Other websites using a copied key through their visitors' browsers (browsers set `Origin` themselves) | Scripts outside a browser, which can fake the header |
+| **Per-IP limit** (`server/rateLimit.ts`) | 150 events and 150 page views per minute per project + client IP (`x-forwarded-for`, set by Vercel; IPv6 counted per /64). | One source flooding a project with errors | Many IPs at once (only key rotation helps there, since errors have no per-project limit) |
 
 - **No per-project error limit:** a project accepts any number of errors per minute from all its users together; only each IP is capped. (`RATE_LIMIT_EVENTS_PER_MINUTE` is `null`; setting a number turns a per-project limit back on.) Page views keep their per-project budget of 1000/min.
 - **Order:** the origin and per-IP checks run before the page-view project budget, so a refused request uses none of it.
@@ -238,7 +238,7 @@ A browser app's API key is public: anyone can copy it from the page. It can only
 - **Applying changes:** edits go through `PATCH /api/projects?id=…` and reach other serverless instances within 60 s (project cache).
 - **Shared IPs:** many users behind one office IP share the 150/min. Errors are rare in production, so this leaves plenty of room, and an over-limit batch is retried by the SDK and then kept offline, not lost.
 
-### Issue insights (`public/insights.js`, `lib/insights.js`)
+### Issue insights (`lib/insights.ts`, `server/insights.ts`)
 
 The top of the issue page explains the selected event so a developer doesn't have to read the raw JSON. It is computed in the browser from the stored event, by rules only (no AI, nothing sent anywhere), so it applies to old events too and needs no change to the event format.
 
@@ -248,9 +248,9 @@ The top of the issue page explains the selected event so a developer doesn't hav
 - **Hints:** the project's team hints, then one built-in hint by error type, HTTP status, network failure or message pattern.
 - **Per-project settings** (`projects.insights`, "Issue insights" panel, `PATCH /api/projects` `{ insights }`): `libraryPaths` (text in a frame's file URL; added to the built-in list: jQuery, React, Vue, Angular, FusionCharts, Next.js chunks, npm packages, public CDNs, browser extensions, …, which matches the libraries' real file names only; an entry starting with `!` marks matching files as your code, overriding the built-in list), `hiddenFrames` (wrapper function names, or a path containing `/`), `hints` (`{ match, text }`, matched case-insensitively against error type, message and context values). Max 50 entries per list; entries are single lines, and a hint's `match` can't contain `=>` (the dashboard edits hints as `match => text` lines).
 - **Robustness:** event data is untrusted; the rules read only plain strings and numbers from free-form `context`/breadcrumb `data`, look built-in hints up by own keys only, and use linear-time regexes. If the summary still fails for an event, the issue page falls back to the plain stack trace.
-- **Clock check:** when `timestamp` equals `receivedAt`, the server replaced a missing or > 24 h off client time (`lib/validate.js`); breadcrumbs then show device clock times instead of "N s before the error".
+- **Clock check:** when `timestamp` equals `receivedAt`, the server replaced a missing or > 24 h off client time (`server/validate.ts`); breadcrumbs then show device clock times instead of "N s before the error".
 
-### Grouping (`lib/grouping.js`)
+### Grouping (`server/grouping.ts`)
 
 ```
 fingerprint = sha256( event_type | error.type | normalize(message) | topFrame.function@normalize(topFrame.file) )
@@ -277,7 +277,7 @@ fingerprint = sha256( event_type | error.type | normalize(message) | topFrame.fu
 
 - **Accounts:** public sign-up. Passwords are hashed with **scrypt** (N=16384, ~50 ms per hash) and must be 8–128 characters.
 - **Session:** an HttpOnly, `SameSite=Strict` (and `Secure` in production) cookie `et_session` holding `{ userId, sessionVersion, expiry }`, HMAC-SHA256 signed with `SESSION_SECRET`, valid for 7 days. The user record is re-read on every request, so bumping `sessionVersion` (password change, "log out other devices", account disabled) ends old sessions immediately.
-- **Ownership:** every dashboard endpoint goes through `lib/access.js`. Another user's data answers **404**, not 403, so it doesn't reveal that the data exists. Admins manage accounts but can't read other users' issues.
+- **Ownership:** every dashboard endpoint goes through `server/access.ts`. Another user's data answers **404**, not 403, so it doesn't reveal that the data exists. Admins manage accounts but can't read other users' issues.
 - **Cross-site requests:** writes (non-GET) with a foreign `Origin` header are refused. This is on top of the cookie's `SameSite` protection.
 - **Rate limits:**
   - sign-up: 5 per IP per hour

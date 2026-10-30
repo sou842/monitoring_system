@@ -15,10 +15,10 @@ flowchart LR
         AND["Android app<br/>Android SDK ⏳"]
     end
 
-    subgraph Vercel[" (project/backend)"]
+    subgraph Vercel["Vercel: one Next.js app (project/web)"]
         ING["POST /api/v1/events<br/>ingestion"]
         DASHAPI["Dashboard API<br/>auth · account · admin · projects<br/>issues · issue · event · stats · health"]
-        STATIC["Static dashboard<br/>public/ (vanilla JS)"]
+        STATIC["Dashboard pages<br/>React, app/(dashboard)"]
     end
 
     subgraph Storage
@@ -44,8 +44,7 @@ flowchart LR
 | JS SDK | `error-tracking-sdk/js/` | TypeScript → ES5, Rollup (ESM + CJS), zero runtime deps | ✅ 0.6.1 |
 | iOS SDK | `error-tracking-sdk/ios/` | Swift 5.5+, iOS 14+ | ⏳ not started |
 | Android SDK | `error-tracking-sdk/android/` | Kotlin 1.8+, API 21+ | ⏳ not started |
-| Backend + dashboard | `project/backend/` | Vercel functions (plain JS, ES modules), only dependency `mongodb` | ✅ deployed |
-| Demo app | `project/web/` | Next.js 15 (App Router) using the JS SDK | ✅ |
+| Web app: ingestion API + dashboard + SDK demo | `project/web/` | Next.js 15 (App Router), TypeScript, Tailwind CSS v4, `mongodb`; demo pages under `/demo` use the JS SDK | ✅ deployed (merged from `project/backend/` on 2026-10-30) |
 
 ---
 

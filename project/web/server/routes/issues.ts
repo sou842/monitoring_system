@@ -1,0 +1,123 @@
+import type { Filter, ObjectId, Sort } from 'mongodb';
+import { ISSUE_EVENT_TYPES, ISSUE_STATUSES, type IssueStatus } from '../../lib/schema.ts';
+import { ownedProject } from '../access.ts';
+import { requireUser } from '../auth.ts';
+import { ISSUES_PAGE_SIZE, MAX_REQUEST_ID_LENGTH } from '../constants.ts';
+import { collections } from '../db.ts';
+import { deleteIssues } from '../deletion.ts';
+import { bodyObject, errorResponse, escapeRegex, handle, json, parseObjectId, readJson } from '../http.ts';
+import type { IssueDoc } from '../models.ts';
+import { issueView } from '../views.ts';
+
+const SORTS: Record<string, Sort> = { lastSeen: { lastSeen: -1 }, count: { count: -1, lastSeen: -1 }, firstSeen: { firstSeen: -1 } };
+const MAX_SEARCH_LENGTH = 200;
+/** Events read when the search text is an API call `_id` (one call is in at most a few dozen events). */
+const MAX_REQUEST_ID_EVENTS = 100;
+
+const isStatus = (value: unknown): value is IssueStatus => (ISSUE_STATUSES as readonly unknown[]).includes(value);
+
+/**
+ * GET /api/issues?projectId=…  (required)
+ *   &status=open|resolved|ignored|all   (default open)
+ *   &type=error|message|performance|crash
+ *   &env=production   &q=search text or an API call _id   &sort=lastSeen|count|firstSeen   &page=1
+ *
+ * When `q` is an API call `_id`, each matching issue has `matchedEventId`: the newest event that recorded the call.
+ *
+ * Returns the page of issues plus per-status counts and the project's environments for filters.
+ */
+export const GET = handle(async (request) => {
+  const auth = await requireUser(request);
+  if (auth.response) return auth.response;
+
+  const params = new URL(request.url).searchParams;
+  const projectId = parseObjectId(params.get('projectId'));
+  if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
+  const { db } = auth;
+  const c = collections(db);
+  if ((await ownedProject(db, auth.user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
+
+  const status = params.get('status') || 'open';
+  const filter: Filter<IssueDoc> = { projectId };
+  if (status !== 'all') {
+    if (!isStatus(status)) return errorResponse(400, 'invalid_status', 'Unknown status');
+    filter.status = status;
+  }
+  const type = params.get('type');
+  if (type && (ISSUE_EVENT_TYPES as readonly string[]).includes(type)) filter.eventType = type;
+  const env = params.get('env');
+  if (env) filter.environments = env;
+  const q = (params.get('q') || '').trim().slice(0, MAX_SEARCH_LENGTH);
+  // Issue id → newest event that recorded the API call searched for, so the list can open that event.
+  const matchedEvents = new Map<string, string>();
+  if (q) {
+    const pattern = new RegExp(escapeRegex(q), 'i');
+    const or: Filter<IssueDoc>[] = [{ message: pattern }, { errorType: pattern }, { culprit: pattern }];
+    // The text may be an API call's `_id` (shown on the issue page and the Performance view).
+    if (q.length <= MAX_REQUEST_ID_LENGTH) {
+      const hits = await c.events
+        .find({ 'payload.performance.api_calls._id': q, projectId }, { projection: { issueId: 1 } })
+        .sort({ receivedAt: -1 })
+        .limit(MAX_REQUEST_ID_EVENTS)
+        .toArray();
+      for (const hit of hits) {
+        if (!matchedEvents.has(String(hit.issueId))) matchedEvents.set(String(hit.issueId), String(hit._id));
+      }
+      if (hits.length > 0) or.push({ _id: { $in: hits.map((hit): ObjectId => hit.issueId) } });
+    }
+    filter.$or = or;
+  }
+  const sort = SORTS[params.get('sort') ?? ''] || SORTS.lastSeen;
+  const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
+
+  const [rows, total, statusCounts, environments] = await Promise.all([
+    c.issues.find(filter).sort(sort).skip((page - 1) * ISSUES_PAGE_SIZE).limit(ISSUES_PAGE_SIZE).toArray(),
+    c.issues.countDocuments(filter),
+    c.issues.aggregate<{ _id: string; n: number }>([{ $match: { projectId } }, { $group: { _id: '$status', n: { $sum: 1 } } }]).toArray(),
+    c.issues.distinct('environments', { projectId }),
+  ]);
+
+  const counts: Record<string, number> = Object.fromEntries(ISSUE_STATUSES.map((s) => [s, 0]));
+  for (const row of statusCounts) counts[row._id] = row.n;
+
+  const issueRows = rows.map((row) => ({ ...issueView(row), matchedEventId: matchedEvents.get(String(row._id)) || null }));
+  return json({ issues: issueRows, total, page, pageSize: ISSUES_PAGE_SIZE, counts, environments: (environments as string[]).sort() });
+});
+
+const MAX_DELETE_IDS = 500;
+
+/**
+ * DELETE /api/issues?projectId=…  with either
+ *   body { ids: [...] }       → deletes those issues (of this project), or
+ *   &status=open|resolved|ignored|all → deletes every issue with that status ("clear all").
+ * Events go with their issues. Returns the number of issues and events removed.
+ */
+export const DELETE = handle(async (request) => {
+  const auth = await requireUser(request);
+  if (auth.response) return auth.response;
+  const { db } = auth;
+  const params = new URL(request.url).searchParams;
+  const projectId = parseObjectId(params.get('projectId'));
+  if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
+  if ((await ownedProject(db, auth.user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
+
+  const text = await request.text();
+  if (text.length > 0) {
+    const body = await readJson(new Request(request.url, { method: 'POST', body: text }), MAX_DELETE_IDS * 40);
+    if (!body.ok) return body.response;
+    const raw = bodyObject(body.value).ids;
+    if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_DELETE_IDS) {
+      return errorResponse(400, 'invalid_ids', `ids must be a list of 1 to ${MAX_DELETE_IDS} issue ids`);
+    }
+    const ids = raw.map(parseObjectId);
+    if (ids.includes(null)) return errorResponse(400, 'invalid_ids', 'ids contains an invalid issue id');
+    return json({ deleted: await deleteIssues(db, { projectId, _id: { $in: ids as ObjectId[] } }) });
+  }
+
+  const status = params.get('status');
+  if (status !== 'all' && !isStatus(status)) {
+    return errorResponse(400, 'invalid_status', 'Pass ids in the body, or status=open|resolved|ignored|all');
+  }
+  const filter: Filter<IssueDoc> = status === 'all' ? { projectId } : { projectId, status };
+  return json({ deleted: await deleteIssues(db, filter) });
+});
