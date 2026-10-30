@@ -145,7 +145,7 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
         </button>
       </div>
 
-      <Conversation className="ai-panel-chat bg-black/90">
+      <Conversation className="ai-panel-chat">
         <ConversationContent className="gap-5 px-4">
           {messages.length === 0 ? (
             <ConversationEmptyState
