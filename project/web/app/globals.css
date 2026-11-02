@@ -338,7 +338,7 @@
   .meta div b { font-weight: 400; font-size: 14px; }
   .detail { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
   .detail > div > .section:first-child { margin-top: 0; }
-  .events-list { max-height: 72vh; overflow: auto; }
+  .events-list { max-height: 72vh; overflow: auto; scrollbar-width: none; }
   .events-list button { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 11px 16px; background: none; position: relative; }
   .events-list button:first-child { border-top: 0; }
   .events-list button:hover:not(:disabled) { background: var(--panel-2); }
