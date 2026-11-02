@@ -21,11 +21,13 @@ const AI_PANEL_PAGE_ROOM = 560;
 const aiPanelMaxWidth = () => Math.min(AI_PANEL_MAX_WIDTH, window.innerWidth - AI_PANEL_PAGE_ROOM);
 
 const SUGGESTIONS = [
+  'How can I fix it?',
   'Why did this happen?',
   'Where should I look in the code?',
-  'How can I fix it?',
+  'Is this a valid error or a false positive?',
   'Walk me through the last moments before the error',
   'Does it happen on every screen, browser and version?',
+  'How would you rate this issue: Low, Medium, or High?'
 ];
 
 /** Labels for the assistant's tool steps. */
