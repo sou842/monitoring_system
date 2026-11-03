@@ -15,6 +15,8 @@ interface Session {
   user: UserView;
   /** Updates the user shown in the sidebar (after a rename or a role check). */
   setUser: (user: UserView) => void;
+  /** Folds the sidebar away while a side panel (Ask AI) needs the room; false brings it back. Doesn't change the saved preference. */
+  collapseForPanel: (on: boolean) => void;
 }
 
 const SessionContext = createContext<Session | null>(null);
@@ -52,7 +54,9 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   const router = useRouter();
   const pathname = usePathname();
   const { action } = useToast();
-  const [collapsed, setCollapsed] = useState(false);
+  const [userCollapsed, setCollapsed] = useState(false);
+  const [panelCollapse, setPanelCollapse] = useState(false);
+  const collapsed = userCollapsed || panelCollapse;
   const sidebar = usePanelWidth(WIDTH_KEY, SIDEBAR_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
 
   useEffect(() => {
@@ -60,6 +64,8 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   }, []);
 
   const toggleSidebar = () => {
+    // Expanding while a panel has folded it: just undo the fold.
+    if (panelCollapse) { setPanelCollapse(false); return; }
     setCollapsed((was) => {
       try { localStorage.setItem(COLLAPSED_KEY, was ? '0' : '1'); } catch { /* storage blocked */ }
       return !was;
@@ -82,7 +88,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   });
 
   return (
-    <SessionContext.Provider value={{ user, setUser }}>
+    <SessionContext.Provider value={{ user, setUser, collapseForPanel: setPanelCollapse }}>
       <div className={`shell${collapsed ? ' collapsed' : ''}`}>
         <aside className="sidebar" style={{ '--sidebar-w': `${sidebar.width}px` } as CSSProperties}>
           {collapsed ? null : <ResizeHandle panel={sidebar} edge="right" label="Resize sidebar" />}

@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, useApi } from '@/lib/client/api';
 import { formatDate, timeAgo } from '@/lib/format';
 import type { IssueStatus } from '@/lib/schema';
@@ -13,9 +13,13 @@ import { useToast } from '../../ui/Toasts';
 import { Icon } from '../../ui/Icon';
 import { EventDetail } from '../EventDetail';
 import { Page } from '../Page';
+import { useSession } from '../Shell';
 
 /** Loaded on the first click on "Ask AI": the chat UI (Markdown, code highlighting) is most of the page's code. */
 const AiPanel = dynamic(() => import('../AiPanel').then((m) => m.AiPanel), { ssr: false });
+
+/** Same breakpoint as the CSS that moves the page aside for the panel. */
+const AI_SIDE_BY_SIDE = '(min-width: 1100px)';
 
 const STATUS_TOASTS: Record<IssueStatus, string> = { resolved: 'Issue resolved', ignored: 'Issue ignored', open: 'Issue reopened' };
 
@@ -34,6 +38,13 @@ export function IssueView({ issueId }: { issueId: string }) {
   // Stays true after closing, so the chat survives closing and reopening the panel.
   const [aiUsed, setAiUsed] = useState(false);
   const closeAi = useCallback(() => setAiOpen(false), []);
+  const { collapseForPanel } = useSession();
+  // Where the panel sits next to the page (wide screens), fold the sidebar to give the page room.
+  useEffect(() => {
+    if (!aiOpen || !window.matchMedia(AI_SIDE_BY_SIDE).matches) return;
+    collapseForPanel(true);
+    return () => collapseForPanel(false);
+  }, [aiOpen, collapseForPanel]);
 
   const issueState = useApi<IssueResponse>(`/api/issue?id=${encodeURIComponent(issueId)}`);
   const data = issueState.data;
