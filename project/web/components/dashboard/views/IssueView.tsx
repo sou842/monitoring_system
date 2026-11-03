@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, useApi } from '@/lib/client/api';
 import { formatDate, timeAgo } from '@/lib/format';
 import type { IssueStatus } from '@/lib/schema';
-import type { ClientEvent, EventResponse, IssueResponse } from '@/lib/types';
+import type { ClientEvent, EventResponse, ImpactValue, IssueImpact, IssueResponse } from '@/lib/types';
 import { Badge, Button, EmptyState, ErrorNotice, Loading } from '../../ui/bits';
 import { useDialog } from '../../ui/Dialog';
 import { useToast } from '../../ui/Toasts';
@@ -25,6 +25,48 @@ const STATUS_TOASTS: Record<IssueStatus, string> = { resolved: 'Issue resolved',
 
 function MetaItem({ label, value, title }: { label: string; value: string; title?: string }) {
   return <div><span>{label}</span><b title={title}>{value}</b></div>;
+}
+
+const percent = (n: number, total: number) => (total > 0 ? `${Math.round((n / total) * 100)}%` : '');
+
+/** A page URL shown as its path; screen names and other text stay as they are. */
+function shortScreen(value: string): string {
+  if (!/^https?:\/\//i.test(value)) return value;
+  try {
+    return new URL(value).pathname;
+  } catch {
+    return value;
+  }
+}
+
+/** "Chrome 156 80% · Edge 140 20%"; "not set" when no event had a value. */
+function topValues(rows: ImpactValue[], total: number, show: (v: string) => string = (v) => v): string {
+  if (rows.length === 0 || (rows.length === 1 && rows[0].value === '(none)')) return 'not set';
+  return rows.map((r) => `${show(r.value)} ${percent(r.count, total)}`).join(' · ');
+}
+
+/** Who and where the issue hits, over its newest stored events (server/impact.ts). */
+function ImpactRow({ impact, total }: { impact: IssueImpact; total: number }) {
+  if (impact.sampled === 0) return null;
+  const n = impact.sampled;
+  const scope = n < total ? `the newest ${n.toLocaleString()} stored events` : `all ${n.toLocaleString()} stored events`;
+  const users = impact.users > 0
+    ? `${impact.users.toLocaleString()}${impact.anonymous > 0 ? ` + ${percent(impact.anonymous, n)} anonymous` : ''}`
+    : impact.anonymous > 0 ? 'not identified' : '–';
+  return (
+    <div className="meta impact" aria-label={`Impact over ${scope}`}>
+      <MetaItem label="Users" value={users} title={`Distinct user ids (setUser) in ${scope}; ${impact.anonymous.toLocaleString()} event(s) had none.`} />
+      <MetaItem label="Top screens" value={topValues(impact.screens, n, shortScreen)} title={`setScreen() name, else the page URL, in ${scope}`} />
+      <MetaItem label="Browsers" value={topValues(impact.browsers, n)} title={`In ${scope}`} />
+      <MetaItem label="App versions" value={topValues(impact.versions, n)} title={`appVersion from init(), in ${scope}`} />
+      {impact.offline > 0 ? (
+        <MetaItem label="Offline" value={`${percent(impact.offline, impact.withSituation)} of events`} title={`${impact.offline} of ${impact.withSituation} events from SDK 0.11.0+ happened while the device was offline`} />
+      ) : null}
+      {impact.duringPageLoad > 0 ? (
+        <MetaItem label="While loading" value={`${percent(impact.duringPageLoad, impact.withSituation)} of events`} title={`${impact.duringPageLoad} of ${impact.withSituation} events from SDK 0.11.0+ happened before the page finished loading`} />
+      ) : null}
+    </div>
+  );
 }
 
 /** One issue with its latest events; `?event=<id>` picks which event is shown in full. */
@@ -102,13 +144,13 @@ export function IssueView({ issueId }: { issueId: string }) {
             {issue.culprit ? <div className="culprit mono small">{issue.culprit}</div> : null}
           </div>
           <div className="row">
-            <button type="button" className={`ai-toggle${aiOpen ? ' active' : ''}`} aria-expanded={aiOpen} onClick={() => { setAiUsed(true); setAiOpen((o) => !o); }}>
+            <button type="button" className={`ai-toggle${aiOpen ? ' active' : ''} rounded-full`} aria-expanded={aiOpen} onClick={() => { setAiUsed(true); setAiOpen((o) => !o); }}>
               <Icon name="ghost" />Ask AI
             </button>
-            {issue.status !== 'resolved' ? <Button className="primary" busy={busyStatus === 'resolved'} onClick={setStatus('resolved')}>Resolve</Button> : null}
-            {issue.status !== 'ignored' ? <Button busy={busyStatus === 'ignored'} onClick={setStatus('ignored')}>Ignore</Button> : null}
-            {issue.status !== 'open' ? <Button busy={busyStatus === 'open'} onClick={setStatus('open')}>Reopen</Button> : null}
-            <button type="button" className="danger" onClick={remove}>Delete</button>
+            {issue.status !== 'resolved' ? <Button className="primary rounded-full" busy={busyStatus === 'resolved'} onClick={setStatus('resolved')}>Resolve</Button> : null}
+            {issue.status !== 'ignored' ? <Button className="rounded-full" busy={busyStatus === 'ignored'} onClick={setStatus('ignored')}>Ignore</Button> : null}
+            {issue.status !== 'open' ? <Button className="rounded-full" busy={busyStatus === 'open'} onClick={setStatus('open')}>Reopen</Button> : null}
+            <button type="button" className="danger rounded-full" onClick={remove}>Delete</button>
           </div>
         </div>
         <div className="meta">
@@ -118,6 +160,7 @@ export function IssueView({ issueId }: { issueId: string }) {
           <MetaItem label="Environments" value={issue.environments.join(', ') || '–'} />
           <MetaItem label="Platforms" value={issue.platforms.join(', ') || '–'} />
         </div>
+        {data.impact ? <ImpactRow impact={data.impact} total={issue.count} /> : null}
       </div>
 
       <div className="detail">

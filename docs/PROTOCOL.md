@@ -111,6 +111,24 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
 - `false`: the error broke something before app code had a chance to deal with it (uncaught exceptions and rejections, failed resources, CSP violations, workers, blank pages).
 - `true`: the error was handed back to the app (HTTP error status, rejected request, JSON parse error, `console.error`, performance issues, `captureError`).
 
+### Diagnostic context (JS SDK 0.11.0+; iOS and Android should use the same names)
+
+No schema change: these are keys inside `context`, so older SDKs and the backend need nothing new. The backend stores `context` as sent (16 KB cap); the dashboard (`lib/insights.ts`) turns the fields into facts and hints, and `GET /api/issue` sums up `situation` in its `impact` block. Rules: read only data the platform already has (no extra requests), only when an event is built, never bodies, form values or cookies; `null` when unknown.
+
+- **`situation`** on every error, message and performance event (not transactions): `{ online, connection, visibility, ms_since_page_load, ms_since_navigation, during_page_load }`. Mobile: `connection` = `wifi` | `cellular` | …, `visibility` = foreground/background state, `ms_since_page_load` = time since app start.
+- **Thrown errors:** `error_causes` (`[{ type, message, stacktrace }]`, outermost first, ≤3 links, ≤5 frames each; a non-Error cause is described by its allowlisted fields only), `error_fields` (only the allowlisted own fields `code`, `errno`, `syscall`, `status`, `statusCode`, `statusText`, `ok`, `type`, `reason`, `isAxiosError`, `retryable`; plain values, strings ≤200 chars: never a blocklist, because error objects carry URLs with tokens and response bodies), `thrown_kind` (only when not an Error).
+- **URLs** in diagnostic fields: query and fragment removed, ≤500 characters, `data:`/`blob:` reduced to `data:<media type>` / `blob:`.
+- **`cause`** (machine-readable reason) on SDK-built errors:
+
+| Type | `cause` values | Other keys |
+| --- | --- | --- |
+| `ResourceError` | `http_error`, `bad_content`, `hidden_cross_origin`, `no_response`, `offline`, `unknown` | `resource`, `status`, `url`, `host`, `cross_origin`, `content_type`, `duration_ms`, `size_bytes`, `selector`, `alt`, `current_src`, `loading`, `crossorigin`, `same_host_failures`; `before_sdk_start` for failures found at startup |
+| `HttpError` | `server_error`, `client_error` | `content_type`, `response_headers` (server request-id headers only, see the SDK README), `host`, `cross_origin`, `same_host_failures`, `ms_since_host_ok` |
+| `NetworkError` | = `failure` | `host`, `cross_origin`, `same_host_failures`, `ms_since_host_ok` |
+| `InvalidJsonResponse` | `html_page`, `empty_body`, `incomplete_json`, `empty_or_incomplete`, `malformed_json`, `not_json` | `content_type`, `content_length`, `response_headers`, `host`, `cross_origin` |
+| `CrossOriginScriptError` | `hidden_cross_origin` | `hint`, `scripts_without_crossorigin` |
+| `BlankPage` | see the SDK README | (unchanged, 0.10.0) |
+
 ### Transaction (page view) events
 
 Each page view sends one `transaction` event (a web route, iOS view controller or Android Activity/Fragment). On these events `error` is `null`, and `stacktrace` and `breadcrumbs` are `[]`.

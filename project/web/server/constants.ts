@@ -84,6 +84,10 @@ export const SESSION_COOKIE = 'et_session';
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const ISSUES_PAGE_SIZE = 50;
 export const ISSUE_RECENT_EVENTS = 50;
+/** Newest stored events of an issue summed up in its "Impact" panel (users, screens, browsers, versions). */
+export const IMPACT_MAX_EVENTS = 1000;
+/** Values listed per Impact row (the most frequent). */
+export const IMPACT_TOP = 3;
 export const PROJECT_CACHE_TTL_MS = 60 * 1000;
 export const API_KEY_PREFIX = 'et_';
 export const API_KEY_BYTES = 24;

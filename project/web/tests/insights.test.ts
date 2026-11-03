@@ -295,3 +295,149 @@ describe('issue insight settings (server validation)', () => {
     assert.equal(validOk(cleanInsightSettings({ hints: [{ match: 'X', text: 'line one\n  line two' }] })).settings.hints[0].text, 'line one line two');
   });
 });
+
+describe('issue insights: diagnostic context (SDK 0.11.0+)', () => {
+  // The Spotify favicon event found on 2026-11-02, as SDK 0.11.0 sends it.
+  const spotify = {
+    event_type: 'error',
+    error: { message: 'Failed to load <img> https://open.spotifycdn.com/cdn/images/favicon32.b64ecc03.png', type: 'ResourceError', handled: false },
+    stacktrace: [],
+    breadcrumbs: [],
+    device: { url: 'https://assistant-nine-ecru.vercel.app/ai/integrations' },
+    context: {
+      resource: 'img', cause: 'hidden_cross_origin', status: null,
+      url: 'https://open.spotifycdn.com/cdn/images/favicon32.b64ecc03.png', host: 'open.spotifycdn.com', cross_origin: true,
+      content_type: null, duration_ms: 481, size_bytes: null, selector: 'div.w-full.flex > a > img', alt: 'Spotify',
+      current_src: null, loading: 'lazy', crossorigin: null, same_host_failures: 2,
+      situation: { online: true, connection: '4g', visibility: 'visible', ms_since_page_load: 152000, ms_since_navigation: 545, during_page_load: false },
+    },
+  };
+
+  it('explains a failed third-party image: file, element, same host, hashed name', () => {
+    const insight = analyzeEvent(spotify, null);
+    assert.equal(fact(insight, 'File')?.text, '<img> https://open.spotifycdn.com/cdn/images/favicon32.b64ecc03.png · the browser hides the reason (the file is on another origin) · after 481 ms');
+    assert.equal(fact(insight, 'File')?.tone, 'bad');
+    assert.equal(fact(insight, 'Element')?.text, 'div.w-full.flex > a > img · alt "Spotify" · loading=lazy');
+    assert.match(fact(insight, 'Same host')?.text ?? '', /^2 other files from open\.spotifycdn\.com failed earlier/);
+    assert.equal(fact(insight, 'Request'), undefined);
+    const hint = insight.hints.find((h) => h.source === 'built-in')?.text ?? '';
+    assert.match(hint, /DevTools → Network/);
+    assert.match(hint, /version hash/);
+    // Nothing to say about a normal network and a loaded page.
+    assert.equal(fact(insight, 'Network'), undefined);
+    assert.equal(fact(insight, 'Page'), undefined);
+  });
+
+  it('still reads the same event from SDK 0.8.0 (no diagnostic context) as before', () => {
+    const insight = analyzeEvent({ ...spotify, context: null }, null);
+    assert.equal(fact(insight, 'File'), undefined);
+    assert.match(insight.hints.find((h) => h.source === 'built-in')?.text ?? '', /^A file \(script, stylesheet, image or font\) failed to load/);
+  });
+
+  it('uses the status for own files, and the content type for unusable ones', () => {
+    const own = analyzeEvent({ ...spotify, context: { ...spotify.context, cause: 'http_error', status: 404, url: 'https://assistant-nine-ecru.vercel.app/logo.png', cross_origin: false } }, null);
+    assert.match(fact(own, 'File')?.text ?? '', /^<img> \/logo\.png · status 404/);
+    assert.match(own.hints[0].text, /not on the server/);
+    const bad = analyzeEvent({ ...spotify, context: { ...spotify.context, cause: 'bad_content', status: 200, content_type: 'text/html' } }, null);
+    assert.match(fact(bad, 'File')?.text ?? '', /status 200 \(served as text\/html\)/);
+    assert.match(bad.hints[0].text, /HTML error or login page/);
+  });
+
+  it('names server log ids and how the server had been doing', () => {
+    const event = {
+      error: { message: 'GET https://api.test/cart → 503', type: 'HttpError', handled: true },
+      context: {
+        _id: 'abc', url: 'https://api.test/cart', method: 'GET', status: 503, duration_ms: 40, cause: 'server_error',
+        content_type: 'text/html', response_headers: { 'x-request-id': 'req-1', 'cf-ray': '8a1-BOM' },
+        host: 'api.test', cross_origin: true, same_host_failures: 3, ms_since_host_ok: null,
+      },
+    };
+    const insight = analyzeEvent(event, null);
+    assert.equal(fact(insight, 'Request')?.text, 'GET https://api.test/cart answered 503 (text/html) after 40 ms');
+    assert.equal(fact(insight, 'Server log id')?.text, 'x-request-id: req-1 · cf-ray: 8a1-BOM. Search the server, CDN or proxy logs for it.');
+    assert.equal(fact(insight, 'Server')?.text, '3 other requests to api.test failed in the minute before; it had not answered without an error on this page before.');
+    assert.equal(fact(insight, 'Server')?.tone, 'bad');
+    assert.match(insight.hints[0].text, /server log id above/);
+  });
+
+  it('tells a dead server from a one-off network failure', () => {
+    const base = { error: { message: 'GET https://api.test/x failed', type: 'NetworkError', handled: true } };
+    const down = analyzeEvent({ ...base, context: { url: 'https://api.test/x', method: 'GET', failure: 'network', host: 'api.test', same_host_failures: 2, ms_since_host_ok: null } }, null);
+    assert.match(down.hints[0].text, /server was down or unreachable/);
+    const blip = analyzeEvent({ ...base, context: { url: 'https://api.test/x', method: 'GET', failure: 'network', host: 'api.test', same_host_failures: 0, ms_since_host_ok: 1500 } }, null);
+    assert.equal(fact(blip, 'Server')?.text, 'api.test answered fine 1.5 s before this request.');
+    assert.match(blip.hints[0].text, /answered moments earlier/);
+  });
+
+  it('says what came back instead of JSON', () => {
+    const insight = analyzeEvent({
+      error: { message: 'Invalid JSON from https://api.test/me (status 200): Unexpected token', type: 'InvalidJsonResponse', handled: true },
+      context: { url: 'https://api.test/me', status: 200, cause: 'html_page', content_type: 'text/html', content_length: null, response_headers: null },
+    }, null);
+    assert.equal(fact(insight, 'Response')?.text, 'https://api.test/me answered 200 with an HTML page (Content-Type text/html)');
+    assert.match(insight.hints[0].text, /login page/);
+  });
+
+  it('shows the cause chain, error fields and non-Error throws', () => {
+    const insight = analyzeEvent({
+      error: { message: 'Checkout failed', type: 'Error', handled: true },
+      context: {
+        error_causes: [
+          { type: 'TypeError', message: 'price is undefined', stacktrace: [{ filename: 'https://app.test/cart.js', lineno: 4, colno: 2, function: 'total' }] },
+          { type: null, message: '{"code":1}', stacktrace: [] },
+        ],
+        error_fields: { code: 'E_PAY', status: 500, retryable: false },
+      },
+    }, null);
+    assert.equal(fact(insight, 'Caused by')?.text, 'TypeError: price is undefined (at total (cart.js:4:2)) ← value: {"code":1}');
+    assert.equal(fact(insight, 'Error fields')?.text, 'code: E_PAY · status: 500 · retryable: false');
+    const thrown = analyzeEvent({ error: { message: 'timeout', type: 'UnhandledRejection', handled: false }, context: { thrown_kind: 'string' } }, null);
+    assert.match(fact(thrown, 'Thrown value')?.text ?? '', /^a string, not an Error object/);
+  });
+
+  it('calls out offline, slow networks, loading pages and background tabs', () => {
+    const at = (situation: Record<string, unknown>) => analyzeEvent({ error: { message: 'x', type: 'Error', handled: false }, context: { situation } }, null);
+    assert.equal(fact(at({ online: false, connection: '4g' }), 'Network')?.tone, 'bad');
+    assert.match(fact(at({ online: true, connection: '2g' }), 'Network')?.text ?? '', /slow connection \(2g\)/);
+    assert.equal(fact(at({ online: true, connection: '3g' }), 'Network'), undefined);
+    assert.equal(fact(at({ during_page_load: true, ms_since_page_load: 1200 }), 'Page')?.text, 'still loading (1.2 s after it started), before everything on it was ready.');
+    assert.match(fact(at({ visibility: 'hidden' }), 'Tab')?.text ?? '', /background/);
+  });
+
+  it('lists the scripts behind a "Script error."', () => {
+    const insight = analyzeEvent({
+      error: { message: 'Script error.', type: 'CrossOriginScriptError', handled: false },
+      context: { cause: 'hidden_cross_origin', hint: 'x', scripts_without_crossorigin: ['cdn.a.test', 'widgets.b.test'] },
+    }, null);
+    assert.match(insight.hints[0].text, /without crossorigin: cdn\.a\.test, widgets\.b\.test\.$/);
+  });
+
+  it('does not call a dated file name a version hash', () => {
+    const dated = analyzeEvent({ ...spotify, context: { ...spotify.context, url: 'https://cdn.test/photos/photo-20231105.jpg' } }, null);
+    assert.doesNotMatch(dated.hints[0].text, /version hash/);
+  });
+
+  it('blames the server, not the network, for JSON that stops early', () => {
+    const insight = analyzeEvent({
+      error: { message: 'Invalid JSON from https://api.test/me', type: 'InvalidJsonResponse', handled: true },
+      context: { url: 'https://api.test/me', cause: 'incomplete_json', content_type: 'application/json', content_length: 40 },
+    }, null);
+    assert.equal(fact(insight, 'Response')?.text, 'https://api.test/me answered with JSON that stops early (or only whitespace) (Content-Type application/json) · 40 bytes');
+    assert.match(insight.hints[0].text, /server built an incomplete answer/);
+  });
+
+  it('ignores diagnostic fields of the wrong type', () => {
+    const insight = analyzeEvent({
+      error: { message: 'x', type: 'ResourceError', handled: false },
+      context: {
+        url: { toString: 'x' }, cause: ['http_error'], status: '404', same_host_failures: '9', response_headers: ['a'],
+        error_causes: 'not a list', error_fields: { nested: { a: 1 } }, thrown_kind: 42, situation: 'online',
+      },
+    }, null);
+    assert.equal(fact(insight, 'File'), undefined);
+    assert.equal(fact(insight, 'Server log id'), undefined);
+    assert.equal(fact(insight, 'Caused by'), undefined);
+    assert.equal(fact(insight, 'Error fields'), undefined);
+    assert.equal(fact(insight, 'Same host'), undefined);
+  });
+});

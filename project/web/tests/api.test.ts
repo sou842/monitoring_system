@@ -246,6 +246,42 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal(again.issue.count, 3);
     });
 
+    it('sums up who and where an issue hits (Impact), counting SDK 0.11.0 situations', async () => {
+      const created = await (await api.projects.POST(authed('/api/projects', { method: 'POST', body: { name: 'Impact' } }))).json();
+      const failing = (user: string | null, screen: string | null, browserVersion: string, situation: Record<string, unknown> | null) =>
+        sampleEvent({
+          error: { message: 'Impact check', type: 'ImpactError', handled: false },
+          user: { id: user, email: null, name: null },
+          screen,
+          app_version: user === 'u3' ? '2.2.0' : '2.1.4',
+          device: { ...(sampleEvent().device as Record<string, unknown>), browser_version: browserVersion },
+          context: situation ? { situation } : null,
+        });
+      await ingest(created.apiKey, [
+        failing('u1', 'Checkout', '124.0.1', { online: false, during_page_load: false }),
+        failing('u1', 'Checkout', '124.0.1', { online: true, during_page_load: true }),
+        failing('u2', null, '125.0', { online: true, during_page_load: false }),
+        failing('u3', 'Cart', '125.0', null),
+        failing(null, 'Checkout', '125.0', null),
+      ]);
+      const list = await (await api.issues.GET(authed(`/api/issues?projectId=${created.project.id}`))).json();
+      const detail = await (await api.issue.GET(authed(`/api/issue?id=${list.issues[0].id}`))).json();
+      assert.deepEqual(detail.impact, {
+        sampled: 5,
+        users: 3,
+        anonymous: 1,
+        screens: [{ value: 'Checkout', count: 3 }, { value: 'Cart', count: 1 }, { value: 'https://shop.test/checkout', count: 1 }],
+        browsers: [{ value: 'Chrome 125', count: 3 }, { value: 'Chrome 124', count: 2 }],
+        versions: [{ value: '2.1.4', count: 4 }, { value: '2.2.0', count: 1 }],
+        withSituation: 3,
+        offline: 1,
+        duringPageLoad: 1,
+      });
+      const plan = await db.collection('events').aggregate([{ $match: { issueId: new ObjectId(list.issues[0].id) } }, { $sort: { receivedAt: -1 } }, { $limit: 1000 }]).explain();
+      assert.match(JSON.stringify(plan), /IXSCAN/, 'Impact reads the issue\'s events through the index');
+      await api.projects.DELETE(authed(`/api/projects?id=${created.project.id}`, { method: 'DELETE' }));
+    });
+
     it('rotates the API key: the old key stops working, the new one works', async () => {
       const res = await (await api.projects.POST(authed(`/api/projects?id=${projectId}&action=rotate-key`, { method: 'POST' }))).json();
       assert.notEqual(res.apiKey, apiKey);

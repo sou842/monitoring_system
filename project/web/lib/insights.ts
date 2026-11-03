@@ -18,6 +18,8 @@ export const LAST_MOMENTS_MAX_ITEMS = 15;
 export const LIFECYCLE_FOLD_MIN = 3;
 /** A request that ended this close before the error is named as its likely trigger. */
 export const TRIGGER_REQUEST_MS = 5000;
+/** A server that answered fine this recently makes a network failure look like a one-off, not an outage. */
+export const RECENT_HOST_OK_MS = 60000;
 /** A tab hidden this close before the error is called out as a timing clue. */
 export const RECENTLY_HIDDEN_MS = 2000;
 /** The dashboard writes team hints as `match => text` lines, so a match can't contain this. */
@@ -399,6 +401,211 @@ const MESSAGE_HINTS: Array<[RegExp, string | ((m: RegExpExecArray) => string)]> 
   [/permission|notallowederror/i, 'The browser blocked an action that needs permission or a user gesture (clipboard, fullscreen, autoplay, notifications).'],
 ];
 
+// ---------------------------------------------------------------------------
+// Diagnostic context (SDK 0.11.0+): `context.cause` and the fields around it.
+// Older events don't have these fields, so every reader falls back to nothing.
+// ---------------------------------------------------------------------------
+
+/**
+ * A file name with a content hash (`favicon32.b64ecc03.png`, `main-3f9a1c2e.js`): it changes on every release.
+ * The hash must contain a letter, so dates such as `photo-20231105.jpg` don't count.
+ */
+const HASHED_FILE = /[.-](?=[0-9]*[a-f])[0-9a-f]{8,}\.[a-z0-9]+$/i;
+
+const RESOURCE_CAUSE_TEXT: Record<string, string> = {
+  bad_content: 'the server answered, but the browser could not use the file',
+  hidden_cross_origin: 'the browser hides the reason (the file is on another origin)',
+  no_response: 'no response at all',
+  offline: 'the device was offline',
+  unknown: 'the browser gave no details',
+};
+
+const RESOURCE_CAUSE_HINTS: Record<string, string> = {
+  bad_content:
+    'The server answered, but the file was not usable: corrupt, empty, or a different kind of file than the tag expects. An HTML error or login page served in place of an image or script is the usual case; see the content type above.',
+  hidden_cross_origin:
+    'The file is on another origin, so the browser does not tell the page why it failed: it could be 403/404, a DNS failure or a blocked request. Open the page with DevTools → Network to see the real status. Files from other companies\' servers can disappear or block hotlinking at any time; host a copy yourself when you can.',
+  no_response:
+    'The browser got no response at all: the server was down or unreachable, or an ad/privacy blocker, company proxy or the browser blocked the request.',
+  offline: 'The device was offline. Usually not a bug; it matters only if it happens a lot.',
+  unknown:
+    'The browser gave no details about this failure (older browser, or its timing buffer was full). Check the file\'s URL and server.',
+};
+
+const RESOURCE_STATUS_HINTS: Array<[(status: number) => boolean, string]> = [
+  [(s) => s === 404 || s === 410, 'The file is not on the server: a wrong path, or a file removed by a deploy while this page (or a cached copy of it) still pointed at the old name.'],
+  [(s) => s === 401 || s === 403, 'The server refused to send the file: it needs a login or signed URL, the link expired, or the server blocks requests from this site.'],
+  [(s) => s >= 500, 'The server or CDN failed while serving the file. Check that server\'s status and logs at this time.'],
+];
+
+const JSON_CAUSE_TEXT: Record<string, string> = {
+  html_page: 'an HTML page',
+  empty_body: 'an empty body',
+  incomplete_json: 'JSON that stops early (or only whitespace)',
+  empty_or_incomplete: 'an empty body or JSON that stops early',
+  malformed_json: 'broken JSON',
+  not_json: 'text that is not JSON',
+};
+
+const JSON_CAUSE_HINTS: Record<string, string> = {
+  html_page:
+    'An HTML page came back where the app expected JSON. Typical reasons: the session expired and the server redirected to a login page, a proxy or gateway returned its own error page, or the URL is wrong and the server sent its normal page (the SPA fallback). The status and URL above tell which.',
+  empty_body: 'The server sent an empty body (e.g. 204 or an empty 200) where the app expected JSON. Either the server should return JSON or the app should not parse an empty answer.',
+  incomplete_json: 'The whole response arrived, but its JSON stops early (or is only whitespace): the server built an incomplete answer, e.g. it crashed or hit an error after it started writing. Check the endpoint\'s logs at this time.',
+  empty_or_incomplete: 'The response was empty or its JSON stops early. Either the endpoint should return JSON here, or the app should not parse an empty answer; check the endpoint\'s logs at this time.',
+  malformed_json: 'The server said it sent JSON, but the text is not valid JSON: a server-side bug in building the response (string concatenation, debug output, a stray character).',
+  not_json: 'The server answered with plain text or another format where the app expected JSON.',
+};
+
+const SLOW_CONNECTIONS = ['slow-2g', '2g'];
+
+/** A JSON object (not an array): diagnostic fields that hold key/value pairs. */
+const isObjectMap = (v: unknown): v is Record<string, unknown> => isRecord(v) && !Array.isArray(v);
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** "x-request-id: abc · cf-ray: 8a1" from a response_headers object; '' when none. */
+function serverIds(value: unknown): string {
+  if (!isObjectMap(value)) return '';
+  return Object.keys(value)
+    .filter((k) => asText(value[k]) !== '')
+    .map((k) => `${k}: ${asText(value[k])}`)
+    .join(' · ');
+}
+
+/** The built-in hint for an event the SDK described with `context.cause`, or null. */
+function diagnosisHint(type: unknown, ctx: Record<string, unknown>): string | null {
+  const cause = asText(ctx.cause);
+  if (type === 'ResourceError') {
+    const status = asNumber(ctx.status);
+    let hint: string | null = null;
+    if (status !== null) {
+      const found = RESOURCE_STATUS_HINTS.find(([test]) => test(status));
+      hint = found ? found[1] : null;
+    }
+    if (hint === null && cause) hint = lookup(RESOURCE_CAUSE_HINTS, cause) ?? null;
+    // Only the file name's end: event text is untrusted and can be 16 KB long.
+    if (hint !== null && HASHED_FILE.test(stripQuery(ctx.url).split('/').pop()?.slice(-300) ?? '')) {
+      hint += ' The file name contains a version hash, so it changes on every release of whoever serves it: the old name usually stops existing after their next deploy.';
+    }
+    return hint;
+  }
+  if (type === 'InvalidJsonResponse') return lookup(JSON_CAUSE_HINTS, cause) ?? null;
+  if (type === 'CrossOriginScriptError') {
+    const hosts = Array.isArray(ctx.scripts_without_crossorigin) ? ctx.scripts_without_crossorigin.map(asText).filter(Boolean) : [];
+    if (hosts.length === 0) return null;
+    return `${lookup(TYPE_HINTS, type)} Scripts on this page from other origins without crossorigin: ${hosts.join(', ')}.`;
+  }
+  return null;
+}
+
+/** A sentence about how the request's server had been doing on this page, or ''. */
+function hostHealthText(ctx: Record<string, unknown>): string {
+  const host = asText(ctx.host);
+  const failures = asNumber(ctx.same_host_failures);
+  const okAgo = asNumber(ctx.ms_since_host_ok);
+  if (!host || (failures === null && okAgo === null)) return '';
+  if (failures !== null && failures > 0) {
+    const last = okAgo === null ? 'it had not answered without an error on this page before' : `it last answered fine ${duration(okAgo)} before`;
+    return `${plural(failures, 'other request')} to ${host} failed in the minute before; ${last}.`;
+  }
+  return okAgo !== null ? `${host} answered fine ${duration(okAgo)} before this request.` : '';
+}
+
+/** Facts from the SDK's diagnostic context: the failed file, the server, the response, the thrown value. */
+function diagnosisFacts(event: InsightEvent): Fact[] {
+  const ctx = isRecord(event.context) ? event.context : null;
+  if (!ctx) return [];
+  const facts: Fact[] = [];
+  const type = isRecord(event.error) ? event.error.type : null;
+
+  if (type === 'ResourceError' && asText(ctx.url)) {
+    const status = asNumber(ctx.status);
+    const what = status !== null ? `status ${status}` : lookup(RESOURCE_CAUSE_TEXT, ctx.cause) ?? '';
+    const served = asText(ctx.content_type) ? ` (served as ${asText(ctx.content_type)})` : '';
+    const took = asNumber(ctx.duration_ms) !== null ? ` · after ${duration(asNumber(ctx.duration_ms) as number)}` : '';
+    const tag = asText(ctx.resource) ? `<${asText(ctx.resource)}> ` : '';
+    facts.push({ label: 'File', text: `${tag}${stripQuery(ctx.url)}${what ? ` · ${what}` : ''}${served}${took}`, tone: 'bad' });
+    const parts = [asText(ctx.selector)];
+    if (asText(ctx.alt)) parts.push(`alt "${asText(ctx.alt)}"`);
+    if (asText(ctx.current_src)) parts.push(`srcset picked ${stripQuery(ctx.current_src)}`);
+    if (asText(ctx.loading)) parts.push(`loading=${asText(ctx.loading)}`);
+    if (asText(ctx.crossorigin)) parts.push(`crossorigin=${asText(ctx.crossorigin)}`);
+    if (ctx.before_sdk_start === true) parts.push('failed before the SDK started');
+    if (parts.filter(Boolean).length > 0) facts.push({ label: 'Element', text: parts.filter(Boolean).join(' · ') });
+    const others = asNumber(ctx.same_host_failures);
+    if (others !== null && others > 0 && asText(ctx.host)) {
+      facts.push({ label: 'Same host', text: `${plural(others, 'other file')} from ${asText(ctx.host)} failed earlier on this page, so the whole host may be failing.`, tone: 'warn' });
+    }
+  }
+
+  if (type === 'InvalidJsonResponse' && asText(ctx.cause)) {
+    const what = lookup(JSON_CAUSE_TEXT, ctx.cause) ?? asText(ctx.cause);
+    const served = asText(ctx.content_type) ? ` (Content-Type ${asText(ctx.content_type)})` : '';
+    const length = asNumber(ctx.content_length) !== null ? ` · ${asNumber(ctx.content_length)} bytes` : '';
+    const status = asText(ctx.status) ? `answered ${asText(ctx.status)}` : 'answered';
+    facts.push({ label: 'Response', text: `${stripQuery(ctx.url)} ${status} with ${what}${served}${length}`, tone: 'bad' });
+  }
+
+  const ids = serverIds(ctx.response_headers);
+  if (ids) facts.push({ label: 'Server log id', text: `${ids}. Search the server, CDN or proxy logs for it.` });
+  if (type === 'HttpError' || type === 'NetworkError') {
+    const health = hostHealthText(ctx);
+    if (health) {
+      const failing = (asNumber(ctx.same_host_failures) ?? 0) > 0;
+      facts.push({ label: 'Server', text: health, tone: failing ? (ctx.ms_since_host_ok === null ? 'bad' : 'warn') : '' });
+    }
+  }
+
+  if (Array.isArray(ctx.error_causes) && ctx.error_causes.length > 0) {
+    const chain = ctx.error_causes.filter(isRecord).map((c) => {
+      const frames = Array.isArray(c.stacktrace) ? c.stacktrace.filter(isRecord) : [];
+      const where = frames.length > 0 ? ` (at ${frameLabel(frames[0] as InsightFrame)})` : '';
+      return `${asText(c.type) || 'value'}: ${asText(c.message)}${where}`;
+    });
+    if (chain.length > 0) facts.push({ label: 'Caused by', text: chain.join(' ← ') });
+  }
+  if (isObjectMap(ctx.error_fields)) {
+    const fields = ctx.error_fields;
+    const text = Object.keys(fields)
+      .filter((k) => asText(fields[k]) !== '' || typeof fields[k] === 'boolean')
+      .map((k) => `${k}: ${typeof fields[k] === 'boolean' ? String(fields[k]) : asText(fields[k])}`)
+      .join(' · ');
+    if (text) facts.push({ label: 'Error fields', text });
+  }
+  const kind = asText(ctx.thrown_kind);
+  if (kind) {
+    facts.push({
+      label: 'Thrown value',
+      text: `a ${kind}, not an Error object, so the browser recorded no stack trace. Throw or reject with new Error(...) to get one.`,
+      tone: 'warn',
+    });
+  }
+  return facts;
+}
+
+/** Facts from `context.situation`: the network and page state when the event happened. */
+function situationFacts(event: InsightEvent, hasTabFact: boolean): Fact[] {
+  const ctx = isRecord(event.context) ? event.context : null;
+  const s = ctx && isObjectMap(ctx.situation) ? ctx.situation : null;
+  if (!s) return [];
+  const facts: Fact[] = [];
+  const connection = asText(s.connection);
+  if (s.online === false) {
+    facts.push({ label: 'Network', text: 'the device was offline when this happened.', tone: 'bad' });
+  } else if (SLOW_CONNECTIONS.includes(connection)) {
+    facts.push({ label: 'Network', text: `slow connection (${connection}): timeouts and late responses are expected on this device.`, tone: 'warn' });
+  }
+  const sinceLoad = asNumber(s.ms_since_page_load);
+  if (s.during_page_load === true) {
+    facts.push({ label: 'Page', text: `still loading${sinceLoad !== null ? ` (${duration(sinceLoad)} after it started)` : ''}, before everything on it was ready.` });
+  }
+  if (s.visibility === 'hidden' && !hasTabFact) {
+    facts.push({ label: 'Tab', text: 'in the background when this happened. Browsers pause timers and drawing in background tabs.', tone: 'warn' });
+  }
+  return facts;
+}
+
 /** The text a project hint is matched against: error type, message and context values. */
 function hintHaystack(event: InsightEvent): string[] {
   const parts: unknown[] = [event.error && event.error.type, event.error && event.error.message];
@@ -430,13 +637,26 @@ export function hintsFor(event: InsightEvent, settings: InsightSettingsInput | n
   }
   const error = isRecord(event.error) ? event.error : {};
   const ctx = isRecord(event.context) ? event.context : {};
-  let builtIn: string | null = null;
+  // From the SDK's context.cause (0.11.0+) first; older events fall through to the rules below.
+  let builtIn: string | null = diagnosisHint(error.type, ctx);
+  if (builtIn !== null) {
+    out.push({ source: 'built-in', text: builtIn });
+    return out;
+  }
   if (error.type === 'HttpError') {
     const status = asNumber(ctx.status);
     const found = status === null ? undefined : STATUS_HINTS.find(([test]) => test(status));
     builtIn = found ? found[1] : null;
+    if (builtIn !== null && serverIds(ctx.response_headers)) builtIn += ' The server log id above finds this exact request.';
   } else if (error.type === 'NetworkError') {
     builtIn = lookup(FAILURE_HINTS, ctx.failure) || FAILURE_HINTS.network;
+    const failures = asNumber(ctx.same_host_failures);
+    const okAgo = asNumber(ctx.ms_since_host_ok);
+    if (ctx.failure === 'network' && failures !== null && failures > 0 && okAgo === null) {
+      builtIn += ' Every request to this server failed on this page, so the server was down or unreachable from this user\'s network.';
+    } else if (ctx.failure === 'network' && okAgo !== null && okAgo < RECENT_HOST_OK_MS) {
+      builtIn += ' The same server answered moments earlier, so look at this request in particular (CORS on this route, a timeout) or a brief network drop.';
+    }
   } else if (lookup(TYPE_HINTS, error.type)) {
     builtIn = lookup(TYPE_HINTS, error.type) ?? null;
   } else {
@@ -473,13 +693,15 @@ function contextFact(event: InsightEvent): Fact | null {
   const ctx = isRecord(event.context) ? event.context : null;
   if (!ctx) return null;
   const text = asText;
+  if (event.error && event.error.type === 'ResourceError') return null; // diagnosisFacts() shows the file
   if (text(ctx.iface)) {
     const callback = text(ctx.callback) ? `, in its callback ${text(ctx.callback)}` : '';
     const code = text(ctx.errorCode) ? ` · error code ${text(ctx.errorCode)}${text(ctx.errorMessage) ? ` (${text(ctx.errorMessage)})` : ''}` : '';
     return { label: 'During', text: `server call "${text(ctx.iface)}"${callback}${code}` };
   }
   if (typeof ctx.url === 'string' && typeof ctx.method === 'string') {
-    const result = text(ctx.status) ? `answered ${text(ctx.status)}` : text(ctx.failure) ? `got no response (${text(ctx.failure)})` : '';
+    const type = text(ctx.content_type) ? ` (${text(ctx.content_type)})` : '';
+    const result = text(ctx.status) ? `answered ${text(ctx.status)}${type}` : text(ctx.failure) ? `got no response (${text(ctx.failure)})` : '';
     const tookMs = asNumber(ctx.duration_ms);
     const took = tookMs !== null ? ` after ${duration(tookMs)}` : '';
     // Red only when the request failed: a SlowApiCall's context describes a 200.
@@ -532,8 +754,12 @@ export function analyzeEvent<F extends InsightFrame>(event: InsightEvent<F>, set
   const click = lastCrumb(crumbs, errorAt, (b) => b.type === 'click');
   if (click) facts.push({ label: 'User did', text: `${asText(click.crumb.message)}${ago(click.beforeMs)}` });
 
+  facts.push(...diagnosisFacts(event));
+
   const lifecycle = lastCrumb(crumbs, errorAt, (b) => b.type === 'lifecycle');
-  if (lifecycle && /hidden/i.test(asText(lifecycle.crumb.message))) {
+  const tabHidden = !!lifecycle && /hidden/i.test(asText(lifecycle.crumb.message));
+  facts.push(...situationFacts(event, tabHidden));
+  if (lifecycle && tabHidden) {
     const recent = lifecycle.beforeMs !== null && lifecycle.beforeMs <= RECENTLY_HIDDEN_MS;
     facts.push({
       label: 'Tab',

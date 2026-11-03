@@ -352,6 +352,9 @@
   .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
   .meta div span { display: block; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
   .meta div b { font-weight: 400; font-size: 14px; }
+  /* Impact row under the issue meta: values can be long lists, so they wrap. */
+  .meta.impact { margin-top: 14px; padding-top: 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .meta.impact div b { overflow-wrap: anywhere; }
   .detail { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
   .detail > div > .section:first-child { margin-top: 0; }
   .events-list { max-height: 72vh; overflow: auto; scrollbar-width: none; }

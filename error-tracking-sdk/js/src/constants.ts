@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.10.0';
+export const SDK_VERSION = '0.11.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -253,3 +253,73 @@ export const BLANK_PAGE_MIN_CONTENT_PX = 2;
 export const BLANK_PAGE_MAX_SHADOW_DEPTH = 3;
 /** The element scan stops after finding this many content elements under an opaque layer (an overlay). */
 export const BLANK_PAGE_MAX_COVERED_ELEMENTS = 10;
+
+// ---------------------------------------------------------------------------
+// Diagnostic context (what the SDK adds to `context` so an issue explains itself)
+// ---------------------------------------------------------------------------
+/** Longest string kept in a diagnostic field (error fields, alt text, header values). */
+export const MAX_DIAGNOSTIC_STRING_LENGTH = 200;
+/** Longest message kept for each error in an `error.cause` chain. */
+export const MAX_CAUSE_MESSAGE_LENGTH = 500;
+/** How many links of an `error.cause` chain are recorded. */
+export const MAX_ERROR_CAUSE_DEPTH = 3;
+/** Top stack frames kept for each error in the cause chain. */
+export const MAX_CAUSE_FRAMES = 5;
+/**
+ * The only own fields of an error object that are recorded (`error_fields`).
+ * An allowlist, not a blocklist: libraries put URLs with tokens (`url`), raw
+ * response bodies (`error`, `body`, `responseText`) and credentials on their
+ * error objects, and none of that may leave the app.
+ */
+export const ERROR_FIELD_ALLOWLIST: readonly string[] = [
+  'code',
+  'errno',
+  'syscall',
+  'status',
+  'statusCode',
+  'statusText',
+  'ok',
+  'type',
+  'reason',
+  'isAxiosError',
+  'retryable',
+];
+/**
+ * Response headers that carry the server's id for a request, so a failed call
+ * can be found in server, CDN or proxy logs. Only these are read; the browser
+ * shows cross-origin ones only when the server exposes them.
+ */
+export const SERVER_ID_HEADERS: readonly string[] = [
+  'x-request-id',
+  'x-correlation-id',
+  'request-id',
+  'x-amzn-requestid',
+  'x-amz-request-id',
+  'x-amz-cf-id',
+  'x-vercel-id',
+  'cf-ray',
+  'x-cloud-trace-context',
+  'x-ms-request-id',
+  'traceresponse',
+];
+/** Failures to one host inside this window are counted in `same_host_failures`. */
+export const SAME_HOST_WINDOW_MS = 60000;
+/** Hosts remembered for failure counts; beyond this the least recently seen host is forgotten. */
+export const MAX_TRACKED_HOSTS = 50;
+/** Most failure times remembered per host. */
+export const MAX_HOST_FAILURES_TRACKED = 20;
+/**
+ * Browsers keep this many Resource Timing entries by default; once full, a
+ * failed file may have no entry, so a missing entry no longer means "no response".
+ */
+export const RESOURCE_TIMING_BUFFER_SIZE = 250;
+/** Longest URL kept in a diagnostic field (`url`, `current_src`); `data:`/`blob:` URLs are never kept. */
+export const MAX_DIAGNOSTIC_URL_LENGTH = 500;
+/**
+ * A Resource Timing entry belongs to a failed load only when it ended this
+ * recently: an older entry for the same URL is an earlier load (e.g. one that
+ * worked), and a failed request often gets no entry at all.
+ */
+export const RESOURCE_ENTRY_MAX_AGE_MS = 5000;
+/** Cross-origin script hosts listed on a CrossOriginScriptError. */
+export const MAX_SCRIPT_HOSTS_LISTED = 10;

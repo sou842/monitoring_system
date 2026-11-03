@@ -1,4 +1,5 @@
 import { MAX_MESSAGE_LENGTH } from '../constants';
+import { originOf, responseInfo, ResponseInfo } from '../core/diagnosis';
 import { absoluteUrl, getWindow, stripQuery } from '../core/env';
 import { Logger } from '../core/logger';
 import { markReported } from '../core/reportedErrors';
@@ -11,9 +12,61 @@ const INVALID_JSON_TYPE = 'InvalidJsonResponse';
 /** The `json()` wrapper's own frame, removed from call-site stacks. */
 const WRAPPER_FRAMES = 1;
 
-/** Builds the error for a response body that could not be parsed as JSON. */
-export function invalidJsonError(url: string, status: number, cause: unknown, callStack: string | undefined): CapturedError {
+/** Parser messages for a body that ended too early (Chrome, Firefox, Safari). */
+const END_OF_INPUT = /unexpected end of (json )?input|unexpected end of data|unexpected eof/i;
+/**
+ * Parser messages for a body that starts with `<`. Safari: "Unrecognized token
+ * '<'". Chrome: "Unexpected token '<', "<!DOCTYPE "... is not valid JSON",
+ * where the quoted part is the start of the body; when it starts with
+ * something else, the `<` was inside the JSON (e.g. an HTML string value), so
+ * this is not an HTML page.
+ */
+const STARTS_WITH_TAG = /token '<'(?!, "\s*[^<\s])/i;
+
+/**
+ * What came back instead of JSON, judged from the parser's message and the
+ * response headers (the body itself is never read or sent):
+ * - `html_page`: an HTML page (login redirect, proxy or server error page, SPA fallback);
+ * - `empty_body`: nothing (`Content-Length: 0`);
+ * - `incomplete_json`: a complete response whose JSON stops early (or is only
+ *   whitespace): a server-side bug. A transfer cut off by the network fails as
+ *   a network error instead and never gets here;
+ * - `empty_or_incomplete`: the JSON ended early and the length is unknown;
+ * - `malformed_json`: served as JSON but not valid JSON;
+ * - `not_json`: some other content.
+ */
+export type InvalidJsonCause = 'html_page' | 'empty_body' | 'incomplete_json' | 'empty_or_incomplete' | 'malformed_json' | 'not_json';
+
+/** Classifies an invalid JSON body; see `InvalidJsonCause`. */
+export function classifyInvalidJson(reason: string, info: ResponseInfo | null): InvalidJsonCause {
+  const type = info !== null && info.contentType !== null ? info.contentType.toLowerCase() : '';
+  const length = info !== null ? info.contentLength : null;
+  if (END_OF_INPUT.test(reason)) {
+    if (length === 0) return 'empty_body';
+    return length !== null ? 'incomplete_json' : 'empty_or_incomplete';
+  }
+  if (type.indexOf('html') !== -1 || STARTS_WITH_TAG.test(reason)) return 'html_page';
+  if (type.indexOf('json') !== -1) return 'malformed_json';
+  return 'not_json';
+}
+
+/**
+ * Builds the error for a response body that could not be parsed as JSON.
+ * @param url the response URL (query removed)
+ * @param status the response status
+ * @param cause the parser's error
+ * @param callStack stack captured where the app called `json()`
+ * @param info the response's content type, length and server ids, when available
+ */
+export function invalidJsonError(
+  url: string,
+  status: number,
+  cause: unknown,
+  callStack: string | undefined,
+  info: ResponseInfo | null = null,
+): CapturedError {
   const reason = cause instanceof Error ? cause.message : String(cause);
+  const origin = originOf(url);
   return {
     error: {
       message: truncate('Invalid JSON from ' + url + ' (status ' + status + '): ' + reason, MAX_MESSAGE_LENGTH),
@@ -22,7 +75,16 @@ export function invalidJsonError(url: string, status: number, cause: unknown, ca
       handled: true,
     },
     stacktrace: parseStack(callStack).slice(WRAPPER_FRAMES),
-    context: { url: url, status: status },
+    context: {
+      url: url,
+      status: status,
+      cause: classifyInvalidJson(reason, info),
+      content_type: info !== null ? info.contentType : null,
+      content_length: info !== null ? info.contentLength : null,
+      response_headers: info !== null ? info.serverIds : null,
+      host: origin.host,
+      cross_origin: origin.crossOrigin,
+    },
   };
 }
 
@@ -62,7 +124,10 @@ export class JsonResponseCollector implements Collector {
             const url = stripQuery(absoluteUrl(response.url || ''));
             if (self.isSdkUrl(url)) return;
             markReported(error);
-            self.sink.onError(invalidJsonError(url, response.status, error, callStack));
+            const info = responseInfo(function get(name: string) {
+              return response.headers.get(name);
+            });
+            self.sink.onError(invalidJsonError(url, response.status, error, callStack, info));
           });
         }
         throw error;

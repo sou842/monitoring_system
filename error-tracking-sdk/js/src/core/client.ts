@@ -26,7 +26,8 @@ import { Breadcrumb, BreadcrumbInput, EventLevel, JsonObject, TrackedUser, Track
 import { CircularBuffer } from './circularBuffer';
 import { ResolvedConfig } from './config';
 import { DeviceInfo } from './device';
-import { absoluteUrl, getDocument, getWindow, nowIso, stripQuery } from './env';
+import { mergeContext, situation, withSituation } from './diagnosis';
+import { absoluteUrl, getDocument, getWindow, nowIso, nowMs, stripQuery } from './env';
 import { Deduplicator, fingerprint, RateLimiter } from './eventFilters';
 import { EventQueue } from './eventQueue';
 import { Logger } from './logger';
@@ -73,6 +74,8 @@ export class Client implements CollectorSink {
   private readonly collectors: Collector[];
   private user: TrackedUser | null = null;
   private screen: string | null = null;
+  /** `performance.now()` of the last route or screen change, for `context.situation.ms_since_navigation`. */
+  private lastNavigationAt: number | null = null;
   private rateLimitWarned = false;
   /** Events dropped by the rate limiter since the last summary event. */
   private droppedCount = 0;
@@ -131,7 +134,7 @@ export class Client implements CollectorSink {
     this.collectors = [
       // First: everything below asks it whether the tab was hidden.
       this.visibility,
-      new ErrorCollector(this, this.logger),
+      new ErrorCollector(this, this.logger, config.maskSelectors),
       new BreadcrumbCollector(this, this.network, config.maskSelectors, this.logger, config.captureConsoleErrors),
       this.performance,
       // Before the client's own visibility listener (added in start()), so a view
@@ -268,7 +271,8 @@ export class Client implements CollectorSink {
         level: 'error',
         error: captured.error,
         stacktrace: captured.stacktrace,
-        context: context !== undefined && context !== null ? normalizeObject(context) : null,
+        // The SDK's details about the thrown value, then the app's own context (which wins on a clash).
+        context: mergeContext(captured.context, context !== undefined && context !== null ? normalizeObject(context) : null),
       },
     );
   }
@@ -356,6 +360,7 @@ export class Client implements CollectorSink {
     if (next === this.screen) return;
     const from = this.screen;
     this.screen = next;
+    this.lastNavigationAt = nowMs();
     this.onBreadcrumb({
       type: 'navigation',
       message: next !== null ? 'Screen: ' + next : 'Screen cleared',
@@ -429,6 +434,7 @@ export class Client implements CollectorSink {
   }
 
   onNavigation(url: string): void {
+    this.lastNavigationAt = nowMs();
     this.pageViews.onNavigation(url);
     if (this.blankPage !== null) this.blankPage.scheduleCheck('navigation');
   }
@@ -478,6 +484,8 @@ export class Client implements CollectorSink {
     }
     this.rateLimitWarned = false;
 
+    // The page and network state at this moment, so the issue shows what the user's browser was going through.
+    input.context = withSituation(input.context, situation(this.lastNavigationAt));
     this.finish(buildEvent(input, this.scope(), nowIso()));
   }
 

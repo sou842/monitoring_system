@@ -119,8 +119,33 @@ export interface IssuesResponse {
   environments: string[];
 }
 
+/** One value of an Impact row and how many of the sampled events had it. */
+export interface ImpactValue {
+  value: string;
+  count: number;
+}
+
+/**
+ * Who and where an issue hits, over its newest stored events (up to
+ * `sampled`; older events expire after 30 days). `offline` and
+ * `duringPageLoad` count only events from SDK 0.11.0+ (`withSituation`).
+ */
+export interface IssueImpact {
+  sampled: number;
+  users: number;
+  /** Events without a user id (the app never called setUser). */
+  anonymous: number;
+  screens: ImpactValue[];
+  browsers: ImpactValue[];
+  versions: ImpactValue[];
+  withSituation: number;
+  offline: number;
+  duringPageLoad: number;
+}
+
 export interface IssueResponse {
   issue: IssueView;
+  impact: IssueImpact;
   project: { id: string; name: string; insights: InsightSettingsView } | null;
   events: EventSummaryView[];
   latestEvent: EventView | null;

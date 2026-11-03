@@ -6,6 +6,7 @@ import { ISSUE_RECENT_EVENTS } from '../constants.ts';
 import { collections } from '../db.ts';
 import { deleteIssues } from '../deletion.ts';
 import { bodyObject, errorResponse, handle, json, parseObjectId, readJson } from '../http.ts';
+import { issueImpact } from '../impact.ts';
 import { insightSettingsView } from '../insights.ts';
 import type { IssueDoc } from '../models.ts';
 import { eventSummaryView, eventView, issueView } from '../views.ts';
@@ -24,21 +25,24 @@ async function loadIssue(request: Request): Promise<{ response: Response } | { r
 }
 
 /**
- * GET /api/issue?id=… — the issue, its latest events (summaries), the newest
- * event in full, and the project's insight settings for the summary on top.
+ * GET /api/issue?id=… — the issue, who and where it hits (impact), its latest
+ * events (summaries), the newest event in full, and the project's insight
+ * settings for the summary on top.
  */
 export const GET = handle(async (request) => {
   const loaded = await loadIssue(request);
   if (loaded.response) return loaded.response;
   const { db, issue } = loaded;
   const c = collections(db);
-  const [events, project] = await Promise.all([
+  const [events, project, impact] = await Promise.all([
     c.events.find({ issueId: issue._id }).sort({ receivedAt: -1 }).limit(ISSUE_RECENT_EVENTS).toArray(),
     c.projects.findOne({ _id: issue.projectId }, { projection: { name: 1, insights: 1 } }),
+    issueImpact(db, issue._id),
   ]);
 
   return json({
     issue: issueView(issue),
+    impact,
     project: project ? { id: String(project._id), name: project.name, insights: insightSettingsView(project.insights) } : null,
     events: events.map(eventSummaryView),
     latestEvent: events.length > 0 ? eventView(events[0]) : null,

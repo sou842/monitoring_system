@@ -1,9 +1,10 @@
 import {
   MASKED_TEXT,
   MAX_CLICK_TEXT_LENGTH,
-  MAX_CSS_PATH_DEPTH,
   MAX_MESSAGE_LENGTH,
 } from '../constants';
+import { mergeContext } from '../core/diagnosis';
+import { cssPath, isMasked } from '../core/dom';
 import { getDocument, getWindow, stripQuery } from '../core/env';
 import { LOG_PREFIX, Logger } from '../core/logger';
 import { wasReported } from '../core/reportedErrors';
@@ -31,7 +32,7 @@ export function consoleErrorFromArgs(args: unknown[], callStack: string | undefi
     if (arg instanceof Error) {
       if (wasReported(arg)) return null;
       const captured = captureFromThrown(arg, true);
-      captured.context = { console_message: message };
+      captured.context = mergeContext(captured.context, { console_message: message });
       return captured;
     }
   }
@@ -47,40 +48,11 @@ type HistoryFn = History['pushState'];
 
 const CONSOLE_LEVELS: ConsoleLevel[] = ['warn', 'error'];
 const INTERACTIVE_SELECTOR = 'button, a, input, select, textarea, label, summary, [role="button"], [role="link"], [onclick]';
+export { cssPath, isMasked };
+
 const FORM_FIELD_TAGS = ['INPUT', 'TEXTAREA', 'SELECT'];
 /** Clicks on these land on the whole page; their text is every word on it (icon sprites included), which says nothing. */
 const PAGE_ROOT_TAGS = ['BODY', 'HTML'];
-
-/** Returns true if `el` or an ancestor matches any selector. Invalid selectors are ignored. */
-export function isMasked(el: Element, selectors: readonly string[]): boolean {
-  for (let i = 0; i < selectors.length; i++) {
-    try {
-      if (el.closest(selectors[i]) !== null) return true;
-    } catch (_e) {
-      // Invalid selector supplied by the host app; skip it.
-    }
-  }
-  return false;
-}
-
-/** Short CSS path such as `form#checkout > div.actions > button.primary`. */
-export function cssPath(el: Element): string {
-  const parts: string[] = [];
-  let current: Element | null = el;
-  while (current !== null && parts.length < MAX_CSS_PATH_DEPTH) {
-    let part = current.tagName.toLowerCase();
-    if (current.id) {
-      parts.unshift(part + '#' + current.id);
-      break;
-    }
-    const className = typeof current.className === 'string' ? current.className.trim() : '';
-    if (className.length > 0) part += '.' + className.split(/\s+/).slice(0, 2).join('.');
-    parts.unshift(part);
-    if (current.tagName === 'BODY') break;
-    current = current.parentElement;
-  }
-  return parts.join(' > ');
-}
 
 /** Human-readable label for a clicked element, never exposing form values or masked text. */
 export function describeElementText(el: Element, maskSelectors: readonly string[]): string {

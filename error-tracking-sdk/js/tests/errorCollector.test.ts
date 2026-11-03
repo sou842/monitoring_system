@@ -71,7 +71,11 @@ describe('ErrorCollector', () => {
   it('labels cross-origin "Script error." and builds a frame from the event location', () => {
     window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.', filename: 'https://cdn.test/lib.js', lineno: 10, colno: 4 }));
     expect(sink.errors[0].error).toEqual({ message: 'Script error.', type: 'CrossOriginScriptError', handled: false });
-    expect(sink.errors[0].context).toEqual({ hint: expect.stringContaining('crossorigin="anonymous"') });
+    expect(sink.errors[0].context).toEqual({
+      cause: 'hidden_cross_origin',
+      hint: expect.stringContaining('crossorigin="anonymous"'),
+      scripts_without_crossorigin: [],
+    });
     expect(sink.errors[0].stacktrace).toEqual([
       { filename: 'https://cdn.test/lib.js', lineno: 10, colno: 4, function: '<anonymous>' },
     ]);

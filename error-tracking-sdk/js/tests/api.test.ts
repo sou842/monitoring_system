@@ -160,9 +160,10 @@ describe('ErrorTracker public API', () => {
       ErrorTracker.capturePageNotFound('/other-missing');
       await ErrorTracker.flush();
 
+      const situation = expect.objectContaining({ online: true, visibility: 'visible' });
       expect(notFoundEvents().map((e) => e.context)).toEqual([
-        { url: location.origin + '/wrong_path', path: '/wrong_path', status: null, referrer: null, source: 'app' },
-        { url: location.origin + '/other-missing', path: '/other-missing', status: null, referrer: null, source: 'app' },
+        { url: location.origin + '/wrong_path', path: '/wrong_path', status: null, referrer: null, source: 'app', situation },
+        { url: location.origin + '/other-missing', path: '/other-missing', status: null, referrer: null, source: 'app', situation },
       ]);
     });
 

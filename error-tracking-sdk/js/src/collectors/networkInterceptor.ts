@@ -1,3 +1,4 @@
+import { headerLookup, responseInfo, ResponseInfo } from '../core/diagnosis';
 import { absoluteUrl, getWindow, isOnline, nowMs, stripQuery } from '../core/env';
 import { randomRequestId } from '../core/ids';
 import { Logger } from '../core/logger';
@@ -32,10 +33,34 @@ export interface RequestDetails {
    * request's Resource Timing entry; never recorded or sent.
    */
   rawUrl: string;
+  /**
+   * Content type, length and server request-id headers of the response, read
+   * on first call (only for requests that get reported). Null when there was
+   * no response. Must be called synchronously from the listener: an XHR can
+   * be reused by the app right after.
+   */
+  response?: () => ResponseInfo | null;
 }
 
 /** What the fetch/XHR wrappers know about a finished request; the interceptor adds the timing fields. */
-type WrapperDetails = Pick<RequestDetails, 'failure' | 'error' | 'callSite'>;
+type WrapperDetails = Pick<RequestDetails, 'failure' | 'error' | 'callSite' | 'response'>;
+
+/** Reads a response's headers once, on first use. */
+function lazyResponse(read: (() => (name: string) => string | null) | null): () => ResponseInfo | null {
+  let done = false;
+  let info: ResponseInfo | null = null;
+  return function response() {
+    if (!done) {
+      done = true;
+      try {
+        info = read !== null ? responseInfo(read()) : null;
+      } catch (_e) {
+        info = null;
+      }
+    }
+    return info;
+  };
+}
 
 export type NetworkListener = (call: ApiCall, details: RequestDetails) => void;
 
@@ -194,6 +219,7 @@ export class NetworkInterceptor implements Collector {
       startTime: startedAt,
       endTime: endTime,
       rawUrl: absolute,
+      response: wrapper.response,
     };
     for (let i = 0; i < this.listeners.length; i++) {
       const listener = this.listeners[i];
@@ -237,11 +263,26 @@ export class NetworkInterceptor implements Collector {
       }
       return pending.then(
         function onResponse(response: Response) {
-          self.emit(method, url, response.status, startedAt, { failure: null, error: null, callSite: callSite });
+          self.emit(method, url, response.status, startedAt, {
+            failure: null,
+            error: null,
+            callSite: callSite,
+            // Cross-origin headers the server didn't expose read as null, without console noise.
+            response: lazyResponse(function headersOf() {
+              return function get(name: string) {
+                return response.headers.get(name);
+              };
+            }),
+          });
           return response;
         },
         function onError(error: unknown) {
-          self.emit(method, url, 0, startedAt, { failure: classifyFetchFailure(error), error: error, callSite: callSite });
+          self.emit(method, url, 0, startedAt, {
+            failure: classifyFetchFailure(error),
+            error: error,
+            callSite: callSite,
+            response: lazyResponse(null),
+          });
           throw error;
         },
       );
@@ -277,6 +318,15 @@ export class NetworkInterceptor implements Collector {
       failure: failure,
       error: null,
       callSite: xhr.__et_callSite || lazyCallSite(undefined),
+      // getAllResponseHeaders(), not getResponseHeader(): the latter logs "Refused to get
+      // unsafe header" to the app's console for every header the server didn't expose.
+      response: lazyResponse(
+        xhr.status > 0
+          ? function headersOf() {
+              return headerLookup(xhr.getAllResponseHeaders());
+            }
+          : null,
+      ),
     });
   }
 

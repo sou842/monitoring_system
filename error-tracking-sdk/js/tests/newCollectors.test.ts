@@ -165,7 +165,16 @@ describe('JsonResponseCollector', () => {
     expect(sink.errors[0].error.type).toBe('InvalidJsonResponse');
     expect(sink.errors[0].error.message).toMatch(/^Invalid JSON from https:\/\/api\.test\/profile \(status 200\): /);
     expect(sink.errors[0].error.message).not.toContain('secret');
-    expect(sink.errors[0].context).toEqual({ url: 'https://api.test/profile', status: 200 });
+    expect(sink.errors[0].context).toEqual({
+      url: 'https://api.test/profile',
+      status: 200,
+      cause: 'html_page',
+      content_type: 'application/json',
+      content_length: null,
+      response_headers: null,
+      host: 'api.test',
+      cross_origin: true,
+    });
   });
 
   it('leaves valid JSON alone', async () => {

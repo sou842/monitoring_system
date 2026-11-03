@@ -331,6 +331,21 @@ Query strings and fragments are stripped from every recorded URL, because they o
 
 **One failure, one event.** Error objects the SDK has reported are remembered. For example, a failed `fetch` reported as `NetworkError` is not reported again when the app leaves the rejected promise uncaught, or when a framework logs it with `console.error`.
 
+### Diagnostic context
+
+*Added in 0.11.0.* Events carry extra fields in `context`, so an issue can be understood without reproducing it. Everything is read from data the browser already has: there are no extra requests, nothing extra happens on page load, and the work runs only while an event is being built. Request and response bodies, form values and cookies are never read. SDK-built errors have a machine-readable `context.cause`.
+
+| Event | Added to `context` |
+| --- | --- |
+| Every error, message and performance event | `situation`: `online`, `connection` (`slow-2g`…`4g`, Chromium only), `visibility`, `ms_since_page_load`, `ms_since_navigation` (since the last route or `setScreen()` change, `null` if none), `during_page_load`. A `situation` key you pass to `captureError` is kept as is. |
+| Thrown errors (uncaught, rejections, `captureError`) | `error_causes`: the [`error.cause`](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Error/cause) chain, outermost first, max 3 links, each `{ type, message, stacktrace }` (5 frames). `error_fields`: a fixed list of the error object's own fields only (`code`, `errno`, `syscall`, `status`, `statusCode`, `statusText`, `ok`, `type`, `reason`, `isAxiosError`, `retryable`), plain values; fields like `url`, `error` or `body` are never read, because libraries put URLs with tokens and raw response bodies there. `thrown_kind` when the value thrown was not an Error (`string`, `object`, `undefined`, …), which is why such events have no stack. Your own `captureError` context wins on a name clash. |
+| `ResourceError` | `cause`: `http_error` (with `status`), `bad_content` (2xx/3xx but unusable: corrupt, or an HTML page served as an image or script; see `content_type`), `hidden_cross_origin` (another origin: browsers hide the status, so check DevTools → Network), `no_response` (blocked by an extension or proxy, or unreachable), `offline`, `unknown`. Also `url`, `host`, `cross_origin`, `duration_ms`, `size_bytes` (URLs without query, max 500 characters; `data:`/`blob:` URLs are reduced to `data:<type>`, so a broken inline image never lands in an event), and for elements `selector`, `alt` (masked like click text), `current_src` (when `srcset` picked another file), `loading`, `crossorigin`, `same_host_failures` (earlier failed files from that host on this page). The status is not added to the message, so a file fails into the same issue on every browser. |
+| `HttpError` / `NetworkError` | `cause` (`server_error` / `client_error`, or the failure kind), `host`, `cross_origin`, `same_host_failures` (failures to that host in the previous minute), `ms_since_host_ok` (since it last answered without a 5xx; `null` = never on this page). `HttpError` also: `content_type` and `response_headers`, the server's request-id headers only (`x-request-id`, `x-correlation-id`, `request-id`, `x-amzn-requestid`, `x-amz-request-id`, `x-amz-cf-id`, `x-vercel-id`, `cf-ray`, `x-cloud-trace-context`, `x-ms-request-id`, `traceresponse`), so you can find the request in server or CDN logs. Browsers show these for other origins only when the server lists them in `Access-Control-Expose-Headers`. |
+| `InvalidJsonResponse` | `cause`: `html_page`, `empty_body`, `incomplete_json`, `empty_or_incomplete`, `malformed_json`, `not_json` (judged from the parser's message and the headers; the body is never read), plus `content_type`, `content_length`, `response_headers`, `host`, `cross_origin`. |
+| `CrossOriginScriptError` | `cause: "hidden_cross_origin"` and `scripts_without_crossorigin`: hosts of other-origin `<script>` tags without a `crossorigin` attribute (max 10), the likely sources. |
+
+In real Chrome the added fields come to 150–500 bytes per event.
+
 ### How memory leaks are detected
 
 *Changed in 0.4.0.* Memory going up is not a leak by itself: apps load screens and caches, and garbage piles up until the browser collects it. The SDK reports `MemoryLeakSuspected` only when the memory the page **keeps after garbage collection** grows steadily:
@@ -352,7 +367,7 @@ Errors that happen before `init()` runs are not captured, apart from the resourc
 
 ### Cross-origin scripts ("Script error.")
 
-Browsers hide the message and stack of errors thrown by scripts from another origin, such as a CDN or third-party widget. All that arrives is `Script error.`, which the SDK reports as `CrossOriginScriptError`, with a hint in `context`. To get the real error, load the script with `crossorigin="anonymous"` and serve it with an `Access-Control-Allow-Origin` header.
+Browsers hide the message and stack of errors thrown by scripts from another origin, such as a CDN or third-party widget. All that arrives is `Script error.`, which the SDK reports as `CrossOriginScriptError`, with a hint and the hosts of other-origin scripts loaded without `crossorigin` in `context`. To get the real error, load the script with `crossorigin="anonymous"` and serve it with an `Access-Control-Allow-Origin` header.
 
 ### Not covered
 

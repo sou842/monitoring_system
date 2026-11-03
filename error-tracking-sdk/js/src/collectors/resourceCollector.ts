@@ -1,8 +1,10 @@
 import { HTTP_ERROR_STATUS_MIN, MAX_MESSAGE_LENGTH } from '../constants';
+import { originOf } from '../core/diagnosis';
 import { getDocument, nowMs, stripQuery } from '../core/env';
 import { Logger } from '../core/logger';
 import { guard, safelyRun } from '../core/safe';
 import { truncate } from '../core/serialize';
+import { JsonObject } from '../types';
 import { CapturedError, Collector, CollectorSink } from './collector';
 
 const RESOURCE_ERROR_TYPE = 'ResourceError';
@@ -15,10 +17,30 @@ const FONT_FILE = /\.(woff2?|ttf|otf|eot)$/i;
 const ELEMENT_INITIATORS = ['img', 'script', 'link'];
 
 /** A resource timing entry. `responseStatus` is Chromium 109+, so it may be missing at runtime. */
-type ResourceEntryWithStatus = PerformanceEntry & { initiatorType: string; responseEnd: number; responseStatus?: number };
+type ResourceEntryWithStatus = PerformanceEntry & { initiatorType: string; responseEnd: number; responseStatus?: number; contentType?: string };
 
-/** Builds the error for an element resource that failed before the SDK started. */
-export function earlyElementResourceError(tag: string, url: string, status: number): CapturedError {
+/** Fields every failed file with a known status carries (see resourceDiagnosis.ts for the full list). */
+function knownStatusContext(resource: string, url: string, status: number, entry: ResourceEntryWithStatus | undefined): JsonObject {
+  const origin = originOf(url);
+  return {
+    resource: resource,
+    cause: 'http_error',
+    status: status,
+    url: url,
+    host: origin.host,
+    cross_origin: origin.crossOrigin,
+    content_type: entry !== undefined && typeof entry.contentType === 'string' && entry.contentType.length > 0 ? entry.contentType : null,
+    duration_ms: entry !== undefined && isFinite(entry.duration) ? Math.round(entry.duration) : null,
+  };
+}
+
+/**
+ * Builds the error for an element resource that failed before the SDK started.
+ * @param entry its Resource Timing entry, for content type and duration
+ */
+export function earlyElementResourceError(tag: string, url: string, status: number, entry?: ResourceEntryWithStatus): CapturedError {
+  const context = knownStatusContext(tag, url, status, entry);
+  context.before_sdk_start = true;
   return {
     error: {
       message: truncate('Failed to load <' + tag + '> ' + url + ' (status ' + status + ')', MAX_MESSAGE_LENGTH),
@@ -26,12 +48,15 @@ export function earlyElementResourceError(tag: string, url: string, status: numb
       handled: false,
     },
     stacktrace: [],
-    context: { resource: tag, url: url, status: status, before_sdk_start: true },
+    context: context,
   };
 }
 
-/** Builds the error for a stylesheet-initiated resource that came back with an error status. */
-export function cssResourceError(url: string, status: number): CapturedError {
+/**
+ * Builds the error for a stylesheet-initiated resource that came back with an error status.
+ * @param entry its Resource Timing entry, for content type and duration
+ */
+export function cssResourceError(url: string, status: number, entry?: ResourceEntryWithStatus): CapturedError {
   return {
     error: {
       message: truncate('Failed to load CSS resource ' + url + ' (status ' + status + ')', MAX_MESSAGE_LENGTH),
@@ -39,7 +64,7 @@ export function cssResourceError(url: string, status: number): CapturedError {
       handled: false,
     },
     stacktrace: [],
-    context: { resource: 'css', url: url, status: status },
+    context: knownStatusContext('css', url, status, entry),
   };
 }
 
@@ -117,14 +142,14 @@ export class ResourceCollector implements Collector {
     const url = stripQuery(entry.name);
 
     if (entry.initiatorType === CSS_INITIATOR) {
-      if (!FONT_FILE.test(url)) this.sink.onError(cssResourceError(url, status));
+      if (!FONT_FILE.test(url)) this.sink.onError(cssResourceError(url, status, entry));
       return;
     }
     if (ELEMENT_INITIATORS.indexOf(entry.initiatorType) !== -1 && entry.responseEnd <= this.installedAt) {
       // One file can fail twice (e.g. a <link rel="preload"> plus the <img> using it): report the URL once.
       if (this.earlyReported.indexOf(url) !== -1) return;
       this.earlyReported.push(url);
-      this.sink.onError(earlyElementResourceError(entry.initiatorType, url, status));
+      this.sink.onError(earlyElementResourceError(entry.initiatorType, url, status, entry));
     }
   }
 

@@ -1,5 +1,6 @@
-import { MAX_MESSAGE_LENGTH, UNKNOWN_FUNCTION } from '../constants';
-import { getWindow, stripQuery } from '../core/env';
+import { MAX_MESSAGE_LENGTH, MAX_SCRIPT_HOSTS_LISTED, UNKNOWN_FUNCTION } from '../constants';
+import { BoundedRecord, diagnosticUrl, originOf, thrownDetails } from '../core/diagnosis';
+import { absoluteUrl, getDocument, getWindow, stripQuery } from '../core/env';
 import { Logger } from '../core/logger';
 import { locationSignature, markReported, wasReported, wasSignatureReported } from '../core/reportedErrors';
 import { guard } from '../core/safe';
@@ -7,6 +8,7 @@ import { describeValue, truncate } from '../core/serialize';
 import { parseStackFromError } from '../core/stackParser';
 import { StackFrame } from '../types';
 import { CapturedError, Collector, CollectorSink } from './collector';
+import { describeFailedElement } from './resourceDiagnosis';
 
 const UNHANDLED_REJECTION_TYPE = 'UnhandledRejection';
 const RESOURCE_ERROR_TYPE = 'ResourceError';
@@ -48,7 +50,29 @@ export function captureFromThrown(thrown: unknown, handled: boolean, fallbackTyp
       handled: handled,
     },
     stacktrace: parseStackFromError(thrown),
+    // Cause chain, own fields, non-Error values: what the stack trace leaves out.
+    context: thrownDetails(thrown),
   };
+}
+
+/**
+ * Hosts of cross-origin `<script src>` elements loaded without a `crossorigin`
+ * attribute. Errors thrown by these reach the page only as "Script error.",
+ * so they are the candidates for a hidden error.
+ */
+export function scriptsWithoutCrossorigin(): string[] {
+  const doc = getDocument();
+  const hosts: string[] = [];
+  if (doc === null) return hosts;
+  const scripts = doc.getElementsByTagName('script');
+  for (let i = 0; i < scripts.length && hosts.length < MAX_SCRIPT_HOSTS_LISTED; i++) {
+    const src = scripts[i].getAttribute('src');
+    if (src === null || src.length === 0 || scripts[i].hasAttribute('crossorigin')) continue;
+    // absoluteUrl resolves against document.baseURI, so a <base href> is honoured like the browser does.
+    const origin = originOf(absoluteUrl(src));
+    if (origin.crossOrigin === true && origin.host !== null && hosts.indexOf(origin.host) === -1) hosts.push(origin.host);
+  }
+  return hosts;
 }
 
 /**
@@ -65,9 +89,20 @@ export class ErrorCollector implements Collector {
   private readonly handleError: (event: Event) => void;
   private readonly handleRejection: (event: PromiseRejectionEvent) => void;
 
+  /** Failed files per host on this page, for `same_host_failures`. */
+  private readonly resourceFailures = new BoundedRecord(function create() {
+    return { count: 0 };
+  });
+
+  /**
+   * @param sink receives the captured errors
+   * @param logger SDK debug logger
+   * @param maskSelectors selectors whose text (an image's `alt`) must not be recorded
+   */
   constructor(
     private readonly sink: CollectorSink,
     logger: Logger,
+    private readonly maskSelectors: readonly string[] = [],
   ) {
     const self = this;
     this.handleError = guard(logger, 'error handler', function onError(event: Event) {
@@ -114,7 +149,7 @@ export class ErrorCollector implements Collector {
         captured = {
           error: { message: event.message, type: CROSS_ORIGIN_ERROR_TYPE, handled: false },
           stacktrace: [] as StackFrame[],
-          context: { hint: CROSS_ORIGIN_HINT },
+          context: { cause: 'hidden_cross_origin', hint: CROSS_ORIGIN_HINT, scripts_without_crossorigin: scriptsWithoutCrossorigin() },
         };
       } else {
         captured = {
@@ -136,13 +171,21 @@ export class ErrorCollector implements Collector {
       // uses the file (e.g. the <img> React preloads) reports its own failure.
       if (isResourceHint(target)) return null;
       const source = resourceUrl(target);
+      const failures = this.resourceFailures;
+      const context = describeFailedElement(target, this.maskSelectors, function count(host: string) {
+        const counter = failures.get(host);
+        return counter.count++;
+      });
       return {
         error: {
+          // No status here (it is in context.status): browsers without Resource Timing status,
+          // and events from older SDKs, must still group into the same issue.
           message: truncate('Failed to load <' + target.tagName.toLowerCase() + '>' + (source !== null ? ' ' + source : ''), MAX_MESSAGE_LENGTH),
           type: RESOURCE_ERROR_TYPE,
           handled: false,
         },
         stacktrace: [],
+        context: context,
       };
     }
     return null;
@@ -168,5 +211,6 @@ function isResourceHint(el: Element): boolean {
 
 function resourceUrl(el: Element): string | null {
   const raw = el.getAttribute('src') || el.getAttribute('href');
-  return raw !== null && raw.length > 0 ? stripQuery(raw) : null;
+  // diagnosticUrl: no query, and no inline data (a broken data: image would put the whole image in the message).
+  return raw !== null && raw.length > 0 ? diagnosticUrl(raw) : null;
 }
