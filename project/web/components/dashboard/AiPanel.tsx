@@ -142,7 +142,7 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
         <button type="button" className="icon-btn" onClick={newChat} disabled={messages.length === 0 && !error} title="Start a new chat">
           <Icon name="plus" /><span>New chat</span>
         </button>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close the AI panel" title="Close (Esc)">
+        <button type="button" className="icon-btn w-9.5 h-9.5" onClick={onClose} aria-label="Close the AI panel" title="Close (Esc)">
           <Icon name="close" />
         </button>
       </div>
