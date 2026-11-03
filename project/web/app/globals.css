@@ -406,6 +406,8 @@
   .ai-empty svg { width: 22px; height: 22px; }
   .ai-error { padding: 10px 12px; border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); font-size: 12.5px; }
   /* Markdown in answers: undo the dashboard's heading look (small uppercase labels). */
+  /* Tailwind's bare `border` is currentColor (black): give the chat the dashboard line colour. */
+  .ai-panel :where(*) { border-color: var(--line); }
   .ai-panel :where(h1, h2, h3, h4) { text-transform: none; letter-spacing: normal; color: var(--fg); margin: 0.9em 0 0.4em; }
   .ai-panel :where(h1) { font-size: 16px; }
   .ai-panel :where(h2) { font-size: 14.5px; }
