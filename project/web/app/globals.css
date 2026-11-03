@@ -440,6 +440,38 @@
   /* While dragging: no text selection, no width animation, the resize cursor everywhere. */
   .resizing, .resizing * { cursor: col-resize !important; user-select: none; }
   .resizing .sidebar { transition: none; }
+  /* ---------- Sidebar polish (wide screens; the phone top bar keeps its own rules) ---------- */
+  .nav-section { display: none; }
+  @media (min-width: 761px) {
+    .sidebar { padding: 16px 12px; background: linear-gradient(180deg, var(--panel), var(--bg)); }
+    .sidebar-head { align-items: center; padding: 0 4px 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .sidebar .brand { padding: 0; gap: 10px; font-size: 13px; letter-spacing: 0.12em; }
+    .sidebar .brand-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--invert-bg); position: relative; }
+    .sidebar .brand-mark::after { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: var(--invert-fg); }
+    .nav-section { display: block; padding: 0 10px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+    .sidebar .nav { gap: 3px; }
+    .sidebar .nav a, .sidebar .nav-btn { position: relative; padding: 8px 10px; border-radius: 8px; font-size: 13px; gap: 11px; transition: background 0.12s, color 0.12s; }
+    .sidebar .nav svg { width: 17px; height: 17px; stroke-width: 1.6; }
+    .sidebar .nav a.active { background: var(--panel-2); box-shadow: none; font-weight: 600; }
+    .sidebar .nav a.active::before { content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--fg); }
+    .sidebar .nav-bottom { padding-top: 12px; border-top: 1px solid var(--line); gap: 3px; }
+    .sidebar .nav a.user-chip { padding: 8px; margin-bottom: 2px; border: 1px solid var(--line); background: var(--panel-2); }
+    .sidebar .nav a.user-chip:hover { border-color: var(--line-strong); }
+    .sidebar .nav a.user-chip.active::before { display: none; }
+    .sidebar .nav-btn:hover { color: var(--danger); background: transparent; }
+    .sidebar .nav-btn:hover { background: var(--panel-2); }
+    .shell.collapsed .sidebar { padding: 16px 8px; }
+    .shell.collapsed .sidebar-head { border-bottom: 0; padding-bottom: 8px; margin-bottom: 6px; }
+    .shell.collapsed .nav-section { display: none; }
+    .shell.collapsed .sidebar .nav a.active::before { left: -8px; }
+    .shell.collapsed .sidebar .nav a.user-chip { border-color: transparent; background: none; padding: 6px 0; }
+    :root[data-theme='light'] .sidebar { background: var(--panel); }
+    :root[data-theme='light'] .sidebar .brand-mark { background: linear-gradient(135deg, #5b9bff, #2a55c9); width: 26px; height: 26px; }
+    :root[data-theme='light'] .sidebar .brand-mark::after { background: #fff; }
+    :root[data-theme='light'] .sidebar .nav a.active::before { background: var(--accent); }
+    :root[data-theme='light'] .sidebar .nav a.active { background: var(--accent-soft); box-shadow: none; color: var(--fg); }
+    :root[data-theme='light'] .sidebar .nav a.user-chip { background: var(--panel-2); border-radius: 10px; }
+  }
   /* ---------- Responsive ---------- */
   @media (max-width: 1000px) {
     .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

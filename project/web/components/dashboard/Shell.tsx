@@ -99,6 +99,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
               <Icon name="sidebar" />
             </button>
           </div>
+          <div className="nav-section nav-label">Menu</div>
           <nav className="nav" aria-label="Main">
             {NAV.filter((item) => !item.admin || user.role === 'admin').map((item) => (
               <Link key={item.href} href={item.href} className={item.match.some((m) => isUnder(pathname, m)) ? 'active' : ''} title={collapsed ? item.label : undefined}>
