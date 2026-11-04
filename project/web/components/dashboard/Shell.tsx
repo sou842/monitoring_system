@@ -267,7 +267,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
             <div className="side-foot">
               <Menu className="w-full" placement="top-stretch" trigger={({ open, toggle }) => (
                 <button type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Account menu"
-                  className={`user-card w-full cursor-pointer rounded-2xl text-left shadow-none${open || isUnder(pathname, '/account') ? ' active' : ''}`}>
+                  className={`user-card w-full cursor-pointer border-0 text-left ${open || isUnder(pathname, '/account') ? ' active' : ''}`}>
                   <Avatar name={user.name} size="sm" />
                   <span className="user-text min-w-0 flex-1"><b>{user.name}</b><small>{user.email}</small></span>
                   <Icon name="chevron" className="size-3.5 shrink-0 rotate-180 text-muted" />

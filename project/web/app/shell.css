@@ -167,7 +167,7 @@
   .app-frame.collapsed .nav-item svg { width: 18px; height: 18px; }
   .app-frame.collapsed .nav-item .avatar { margin: 0; }
   /* The unread / open count becomes a small badge on the tile's corner. */
-  .app-frame.collapsed .nav-count { position: absolute; top: 2px; right: 0; margin: 0; min-width: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; background: var(--invert-bg); color: var(--invert-fg); box-shadow: 0 0 0 2px var(--frame); }
+  .app-frame.collapsed .nav-count { position: absolute; top: 2px; right: 0; margin: 0; min-width: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; background: #9d9d9d; color: var(--invert-fg); box-shadow: 0 0 0 2px var(--frame); }
   .app-frame.collapsed .side-foot { width: 100%; justify-items: center; }
   .app-frame.collapsed .side-foot .menu-wrap { width: auto; }
   .app-frame.collapsed .user-card { justify-content: center; width: 40px; height: 40px; padding: 0; border-radius: 12px; }
