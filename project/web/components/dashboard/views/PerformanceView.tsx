@@ -5,10 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useApi } from '@/lib/client/api';
 import { bucketLabel, formatBytes, formatDate, formatMs, formatPercent, queryString, RANGE_LABELS, SDK_PACKAGE, SECONDS_FROM_MS, timeAgo, type Range } from '@/lib/format';
-import type { EndpointDetailResponse, PageDetailResponse, PerformanceResponse, ProjectsResponse, VitalRating, VitalSummary } from '@/lib/types';
+import type { EndpointDetailResponse, PageDetailResponse, PerformanceResponse, VitalRating, VitalSummary } from '@/lib/types';
 import { Badge, EmptyState, ErrorNotice, Kpi, Loading, Panel } from '../../ui/bits';
 import { CHART_LARGE, CHART_SMALL, CHART_WIDE, ColumnChart } from '../../ui/ColumnChart';
 import { Page, type Crumb } from '../Page';
+import { useSession } from '../Shell';
 import { Welcome } from '../Welcome';
 
 /** Web Vitals in display order, with how to show their value. */
@@ -74,7 +75,7 @@ function sortRows<T>(rows: T[], key: keyof T): T[] {
 const pick = <T extends readonly string[]>(options: T, value: string | null, fallback: T[number]): T[number] =>
   (options as readonly string[]).includes(value ?? '') ? (value as T[number]) : fallback;
 
-/** Web Vitals, endpoints and pages (`?range=&project=&env=`, plus `&endpoint=<key>` or `&page=<route>` for a detail view). */
+/** Web Vitals, endpoints and pages of the project picked in the sidebar (`?range=&env=`, plus `&endpoint=<key>` or `&page=<route>` for a detail view). */
 export function PerformanceView() {
   const router = useRouter();
   const query = useSearchParams();
@@ -82,15 +83,13 @@ export function PerformanceView() {
   const environment = query.get('env') || '';
   const endpoint = query.get('endpoint');
   const page = query.get('page');
-  const projectsState = useApi<ProjectsResponse>('/api/projects');
-  const projects = projectsState.data?.projects;
-  const projectId = projects && projects.some((p) => p.id === query.get('project')) ? (query.get('project') ?? '') : '';
+  const { projects, projectId } = useSession();
 
-  const state = { range, project: projectId, env: environment };
+  const state = { range, env: environment };
   const link = (changes: Record<string, string | null>) => `/performance${queryString({ ...state, ...changes })}`;
   const go = (changes: Record<string, string | null>) => router.push(link(changes), { scroll: false });
-  const base = `/api/stats${queryString({ view: 'performance', range, projectId, environment })}`;
-  const overview = useApi<PerformanceResponse>(projects && projects.length > 0 ? base : null);
+  const base = `/api/stats${queryString({ view: 'performance', range, projectId: projectId ?? '', environment })}`;
+  const overview = useApi<PerformanceResponse>(projectId ? base : null);
 
   const detailCrumbs = (label: string): Crumb[] => [{ label: 'Performance', href: link({}) }, { label }];
   const crumbs: Crumb[] = endpoint ? detailCrumbs(endpoint) : page ? detailCrumbs(page) : [{ label: 'Performance' }];
@@ -102,10 +101,6 @@ export function PerformanceView() {
           <button key={key} type="button" className={range === key ? 'active' : ''} onClick={() => go({ range: key, endpoint, page })}>{RANGE_LABELS[key]}</button>
         ))}
       </div>
-      <select aria-label="Project" value={projectId} onChange={(e) => go({ project: e.target.value })}>
-        <option value="">All projects</option>
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
       <select aria-label="Environment" value={environment} onChange={(e) => go({ env: e.target.value, endpoint, page })}>
         <option value="">All environments</option>
         {overview.data.environments.map((env) => <option key={env} value={env}>{env}</option>)}
@@ -114,8 +109,7 @@ export function PerformanceView() {
   ) : null;
 
   let body: ReactNode;
-  const error = projectsState.error || overview.error;
-  if (error) body = <ErrorNotice error={error} />;
+  if (overview.error) body = <ErrorNotice error={overview.error} />;
   else if (!projects) body = <Loading />;
   else if (projects.length === 0) body = <Welcome />;
   else if (!overview.data) body = <Loading />;

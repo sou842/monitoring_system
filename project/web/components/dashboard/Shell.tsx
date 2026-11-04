@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, clearCache, onUnauthorized, useApi } from '@/lib/client/api';
-import type { ProjectsResponse, UserView } from '@/lib/types';
+import type { ProjectListItem, ProjectsResponse, UserView } from '@/lib/types';
 import { Avatar } from '../ui/bits';
 import { Icon, type IconName } from '../ui/Icon';
 import { Menu } from '../ui/Menu';
@@ -23,6 +23,12 @@ interface Session {
   rightSlot: HTMLElement | null;
   /** Opens the navigation drawer (phones, where the sidebar is hidden). */
   openDrawer: () => void;
+  /** Your projects; null until the list has loaded. */
+  projects: ProjectListItem[] | null;
+  /** The project every data page (Dashboard, Performance) shows; null while loading or when you have none. */
+  projectId: string | null;
+  /** Picks the active project (remembered in this browser). */
+  setProjectId: (id: string) => void;
 }
 
 const SessionContext = createContext<Session | null>(null);
@@ -34,13 +40,7 @@ export function useSession(): Session {
   return session;
 }
 
-/** A team in the rail. Only the personal one exists until teams are built (docs/DESIGN.md §6); then this list comes from the API. */
-interface TeamItem {
-  id: string;
-  name: string;
-}
-const TEAMS: TeamItem[] = [{ id: 'personal', name: 'Personal' }];
-const ACTIVE_TEAM_ID = 'personal';
+const PROJECT_KEY = 'et_selected_project';
 
 interface NavEntry {
   label: string;
@@ -59,10 +59,6 @@ const MAIN_NAV: NavEntry[] = [
   { href: '/projects', label: 'Projects', icon: 'folder', match: ['/projects', '/issues'], exact: true },
   { href: '/performance', label: 'Performance', icon: 'performance', match: ['/performance'] },
   { label: 'Chats', icon: 'chat' },
-];
-const TEAM_NAV: NavEntry[] = [
-  { label: 'Members', icon: 'users' },
-  { label: 'Team settings', icon: 'sliders' },
 ];
 const ADMIN_NAV: NavEntry[] = [{ href: '/admin', label: 'Admin', icon: 'shield', match: ['/admin'] }];
 
@@ -126,10 +122,21 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   const collapsed = userCollapsed || panelCollapse;
   const sidebar = usePanelWidth(WIDTH_KEY, SIDEBAR_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
   const { data: projectList } = useApi<ProjectsResponse>('/api/projects');
-  const team = TEAMS.find((t) => t.id === ACTIVE_TEAM_ID) ?? TEAMS[0];
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const projectItems = projectList ? projectList.projects : null;
+  // The remembered project if it still exists, else the first one.
+  const activeProject = projectItems ? (projectItems.find((p) => p.id === pickedId) ?? projectItems[0] ?? null) : null;
+  const projectId = activeProject ? activeProject.id : null;
+  const setProjectId = (id: string) => {
+    setPickedId(id);
+    try { localStorage.setItem(PROJECT_KEY, id); } catch { /* storage blocked */ }
+  };
 
   useEffect(() => {
-    try { setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1'); } catch { /* storage blocked */ }
+    try {
+      setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1');
+      setPickedId(localStorage.getItem(PROJECT_KEY));
+    } catch { /* storage blocked */ }
   }, []);
 
   // A new page closes the phone drawer; so does Escape.
@@ -169,7 +176,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   const shown = projects.slice(0, SIDEBAR_PROJECTS);
 
   return (
-    <SessionContext.Provider value={{ user, setUser, collapseForPanel: setPanelCollapse, rightSlot, openDrawer: () => setDrawer(true) }}>
+    <SessionContext.Provider value={{ user, setUser, collapseForPanel: setPanelCollapse, rightSlot, openDrawer: () => setDrawer(true), projects: projectItems, projectId, setProjectId }}>
       <div>
         <div className={`app-frame${collapsed ? ' collapsed' : ''}${drawer ? ' drawer-open' : ''}`}>
           {/* <nav className="rail" aria-label="Teams">
@@ -198,20 +205,20 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
             {collapsed ? null : <ResizeHandle panel={sidebar} edge="right" label="Resize sidebar" />}
             <div className="side-head">
               <Menu className="team-menu" trigger={({ open, toggle }) => (
-                <button type="button" className="team-btn" onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Switch team">
-                  <span className="team-name">{team.name}</span>
+                <button type="button" className="team-btn" onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Switch project">
+                  <span className="team-name">{activeProject ? activeProject.name : projectItems ? 'No projects' : 'Loading…'}</span>
                   <Icon name="chevron" />
                 </button>
               )}>
-                <div className="menu-label">Teams</div>
-                {TEAMS.map((t) => (
-                  <div key={t.id} className="menu-item" role="menuitemradio" aria-checked={t.id === ACTIVE_TEAM_ID}>
-                    <Avatar name={t.name} size="sm" shape="square" />{t.name}
-                    {t.id === ACTIVE_TEAM_ID ? <Icon name="check" className="menu-check" /> : null}
-                  </div>
+                <div className="menu-label">Projects</div>
+                {(projectItems ?? []).map((p) => (
+                  <button key={p.id} type="button" className="menu-item" role="menuitemradio" aria-checked={p.id === projectId} onClick={() => setProjectId(p.id)}>
+                    <Avatar name={p.name} size="sm" shape="square" />{p.name}
+                    {p.id === projectId ? <Icon name="check" className="menu-check" /> : null}
+                  </button>
                 ))}
-                <div className="menu-item is-soon" aria-disabled="true"><Icon name="plus" />Create team<span className="pill-soon">Soon</span></div>
-                <div className="menu-item is-soon" aria-disabled="true"><Icon name="users" />Invite people<span className="pill-soon">Soon</span></div>
+                <Link className="menu-item" role="menuitem" href="/projects?new=1"><Icon name="plus" />New project</Link>
+                <Link className="menu-item" role="menuitem" href="/projects"><Icon name="folder" />Manage projects</Link>
               </Menu>
               <button className="side-toggle" type="button" onClick={toggleSidebar} aria-expanded={!collapsed}
                 aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
@@ -228,7 +235,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
                 {shown.map((p) => {
                   const active = isUnder(pathname, `/projects/${p.id}`);
                   return (
-                    <Link key={p.id} href={`/projects/${p.id}`} className={`nav-item${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} title={collapsed ? p.name : undefined}>
+                    <Link key={p.id} href={`/projects/${p.id}`} onClick={() => setProjectId(p.id)} className={`nav-item${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} title={collapsed ? p.name : undefined}>
                       <Avatar name={p.name} size="sm" shape="square" />
                       <span className="nav-text">{p.name}</span>
                       {p.openIssues > 0 ? <span className="nav-count">{p.openIssues > 999 ? '999+' : p.openIssues}</span> : null}
@@ -237,10 +244,6 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
                 })}
                 {projects.length > shown.length ? <Link href="/projects" className="nav-item muted-item"><Icon name="folder" /><span className="nav-text">All projects ({projects.length})</span></Link> : null}
                 <Link href="/projects?new=1" className="nav-item muted-item" title={collapsed ? 'New project' : undefined}><Icon name="plus" /><span className="nav-text">New project</span></Link>
-              </NavGroup>
-
-              <NavGroup label="Team">
-                {TEAM_NAV.map((entry) => <NavItem key={entry.label} entry={entry} pathname={pathname} collapsed={collapsed} />)}
               </NavGroup>
 
               {user.role === 'admin' ? (

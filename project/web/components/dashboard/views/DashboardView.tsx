@@ -4,14 +4,14 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useApi } from '@/lib/client/api';
 import { bucketLabel, queryString, RANGE_LABELS, type Range } from '@/lib/format';
-import type { ProjectsResponse, StatsResponse } from '@/lib/types';
+import type { StatsResponse } from '@/lib/types';
 import { ErrorNotice, Loading, Panel } from '../../ui/bits';
 import { CHART_LARGE, CHART_SMALL, ColumnChart } from '../../ui/ColumnChart';
 import { Page } from '../Page';
+import { useSession } from '../Shell';
 import { Welcome } from '../Welcome';
 
 const ISSUE_TICKS = 50;
-const PROJECT_ROWS = 4;
 
 function deltaText(total: number, previous: number, range: Range): string {
   if (previous === 0) return total === 0 ? 'No events yet' : 'No events in the previous period';
@@ -19,22 +19,20 @@ function deltaText(total: number, previous: number, range: Range): string {
   return `${percent >= 0 ? '+' : ''}${percent}% vs previous ${RANGE_LABELS[range].toLowerCase()}`;
 }
 
-/** Overview charts for all projects or one (`?range=24h|7d&project=<id>`). */
+/** Overview charts for the project picked in the sidebar (`?range=24h|7d`). */
 export function DashboardView() {
   const router = useRouter();
   const query = useSearchParams();
   const range: Range = query.get('range') === '7d' ? '7d' : '24h';
-  const projectsState = useApi<ProjectsResponse>('/api/projects');
-  const projects = projectsState.data?.projects;
-  const projectId = projects && projects.some((p) => p.id === query.get('project')) ? (query.get('project') ?? '') : '';
-  const stats = useApi<StatsResponse>(projects && projects.length > 0 ? `/api/stats${queryString({ range, projectId })}` : null);
+  const { projects, projectId } = useSession();
+  const stats = useApi<StatsResponse>(projectId ? `/api/stats${queryString({ range, projectId })}` : null);
+  const project = projects && projectId ? projects.find((p) => p.id === projectId) : undefined;
 
-  const change = (changes: { range?: Range; project?: string }) =>
-    router.push(`/dashboard${queryString({ range, project: projectId, ...changes })}`, { scroll: false });
+  const change = (changes: { range?: Range }) =>
+    router.push(`/dashboard${queryString({ range, ...changes })}`, { scroll: false });
 
   const content = () => {
-    const error = projectsState.error || stats.error;
-    if (error) return <ErrorNotice error={error} />;
+    if (stats.error) return <ErrorNotice error={stats.error} />;
     if (!projects) return <Loading />;
     if (projects.length === 0) return <Welcome />;
     const s = stats.data;
@@ -47,7 +45,6 @@ export function DashboardView() {
     const { open, resolved, ignored } = s.statuses;
     const issueTotal = open + resolved + ignored;
     const onTicks = issueTotal === 0 ? 0 : Math.round((open / issueTotal) * ISSUE_TICKS);
-    const scoped = projects.filter((p) => !projectId || p.id === projectId).slice(0, PROJECT_ROWS);
     const typeMax = Math.max(...Object.values(s.byType), 1);
     const topMax = Math.max(...s.topIssues.map((i) => i.count), 1);
 
@@ -68,14 +65,14 @@ export function DashboardView() {
             <span>Open {issueTotal === 0 ? 0 : Math.round((open / issueTotal) * 100)}%</span>
             <span className="muted">Resolved {resolved} · Ignored {ignored}</span>
           </div>
-          <div className="list-lines">
-            {scoped.map((p) => (
-              <Link key={p.id} href={`/projects/${p.id}`}>
-                <span className={`k${p.openIssues === 0 ? ' off' : ''}`}>{p.name}</span>
-                <span className="muted">{p.openIssues} open</span>
+          {project ? (
+            <div className="list-lines">
+              <Link href={`/projects/${project.id}`}>
+                <span className={`k${project.openIssues === 0 ? ' off' : ''}`}>View issues of {project.name}</span>
+                <span className="muted">{project.openIssues} open</span>
               </Link>
-            ))}
-          </div>
+            </div>
+          ) : null}
         </Panel>
 
         <Panel label="Event types" side={sideLabel}>
@@ -123,10 +120,6 @@ export function DashboardView() {
               <button key={key} type="button" className={range === key ? 'active' : ''} onClick={() => change({ range: key })}>{RANGE_LABELS[key]}</button>
             ))}
           </div>
-          <select aria-label="Project" value={projectId} onChange={(e) => change({ project: e.target.value })}>
-            <option value="">All projects</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
         </div>
       ) : null}
       {content()}
