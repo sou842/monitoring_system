@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, prefetch, useApi } from '@/lib/client/api';
@@ -12,7 +11,8 @@ import { cn } from '@/lib/utils';
 import { Avatar, EmptyState, ErrorNotice, Loading, SettingsCard } from '../../ui/bits';
 import { useDialog } from '../../ui/Dialog';
 import { KeyBox, useOrigin } from '../../ui/KeyBox';
-import { CARD, PageTitle, Pill, PillButton, TabBar, type Tone } from '../../ui/kit';
+import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
+import { PageTitle, Pill, PillButton, TabBar, type Tone } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
 import { MembersPanel } from '../MembersPanel';
@@ -27,7 +27,46 @@ type ProjectTab = 'issues' | 'members' | 'settings';
 const FIELD = 'h-9 rounded-full border border-line-strong bg-panel px-4 text-[13px] text-fg placeholder:text-faint';
 const EVENT_TONE: Record<string, Tone> = { crash: 'dark', error: 'red', performance: 'amber', message: 'neutral' };
 const SEVERITY_DOT: Record<string, string> = { crash: 'bg-fg', error: 'bg-red-500', performance: 'bg-amber-500' };
-const LIST_COLUMNS = 'grid grid-cols-[24px_minmax(0,1fr)] gap-x-4 sm:grid-cols-[24px_minmax(0,1fr)_80px_110px]';
+const issueHelper = columnHelper<IssueListItem>();
+/** An issue opens its own page, or the event that matched an API call id when the search was by call id. */
+const issueHref = (issue: IssueListItem): string => (issue.matchedEventId ? `/issues/${issue.id}?event=${issue.matchedEventId}` : `/issues/${issue.id}`);
+// The list is ordered by the server (the Sort menu), so these columns aren't sortable in the browser.
+const issueColumns = issueHelper.columns([
+  issueHelper.display({
+    id: 'issue',
+    header: 'Issue',
+    cell: ({ row }) => {
+      const issue = row.original;
+      const meta = [issue.culprit, issue.environments.join(', ')].filter(Boolean).join(' · ');
+      return (
+        <div className="min-w-0 py-0.5">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+            <span className={cn('size-2 shrink-0 rounded-full', SEVERITY_DOT[issue.eventType] ?? 'bg-muted')} aria-hidden="true" />
+            {issue.errorType}
+            <Pill tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Pill>
+            {issue.status !== 'open' ? <Pill tone="muted">{issue.status}</Pill> : null}
+            {issue.regressedAt && issue.status === 'open' ? <Pill tone="red">regressed</Pill> : null}
+          </div>
+          <div className="mt-1 max-w-3xl truncate text-[13px] text-fg-2">{issue.message || '(no message)'}</div>
+          {meta ? <div className="mt-1 max-w-3xl truncate text-xs text-muted">{meta}</div> : null}
+          <div className="mt-1 text-xs text-muted sm:hidden">{issue.count.toLocaleString()} events · {timeAgo(issue.lastSeen)}</div>
+        </div>
+      );
+    },
+  }),
+  issueHelper.display({
+    id: 'events',
+    header: 'Events',
+    meta: { align: 'right', className: 'max-sm:hidden', width: 'w-24' } satisfies DataColumnMeta,
+    cell: ({ row }) => <span className="tabular-nums">{row.original.count.toLocaleString()}</span>,
+  }),
+  issueHelper.display({
+    id: 'lastSeen',
+    header: 'Last seen',
+    meta: { align: 'right', className: 'max-sm:hidden', width: 'w-32' } satisfies DataColumnMeta,
+    cell: ({ row }) => <span className="text-xs text-muted" title={formatDate(row.original.lastSeen)}>{timeAgo(row.original.lastSeen)}</span>,
+  }),
+]);
 
 /** One project: its issues (filters in the URL: `?status=&type=&env=&q=&sort=&page=`) and, under "Settings", its keys, origins and insights. */
 export function ProjectIssuesView({ projectId }: { projectId: string }) {
@@ -105,15 +144,6 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
   const clearLabel = filters.status === 'all' ? 'all' : filters.status;
   const clearCount = filters.status === 'all' ? allCount : data.counts[filters.status];
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
-  const allSelected = data.issues.length > 0 && data.issues.every((i) => selected.has(i.id));
-
-  const toggle = (id: string, on: boolean) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
 
   const deleteSelected = action(async () => {
     const count = selected.size;
@@ -269,16 +299,18 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
               <EmptyState icon="search" title="No issues match these filters" text="Try a different status, type or search term." />
             )
           ) : (
-            <div className={cn(CARD, 'overflow-hidden')}>
-              <div className={cn(LIST_COLUMNS, 'items-center border-b border-line bg-panel-2 px-5 py-2.5 text-xs font-medium text-muted')}>
-                <input type="checkbox" aria-label="Select all issues on this page" checked={allSelected}
-                  onChange={(e) => setSelected(e.target.checked ? new Set(data.issues.map((i) => i.id)) : new Set())} />
-                <span>Issue</span>
-                <span className="hidden text-right sm:block">Events</span>
-                <span className="hidden text-right sm:block">Last seen</span>
-              </div>
-              {data.issues.map((issue) => <IssueRow key={issue.id} issue={issue} selected={selected.has(issue.id)} onToggle={(on) => toggle(issue.id, on)} />)}
-            </div>
+            <DataTable
+              data={data.issues}
+              columns={issueColumns}
+              getRowId={(issue) => issue.id}
+              initialSort={false}
+              selectable
+              selected={selected}
+              onSelectionChange={setSelected}
+              rowHref={issueHref}
+              onRowHover={(issue) => prefetch(`/api/issue?id=${issue.id}`)}
+              minWidth={560}
+            />
           )}
 
           {pages > 1 ? (
@@ -294,34 +326,3 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
   );
 }
 
-/** One issue in the list: a link to the issue (or to the event that matched an API call id). */
-function IssueRow({ issue, selected, onToggle }: { issue: IssueListItem; selected: boolean; onToggle: (on: boolean) => void }) {
-  // Found by an API call's _id: open the event that recorded that call.
-  const href = issue.matchedEventId ? `/issues/${issue.id}?event=${issue.matchedEventId}` : `/issues/${issue.id}`;
-  const warm = () => prefetch(`/api/issue?id=${issue.id}`);
-  const meta = [issue.culprit, issue.environments.join(', ')].filter(Boolean).join(' · ');
-  return (
-    <Link
-      href={href}
-      onMouseEnter={warm}
-      onFocus={warm}
-      className={cn(LIST_COLUMNS, 'items-start border-t border-line/70 px-5 py-3.5 text-fg no-underline first:border-t-0 hover:bg-(--hover) hover:no-underline')}
-    >
-      <input type="checkbox" aria-label="Select issue" className="mt-1" checked={selected} onClick={(e) => e.stopPropagation()} onChange={(e) => onToggle(e.target.checked)} />
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-          <span className={cn('size-2 shrink-0 rounded-full', SEVERITY_DOT[issue.eventType] ?? 'bg-muted')} aria-hidden="true" />
-          {issue.errorType}
-          <Pill tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Pill>
-          {issue.status !== 'open' ? <Pill tone="muted">{issue.status}</Pill> : null}
-          {issue.regressedAt && issue.status === 'open' ? <Pill tone="red">regressed</Pill> : null}
-        </div>
-        <div className="mt-1 truncate text-[13px] text-fg-2">{issue.message || '(no message)'}</div>
-        {meta ? <div className="mt-1 truncate text-xs text-muted">{meta}</div> : null}
-        <div className="mt-1 text-xs text-muted sm:hidden">{issue.count.toLocaleString()} events · {timeAgo(issue.lastSeen)}</div>
-      </div>
-      <div className="hidden text-right text-sm tabular-nums sm:block">{issue.count.toLocaleString()}</div>
-      <div className="hidden text-right text-xs text-muted sm:block" title={formatDate(issue.lastSeen)}>{timeAgo(issue.lastSeen)}</div>
-    </Link>
-  );
-}

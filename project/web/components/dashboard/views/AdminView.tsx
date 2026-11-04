@@ -1,11 +1,12 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { api, useApi } from '@/lib/client/api';
 import { formatDate, queryString, timeAgo } from '@/lib/format';
 import type { AdminResponse, AdminUserRow } from '@/lib/types';
 import { Avatar, Badge, EmptyState, ErrorNotice, Kpi, Loading } from '../../ui/bits';
+import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
 import { useDialog } from '../../ui/Dialog';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
@@ -31,8 +32,77 @@ const CHANGES: Record<Change, {
     message: (u) => `${u.email} keeps their account and projects, but can no longer open this page.` },
 };
 
+interface RowActions {
+  change: (user: AdminUserRow, kind: Change) => () => void;
+  remove: (user: AdminUserRow) => () => void;
+  meId: string;
+}
+const NO_ACTIONS: RowActions = { change: () => () => {}, remove: () => () => {}, meId: '' };
+const RIGHT: DataColumnMeta = { align: 'right' };
+const h = columnHelper<AdminUserRow>();
+
+const ROW_BUTTON = 'h-7 cursor-pointer rounded-full border border-line-strong bg-panel px-3 text-xs font-medium text-fg shadow-none hover:bg-(--hover)';
+
+function buildColumns(ref: MutableRefObject<RowActions>) {
+  return h.columns([
+    h.accessor((u) => u.name.toLowerCase(), {
+      id: 'user',
+      header: 'User',
+      cell: ({ row }) => {
+        const u = row.original;
+        return (
+          <div className="flex items-center gap-3">
+            <Avatar name={u.name} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2"><b className="font-semibold">{u.name}</b>{u.id === ref.current.meId ? <Badge text="you" kind="info" /> : null}</div>
+              <div className="text-xs text-muted">{u.email}</div>
+            </div>
+          </div>
+        );
+      },
+    }),
+    h.accessor((u) => u.role, { id: 'role', header: 'Role', cell: ({ row }) => <Badge text={row.original.role} kind={row.original.role === 'admin' ? 'open' : 'info'} /> }),
+    h.accessor((u) => u.status, { id: 'status', header: 'Status', cell: ({ row }) => <Badge text={row.original.status} kind={row.original.status === 'active' ? 'resolved' : 'error'} /> }),
+    h.accessor((u) => u.projects, { id: 'projects', header: 'Projects', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.projects.toLocaleString()}</span> }),
+    h.accessor((u) => u.events24h, { id: 'events24h', header: 'Events 24h', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.events24h.toLocaleString()}</span> }),
+    h.accessor((u) => new Date(u.createdAt).getTime(), {
+      id: 'createdAt',
+      header: 'Joined',
+      cell: ({ row }) => <span className="text-muted" title={formatDate(row.original.createdAt)}>{new Date(row.original.createdAt).toLocaleDateString()}</span>,
+    }),
+    h.accessor((u) => (u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : 0), {
+      id: 'lastLoginAt',
+      header: 'Last login',
+      cell: ({ row }) => <span className="text-muted" title={formatDate(row.original.lastLoginAt)}>{row.original.lastLoginAt ? timeAgo(row.original.lastLoginAt) : '–'}</span>,
+    }),
+    h.display({
+      id: 'actions',
+      header: () => <span className="sr-only">Actions</span>,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const u = row.original;
+        const { change, remove, meId } = ref.current;
+        if (u.id === meId) return <span className="block text-right text-xs text-muted">Use Account page</span>;
+        return (
+          <div className="flex justify-end gap-1.5 whitespace-nowrap">
+            {u.status === 'active'
+              ? <button type="button" className={ROW_BUTTON} onClick={change(u, 'disable')}>Disable</button>
+              : <button type="button" className={ROW_BUTTON} onClick={change(u, 'enable')}>Enable</button>}
+            {u.role === 'admin'
+              ? <button type="button" className={ROW_BUTTON} onClick={change(u, 'demote')}>Remove admin</button>
+              : <button type="button" className={ROW_BUTTON} onClick={change(u, 'promote')}>Make admin</button>}
+            <button type="button" className={`${ROW_BUTTON} text-danger hover:border-danger`} onClick={remove(u)}>Delete</button>
+          </div>
+        );
+      },
+    }),
+  ]);
+}
+
 /** Accounts and usage across the installation (admins only; they can't read other users' issues). */
 export function AdminView({ isAdmin }: { isAdmin: boolean }) {
+  const actions = useRef<RowActions>(NO_ACTIONS);
+  const columns = useMemo(() => buildColumns(actions), []);
   const router = useRouter();
   const query = useSearchParams();
   const openDialog = useDialog();
@@ -79,6 +149,9 @@ export function AdminView({ isAdmin }: { isAdmin: boolean }) {
     if (ok !== null) toast(`${user.email} deleted`);
   });
 
+  // The table's columns keep their identity between renders, so they reach the latest handlers through a ref.
+  actions.current = { change, remove, meId: me.id };
+
   return (
     <Page crumbs={[{ label: 'Admin' }]}>
       <div className="page-head"><h1>Admin</h1></div>
@@ -104,47 +177,15 @@ export function AdminView({ isAdmin }: { isAdmin: boolean }) {
           {data.users.length === 0 ? (
             <EmptyState icon="search" title="No users found" text={q ? `Nobody matches “${q}”.` : 'No accounts yet.'} />
           ) : (
-            <div className="card table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>{['User', 'Role', 'Status', 'Projects', 'Events 24h', 'Joined', 'Last login', ''].map((h, i) => <th key={`${h}-${i}`} className={i === 3 || i === 4 ? 'num' : ''}>{h}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {data.users.map((u) => {
-                    const self = u.id === me.id;
-                    return (
-                      <tr key={u.id} className={u.status === 'disabled' ? 'is-disabled' : ''}>
-                        <td>
-                          <div className="user-cell">
-                            <Avatar name={u.name} />
-                            <div><b>{u.name}</b>{self ? <Badge text="you" kind="info" /> : null}<div className="muted small">{u.email}</div></div>
-                          </div>
-                        </td>
-                        <td><Badge text={u.role} kind={u.role === 'admin' ? 'open' : 'info'} /></td>
-                        <td><Badge text={u.status} kind={u.status === 'active' ? 'resolved' : 'error'} /></td>
-                        <td className="num">{u.projects.toLocaleString()}</td>
-                        <td className="num">{u.events24h.toLocaleString()}</td>
-                        <td className="muted" title={formatDate(u.createdAt)}>{new Date(u.createdAt).toLocaleDateString()}</td>
-                        <td className="muted" title={formatDate(u.lastLoginAt)}>{u.lastLoginAt ? timeAgo(u.lastLoginAt) : '–'}</td>
-                        <td className="actions">
-                          {self ? <span className="muted small">Use Account page</span> : (
-                            <div className="row nowrap">
-                              {u.status === 'active'
-                                ? <button type="button" className="sm" onClick={change(u, 'disable')}>Disable</button>
-                                : <button type="button" className="sm" onClick={change(u, 'enable')}>Enable</button>}
-                              {u.role === 'admin'
-                                ? <button type="button" className="sm" onClick={change(u, 'demote')}>Remove admin</button>
-                                : <button type="button" className="sm" onClick={change(u, 'promote')}>Make admin</button>}
-                              <button type="button" className="sm danger" onClick={remove(u)}>Delete</button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              data={data.users}
+              columns={columns}
+              getRowId={(u) => u.id}
+              initialSort={{ id: 'user' }}
+              minWidth={980}
+              rowClassName={(u) => (u.status === 'disabled' ? 'opacity-60' : undefined)}
+            />
+
           )}
           {data.truncated ? <p className="muted small section">Showing the newest 500 accounts. Search to find others.</p> : null}
         </>

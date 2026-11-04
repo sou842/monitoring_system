@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useMemo, useRef, type MutableRefObject, type ReactNode } from 'react';
 import { useApi } from '@/lib/client/api';
 import { bucketLabel, formatBytes, formatDate, formatMs, formatPercent, queryString, RANGE_LABELS, SDK_PACKAGE, SECONDS_FROM_MS, timeAgo, type Range } from '@/lib/format';
 import type { EndpointDetailResponse, PageDetailResponse, PerformanceResponse, VitalRating, VitalSummary } from '@/lib/types';
+import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
 import { Badge, EmptyState, ErrorNotice, Kpi, Loading, Panel } from '../../ui/bits';
 import { CHART_LARGE, CHART_SMALL, CHART_WIDE, ColumnChart } from '../../ui/ColumnChart';
 import { Page, type Crumb } from '../Page';
@@ -26,8 +27,6 @@ type PerfVital = (typeof PERF_VITALS)[number];
 const RATING_TEXT: Record<VitalRating, string> = { good: 'Good', 'needs-improvement': 'Needs work', poor: 'Poor' };
 /** [good up to, poor above] for table dots; mirrors VITAL_THRESHOLDS in server/constants.ts. */
 const VITAL_LIMITS = { lcp: [2500, 4000], inp: [200, 500], cls: [0.1, 0.25] } as const;
-const ENDPOINT_SORTS = ['count', 'p50', 'p75', 'p95', 'errorRate', 'avgServer'] as const;
-const PAGE_SORTS = ['views', 'load', 'lcp', 'inp', 'cls'] as const;
 
 function formatVital(vital: PerfVital, value: number | null): string {
   if (value === null || value === undefined) return '–';
@@ -56,24 +55,76 @@ function RatingDot({ vital, value }: { vital: keyof typeof VITAL_LIMITS; value: 
   return <i className={`dot ${rating}`} title={RATING_TEXT[rating]} />;
 }
 
-/** A sortable table header cell: clicking it re-sorts by that column (largest first). */
-function SortHeader({ text, sortKey, current, onSort }: { text: string; sortKey: string; current: string; onSort: (key: string) => void }) {
-  return (
-    <th className="num">
-      <button type="button" className={`th-sort${current === sortKey ? ' active' : ''}`} onClick={() => onSort(sortKey)}>
-        {text}{current === sortKey ? ' ↓' : ''}
-      </button>
-    </th>
-  );
+
+const RIGHT: DataColumnMeta = { align: 'right' };
+const WRAP: DataColumnMeta = { className: 'min-w-44 whitespace-normal break-all' };
+/** Missing numbers sort below every real value. */
+const num = (v: number | null | undefined): number => (v === null || v === undefined ? -1 : v);
+const browserOf = (row: { browser: string | null; os: string | null }): string => [row.browser, row.os].filter(Boolean).join(' · ') || '–';
+const warn = (on: boolean): string => `tabular-nums${on ? ' text-amber' : ''}`;
+
+const endpointHelper = columnHelper<PerformanceResponse['endpoints'][number]>();
+const endpointColumns = endpointHelper.columns([
+  endpointHelper.accessor((e) => e.path, {
+    id: 'endpoint',
+    header: 'Endpoint',
+    meta: WRAP,
+    cell: ({ row }) => (
+      <span title={row.original.key}>
+        <span className="method">{row.original.method}</span><span className="muted">{row.original.origin}</span><span>{row.original.path}</span>
+      </span>
+    ),
+  }),
+  endpointHelper.accessor((e) => e.count, { id: 'count', header: 'Calls', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.count.toLocaleString()}</span> }),
+  endpointHelper.accessor((e) => num(e.p50), { id: 'p50', header: 'p50', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.p50)}</span> }),
+  endpointHelper.accessor((e) => num(e.p75), { id: 'p75', header: 'p75', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.p75)}</span> }),
+  endpointHelper.accessor((e) => num(e.p95), { id: 'p95', header: 'p95', meta: RIGHT, cell: ({ row }) => <span className={warn(row.original.p95 !== null && row.original.p95 >= SECONDS_FROM_MS)}>{formatMs(row.original.p95)}</span> }),
+  endpointHelper.accessor((e) => e.errorRate, { id: 'errorRate', header: 'Failed', meta: RIGHT, cell: ({ row }) => <span className={warn(row.original.errorRate > 0)}>{formatPercent(row.original.errorRate)}</span> }),
+  endpointHelper.accessor((e) => num(e.avgServer), { id: 'avgServer', header: 'Server', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.avgServer)}</span> }),
+  endpointHelper.accessor((e) => num(e.avgDownload), { id: 'avgDownload', header: 'Download', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.avgDownload)}</span> }),
+]);
+
+const pageHelper = columnHelper<PerformanceResponse['pages'][number]>();
+const pageColumns = pageHelper.columns([
+  pageHelper.accessor((p) => p.name, { id: 'name', header: 'Route / screen', meta: WRAP, cell: ({ row }) => row.original.name }),
+  pageHelper.accessor((p) => p.views, { id: 'views', header: 'Views', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.views.toLocaleString()}</span> }),
+  pageHelper.accessor((p) => num(p.load), { id: 'load', header: 'Load', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.load)}</span> }),
+  pageHelper.accessor((p) => num(p.lcp), { id: 'lcp', header: 'LCP', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.lcp)} <RatingDot vital="lcp" value={row.original.lcp} /></span> }),
+  pageHelper.accessor((p) => num(p.inp), { id: 'inp', header: 'INP', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.inp)} <RatingDot vital="inp" value={row.original.inp} /></span> }),
+  pageHelper.accessor((p) => num(p.cls), { id: 'cls', header: 'CLS', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.cls === null ? '–' : row.original.cls.toFixed(3)} <RatingDot vital="cls" value={row.original.cls} /></span> }),
+  pageHelper.accessor((p) => num(p.ttfb), { id: 'ttfb', header: 'TTFB', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.ttfb)}</span> }),
+]);
+
+type CallRow = EndpointDetailResponse['samples'][number];
+const callHelper = columnHelper<CallRow>();
+/** Columns of the slowest-calls table; the Page link needs the view's current filters, which it reads from `linkRef`. */
+function buildCallColumns(linkRef: MutableRefObject<(changes: Record<string, string | null>) => string>) {
+  return callHelper.columns([
+    callHelper.accessor((r) => num(r.duration_ms), { id: 'duration', header: 'Duration', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.duration_ms)}</span> }),
+    callHelper.accessor((r) => num(r.server_ms), { id: 'server', header: 'Server', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.server_ms)}</span> }),
+    callHelper.accessor((r) => num(r.download_ms), { id: 'download', header: 'Download', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.download_ms)}</span> }),
+    callHelper.accessor((r) => num(r.size_bytes), { id: 'size', header: 'Size', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatBytes(row.original.size_bytes)}</span> }),
+    callHelper.accessor((r) => r.failure || String(r.status), { id: 'status', header: 'Status', cell: ({ row }) => <Badge text={row.original.failure || String(row.original.status)} kind={row.original.failed ? 'error' : 'info'} /> }),
+    callHelper.accessor((r) => r.page, { id: 'page', header: 'Page', meta: WRAP, cell: ({ row }) => <Link href={linkRef.current({ page: row.original.page, endpoint: null })}>{row.original.page}</Link> }),
+    callHelper.accessor((r) => browserOf(r), { id: 'browser', header: 'Browser', cell: ({ row }) => <span className="text-muted">{browserOf(row.original)}</span> }),
+    callHelper.accessor((r) => new Date(r.receivedAt).getTime(), { id: 'when', header: 'When', cell: ({ row }) => <span className="text-muted" title={formatDate(row.original.receivedAt)}>{timeAgo(row.original.receivedAt)}</span> }),
+    callHelper.accessor((r) => r._id ?? '', { id: 'callId', header: 'Call id', cell: ({ row }) => <span className="font-mono text-xs text-muted">{row.original._id || '–'}</span> }),
+  ]);
 }
 
-function sortRows<T>(rows: T[], key: keyof T): T[] {
-  const value = (row: T) => (typeof row[key] === 'number' ? (row[key] as number) : -1);
-  return rows.slice().sort((a, b) => value(b) - value(a));
-}
-
-const pick = <T extends readonly string[]>(options: T, value: string | null, fallback: T[number]): T[number] =>
-  (options as readonly string[]).includes(value ?? '') ? (value as T[number]) : fallback;
+type LoadRow = PageDetailResponse['samples'][number];
+const loadHelper = columnHelper<LoadRow>();
+const loadColumns = loadHelper.columns([
+  loadHelper.accessor((r) => num(r.vitals.page_load_ms), { id: 'load', header: 'Load', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.vitals.page_load_ms)}</span> }),
+  loadHelper.accessor((r) => num(r.vitals.lcp_ms), { id: 'lcp', header: 'LCP', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.vitals.lcp_ms)}</span> }),
+  loadHelper.accessor((r) => num(r.vitals.fcp_ms), { id: 'fcp', header: 'FCP', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{formatMs(row.original.vitals.fcp_ms)}</span> }),
+  loadHelper.accessor((r) => num(r.vitals.ttfb_ms), { id: 'ttfb', header: 'TTFB', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.vitals.ttfb_ms)}</span> }),
+  loadHelper.accessor((r) => num(r.long_tasks ? r.long_tasks.blocking_ms : null), { id: 'blocking', header: 'Blocking', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{row.original.long_tasks && row.original.long_tasks.blocking_ms ? formatMs(row.original.long_tasks.blocking_ms) : '–'}</span> }),
+  loadHelper.accessor((r) => r.spanCount, { id: 'requests', header: 'Requests', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{String(row.original.spanCount)}</span> }),
+  loadHelper.accessor((r) => r.name, { id: 'path', header: 'URL path', meta: WRAP, cell: ({ row }) => <span className="text-muted">{row.original.name}</span> }),
+  loadHelper.accessor((r) => browserOf(r), { id: 'browser', header: 'Browser', cell: ({ row }) => <span className="text-muted">{browserOf(row.original)}</span> }),
+  loadHelper.accessor((r) => new Date(r.receivedAt).getTime(), { id: 'when', header: 'When', cell: ({ row }) => <span className="text-muted" title={formatDate(row.original.receivedAt)}>{timeAgo(row.original.receivedAt)}</span> }),
+]);
 
 /** Web Vitals, endpoints and pages of the project picked in the sidebar (`?range=&env=`, plus `&endpoint=<key>` or `&page=<route>` for a detail view). */
 export function PerformanceView() {
@@ -115,7 +166,7 @@ export function PerformanceView() {
   else if (!overview.data) body = <Loading />;
   else if (endpoint) body = <EndpointDetail path={`${base}&endpoint=${encodeURIComponent(endpoint)}`} link={link} />;
   else if (page) body = <PageDetail path={`${base}&page=${encodeURIComponent(page)}`} />;
-  else body = <Overview data={overview.data} range={range} link={link} go={go} />;
+  else body = <Overview data={overview.data} range={range} link={link} />;
 
   return (
     <Page crumbs={crumbs}>
@@ -125,13 +176,11 @@ export function PerformanceView() {
   );
 }
 
-function Overview({ data, range, link, go }: {
+function Overview({ data, range, link }: {
   data: PerformanceResponse;
   range: Range;
   link: (changes: Record<string, string | null>) => string;
-  go: (changes: Record<string, string | null>) => void;
 }) {
-  const query = useSearchParams();
   if (data.totals.views === 0 && data.totals.requests === 0) {
     return (
       <EmptyState icon="inbox" title="No performance data yet"
@@ -140,10 +189,6 @@ function Overview({ data, range, link, go }: {
   }
   const labels = data.series.map((b) => bucketLabel(b.start, range));
   const sideLabel = RANGE_LABELS[range];
-  const endpointSort = pick(ENDPOINT_SORTS, query.get('sort'), 'count');
-  const pageSort = pick(PAGE_SORTS, query.get('psort'), 'views');
-  const sortEndpoints = (s: string) => go({ sort: s, psort: pageSort });
-  const sortPages = (s: string) => go({ psort: s, sort: endpointSort });
 
   return (
     <>
@@ -162,82 +207,37 @@ function Overview({ data, range, link, go }: {
         </Panel>
       </div>
 
-      <section className="card table-wrap section">
-        <div className="table-title">
-          <h3>Endpoints</h3>
-          <span className="muted small">Server = time to first byte, from the browser. Requests made while the tab was hidden are counted but not timed.</span>
-        </div>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Endpoint</th>
-              <SortHeader text="Calls" sortKey="count" current={endpointSort} onSort={sortEndpoints} />
-              <SortHeader text="p50" sortKey="p50" current={endpointSort} onSort={sortEndpoints} />
-              <SortHeader text="p75" sortKey="p75" current={endpointSort} onSort={sortEndpoints} />
-              <SortHeader text="p95" sortKey="p95" current={endpointSort} onSort={sortEndpoints} />
-              <SortHeader text="Failed" sortKey="errorRate" current={endpointSort} onSort={sortEndpoints} />
-              <SortHeader text="Server" sortKey="avgServer" current={endpointSort} onSort={sortEndpoints} />
-              <th className="num">Download</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortRows(data.endpoints, endpointSort).map((e) => (
-              <tr key={e.key}>
-                <td className="wrap">
-                  <Link href={link({ endpoint: e.key })} title={e.key}>
-                    <span className="method">{e.method}</span><span className="muted">{e.origin}</span><span>{e.path}</span>
-                  </Link>
-                </td>
-                <td className="num">{e.count.toLocaleString()}</td>
-                <td className="num">{formatMs(e.p50)}</td>
-                <td className="num">{formatMs(e.p75)}</td>
-                <td className={`num${e.p95 !== null && e.p95 >= SECONDS_FROM_MS ? ' warn' : ''}`}>{formatMs(e.p95)}</td>
-                <td className={`num${e.errorRate > 0 ? ' warn' : ''}`}>{formatPercent(e.errorRate)}</td>
-                <td className="num muted">{formatMs(e.avgServer)}</td>
-                <td className="num muted">{formatMs(e.avgDownload)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <DataTable
+        className="mt-6"
+        title="Endpoints"
+        description="Server = time to first byte, from the browser. Requests made while the tab was hidden are counted but not timed."
+        data={data.endpoints}
+        columns={endpointColumns}
+        getRowId={(e) => e.key}
+        initialSort={{ id: 'count', desc: true }}
+        minWidth={900}
+        rowHref={(e) => link({ endpoint: e.key })}
+      />
 
-      <section className="card table-wrap section">
-        <div className="table-title">
-          <h3>Pages</h3>
-          <span className="muted small">p75 per route, or per screen when the app names screens (setScreen). IDs in paths are grouped as {'{id}'}.</span>
-        </div>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Route / screen</th>
-              <SortHeader text="Views" sortKey="views" current={pageSort} onSort={sortPages} />
-              <SortHeader text="Load" sortKey="load" current={pageSort} onSort={sortPages} />
-              <SortHeader text="LCP" sortKey="lcp" current={pageSort} onSort={sortPages} />
-              <SortHeader text="INP" sortKey="inp" current={pageSort} onSort={sortPages} />
-              <SortHeader text="CLS" sortKey="cls" current={pageSort} onSort={sortPages} />
-              <th className="num">TTFB</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortRows(data.pages, pageSort).map((p) => (
-              <tr key={p.name}>
-                <td className="wrap"><Link href={link({ page: p.name })}>{p.name}</Link></td>
-                <td className="num">{p.views.toLocaleString()}</td>
-                <td className="num">{formatMs(p.load)}</td>
-                <td className="num">{formatMs(p.lcp)} <RatingDot vital="lcp" value={p.lcp} /></td>
-                <td className="num">{formatMs(p.inp)} <RatingDot vital="inp" value={p.inp} /></td>
-                <td className="num">{p.cls === null ? '–' : p.cls.toFixed(3)} <RatingDot vital="cls" value={p.cls} /></td>
-                <td className="num muted">{formatMs(p.ttfb)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <DataTable
+        className="mt-6"
+        title="Pages"
+        description={<>p75 per route, or per screen when the app names screens (setScreen). IDs in paths are grouped as {'{id}'}.</>}
+        data={data.pages}
+        columns={pageColumns}
+        getRowId={(p) => p.name}
+        initialSort={{ id: 'views', desc: true }}
+        minWidth={760}
+        rowHref={(p) => link({ page: p.name })}
+      />
     </>
   );
 }
 
 function EndpointDetail({ path, link }: { path: string; link: (changes: Record<string, string | null>) => string }) {
+  const linkRef = useRef(link);
+  linkRef.current = link;
+  const callColumns = useMemo(() => buildCallColumns(linkRef), []);
   const { data, error } = useApi<EndpointDetailResponse>(path);
   if (error) return <ErrorNotice error={error} />;
   if (!data) return <Loading />;
@@ -260,36 +260,17 @@ function EndpointDetail({ path, link }: { path: string; link: (changes: Record<s
         <div className="legend"><span><i />p75 per {data.range === '7d' ? 'day' : 'hour'}</span></div>
         <ColumnChart values={data.series.map((b) => b.p75 || 0)} labels={labels} size={CHART_WIDE} axis />
       </Panel>
-      <section className="card table-wrap section">
-        <div className="table-title">
-          <h3>Slowest calls</h3>
-          <span className="muted small">From the last 7 days at most; hidden-tab calls are left out.</span>
-        </div>
-        {data.samples.length === 0 ? (
-          <p className="muted pad">No recent calls kept for this endpoint.</p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>{['Duration', 'Server', 'Download', 'Size', 'Status', 'Page', 'Browser', 'When', 'Call id'].map((h, i) => <th key={h} className={i < 4 ? 'num' : ''}>{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {data.samples.map((row, i) => (
-                <tr key={row._id ?? `sample-${i}`}>
-                  <td className="num">{formatMs(row.duration_ms)}</td>
-                  <td className="num muted">{formatMs(row.server_ms)}</td>
-                  <td className="num muted">{formatMs(row.download_ms)}</td>
-                  <td className="num muted">{formatBytes(row.size_bytes)}</td>
-                  <td><Badge text={row.failure || String(row.status)} kind={row.failed ? 'error' : 'info'} /></td>
-                  <td className="wrap"><Link href={link({ page: row.page, endpoint: null })}>{row.page}</Link></td>
-                  <td className="muted">{[row.browser, row.os].filter(Boolean).join(' · ') || '–'}</td>
-                  <td className="muted" title={formatDate(row.receivedAt)}>{timeAgo(row.receivedAt)}</td>
-                  <td className="mono small muted">{row._id || '–'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <DataTable
+        className="mt-6"
+        title="Slowest calls"
+        description="From the last 7 days at most; hidden-tab calls are left out."
+        data={data.samples}
+        columns={callColumns}
+        getRowId={(row, i) => row._id ?? `sample-${i}`}
+        initialSort={{ id: 'duration', desc: true }}
+        minWidth={980}
+        empty="No recent calls kept for this endpoint."
+      />
     </>
   );
 }
@@ -318,36 +299,17 @@ function PageDetail({ path }: { path: string }) {
           <div className="section"><ColumnChart values={data.series.map((b) => b.views)} labels={labels} size={CHART_WIDE} axis /></div>
         </Panel>
       )}
-      <section className="card table-wrap section">
-        <div className="table-title">
-          <h3>Slowest page loads</h3>
-          <span className="muted small">From the last 7 days at most; loads in a hidden tab are left out.</span>
-        </div>
-        {data.samples.length === 0 ? (
-          <p className="muted pad">No recent full page loads kept for this route.</p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>{['Load', 'LCP', 'FCP', 'TTFB', 'Blocking', 'Requests', 'URL path', 'Browser', 'When'].map((h, i) => <th key={h} className={i < 6 ? 'num' : ''}>{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {data.samples.map((row, i) => (
-                <tr key={`${String(row.receivedAt)}-${i}`}>
-                  <td className="num">{formatMs(row.vitals.page_load_ms)}</td>
-                  <td className="num">{formatMs(row.vitals.lcp_ms)}</td>
-                  <td className="num">{formatMs(row.vitals.fcp_ms)}</td>
-                  <td className="num muted">{formatMs(row.vitals.ttfb_ms)}</td>
-                  <td className="num muted">{row.long_tasks && row.long_tasks.blocking_ms ? formatMs(row.long_tasks.blocking_ms) : '–'}</td>
-                  <td className="num muted">{String(row.spanCount)}</td>
-                  <td className="wrap muted">{row.name}</td>
-                  <td className="muted">{[row.browser, row.os].filter(Boolean).join(' · ') || '–'}</td>
-                  <td className="muted" title={formatDate(row.receivedAt)}>{timeAgo(row.receivedAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <DataTable
+        className="mt-6"
+        title="Slowest page loads"
+        description="From the last 7 days at most; loads in a hidden tab are left out."
+        data={data.samples}
+        columns={loadColumns}
+        getRowId={(row, i) => `${String(row.receivedAt)}-${i}`}
+        initialSort={{ id: 'load', desc: true }}
+        minWidth={920}
+        empty="No recent full page loads kept for this route."
+      />
     </>
   );
 }

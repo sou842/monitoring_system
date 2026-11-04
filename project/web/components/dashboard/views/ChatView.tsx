@@ -520,7 +520,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : null}
         </div>
 
-        <footer className="relative shrink-0 border-t border-line bg-panel px-3 py-2.5 md:px-4 flex flex-col justify-center align-center">
+        <footer className="relative shrink-0 border-t border-line bg-panel px-3 py-2.5 md:px-4 flex flex-col justify-center items-center">
           {canPost ? (
             <>
               {picker && (options.length > 0 || (picker.kind === 'issue' && !searching)) ? (

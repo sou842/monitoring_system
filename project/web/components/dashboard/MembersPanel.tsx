@@ -1,12 +1,13 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent, type MutableRefObject } from 'react';
 import { DEFAULT_MEMBER_PERMISSIONS, PERMISSIONS, PERMISSION_INFO, type Permission } from '@/lib/permissions';
 import { api, useApi } from '@/lib/client/api';
 import type { MembersResponse, MemberView, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Avatar, ErrorNotice, Loading } from '../ui/bits';
+import { columnHelper, DataTable } from '../ui/DataTable';
 import { useDialog } from '../ui/Dialog';
 import { CARD, Pill, PillButton, pillButton } from '../ui/kit';
 import { useToast } from '../ui/Toasts';
@@ -58,6 +59,64 @@ function Person({ person, badge, children }: { person: PersonView; badge?: React
   );
 }
 
+/** One line of the people table: the owner, or a member. */
+interface PersonRow {
+  id: string;
+  person: PersonView;
+  /** Null for the owner. */
+  member: MemberView | null;
+}
+
+/** What the table's buttons need; the columns read it through a ref so they can stay the same object between renders. */
+interface RowTools {
+  userId: string;
+  canManage: boolean;
+  isOwner: boolean;
+  editingId: string | null;
+  edit: (member: MemberView) => void;
+  remove: (member: MemberView) => () => void;
+}
+const NO_TOOLS: RowTools = { userId: '', canManage: false, isOwner: false, editingId: null, edit: () => {}, remove: () => () => {} };
+
+const personHelper = columnHelper<PersonRow>();
+function buildColumns(tools: MutableRefObject<RowTools>) {
+  return personHelper.columns([
+    personHelper.accessor((r) => r.person.name.toLowerCase(), {
+      id: 'person',
+      header: 'Person',
+      cell: ({ row }) => {
+        const { person, member } = row.original;
+        const badge = !member ? <Pill tone="dark">Owner</Pill> : member.id === tools.current.userId ? <Pill tone="muted">You</Pill> : undefined;
+        return <Person person={person} badge={badge} />;
+      },
+    }),
+    personHelper.display({
+      id: 'access',
+      header: 'Access',
+      cell: ({ row }) => (row.original.member
+        ? <PermissionChips permissions={row.original.member.permissions} />
+        : <span className="text-xs text-muted">Can do everything, including deleting the project</span>),
+    }),
+    personHelper.display({
+      id: 'actions',
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row }) => {
+        const m = row.original.member;
+        const { userId, canManage, isOwner, editingId, edit, remove } = tools.current;
+        if (!m) return null;
+        const mine = m.id === userId;
+        const manageable = canManage && (isOwner || !m.permissions.includes('members.manage'));
+        return (
+          <div className="flex justify-end gap-1.5">
+            {manageable && !mine ? <PillButton className="h-8" onClick={() => edit(m)}>{editingId === m.memberId ? 'Cancel' : 'Edit'}</PillButton> : null}
+            {mine || manageable ? <PillButton variant="danger" className="h-8" onClick={remove(m)}>{mine ? 'Leave' : 'Remove'}</PillButton> : null}
+          </div>
+        );
+      },
+    }),
+  ]);
+}
+
 /** A project's people: the owner and the members with their permissions; add, edit and remove when allowed. */
 export function MembersPanel({ projectId, projectName }: { projectId: string; projectName: string }) {
   const router = useRouter();
@@ -72,6 +131,9 @@ export function MembersPanel({ projectId, projectName }: { projectId: string; pr
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<{ memberId: string; permissions: Permission[] } | null>(null);
+  const tools = useRef<RowTools>(NO_TOOLS);
+  const columns = useMemo(() => buildColumns(tools), []);
+  const rows = useMemo<PersonRow[]>(() => (data ? [...(data.owner ? [{ id: 'owner', person: data.owner, member: null }] : []), ...data.members.map((m) => ({ id: m.memberId, person: m as PersonView, member: m }))] : []), [data]);
 
   if (error) return <ErrorNotice error={error} />;
   if (!data) return <Loading />;
@@ -115,49 +177,41 @@ export function MembersPanel({ projectId, projectName }: { projectId: string; pr
     if (mine) router.push('/projects');
   });
 
+  const editingMember = editing ? data.members.find((m) => m.memberId === editing.memberId) ?? null : null;
+  tools.current = {
+    userId: user.id,
+    canManage: data.canManage,
+    isOwner: data.isOwner,
+    editingId: editing ? editing.memberId : null,
+    edit: (m) => setEditing(editing?.memberId === m.memberId ? null : { memberId: m.memberId, permissions: m.permissions }),
+    remove,
+  };
+
   return (
     <div className="grid gap-4">
-      <section className={cn(CARD, 'p-5 md:p-6')}>
-        <div className="mb-4 flex items-center gap-2">
-          <h3 className="m-0 text-sm font-semibold">People with access</h3>
-          <Pill tone="muted">{data.members.length + 1}</Pill>
-        </div>
-        <div className="grid divide-y divide-line/70">
-          {data.owner ? (
-            <div className="py-3 first:pt-0">
-              <Person person={data.owner} badge={<Pill tone="dark">Owner</Pill>}>
-                <div className="mt-1 text-xs text-muted">Can do everything, including deleting the project</div>
-              </Person>
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowId={(r) => r.id}
+        title={<span className="inline-flex items-center gap-2">People with access<Pill tone="muted">{rows.length}</Pill></span>}
+        initialSort={{ id: 'person' }}
+        minWidth={560}
+        empty={`Nobody else has access yet.${data.canManage ? ' Add a teammate below.' : ''}`}
+      />
+
+      {editingMember && editing ? (
+        <section className={cn(CARD, 'p-5 md:p-6')}>
+          <h3 className="m-0 mb-1 text-sm font-semibold">Permissions for {editingMember.name}</h3>
+          <p className="mt-0 mb-4 text-[13px] text-muted">{editingMember.email}</p>
+          <div className="grid gap-3">
+            <PermissionPicker value={editing.permissions} onChange={(permissions) => setEditing({ ...editing, permissions })} unavailable={unavailable.filter((p) => !editingMember.permissions.includes(p))} />
+            <div className="flex gap-2">
+              <PillButton variant="primary" onClick={saveEdit}>Save permissions</PillButton>
+              <PillButton variant="ghost" onClick={() => setEditing(null)}>Cancel</PillButton>
             </div>
-          ) : null}
-          {data.members.length === 0 ? <p className="m-0 py-4 text-[13px] text-muted">Nobody else has access yet.{data.canManage ? ' Add a teammate below.' : ''}</p> : null}
-          {data.members.map((m) => {
-            const isEditing = editing?.memberId === m.memberId;
-            const mine = m.id === user.id;
-            return (
-              <div key={m.memberId} className="py-3 last:pb-0">
-                <div className="flex flex-wrap items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <Person person={m} badge={mine ? <Pill tone="muted">You</Pill> : undefined}>
-                      <div className="mt-1.5"><PermissionChips permissions={m.permissions} /></div>
-                    </Person>
-                  </div>
-                  <div className="flex gap-1.5">
-                    {data.canManage && !mine && (data.isOwner || !m.permissions.includes('members.manage')) ? <PillButton className="h-8" onClick={() => setEditing(isEditing ? null : { memberId: m.memberId, permissions: m.permissions })}>{isEditing ? 'Cancel' : 'Edit'}</PillButton> : null}
-                    {(mine || (data.canManage && (data.isOwner || !m.permissions.includes('members.manage')))) ? <PillButton variant="danger" className="h-8" onClick={remove(m)}>{mine ? 'Leave' : 'Remove'}</PillButton> : null}
-                  </div>
-                </div>
-                {isEditing && editing ? (
-                  <div className="mt-3 grid gap-3">
-                    <PermissionPicker value={editing.permissions} onChange={(permissions) => setEditing({ ...editing, permissions })} unavailable={unavailable.filter((p) => !m.permissions.includes(p))} />
-                    <div><PillButton variant="primary" onClick={saveEdit}>Save permissions</PillButton></div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </section>
+          </div>
+        </section>
+      ) : null}
 
       {data.canManage ? (
         <section className={cn(CARD, 'p-5 md:p-6')}>
