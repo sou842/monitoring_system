@@ -69,8 +69,7 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold">
           {issue.errorType}
-          <Badge tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Badge>
-          {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue.status] ?? 'muted'}>{issue.status}</Badge> : null}
+          {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue?.status] ?? 'muted'}>{issue.status}</Badge> : null}
         </span>
         <span className="mt-0.5 block truncate text-xs text-fg-2">{issue.message || '(no message)'}</span>
         <span className="mt-0.5 block text-xs text-muted">{issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
@@ -78,7 +77,7 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
     </>
   );
   const frame = cn(
-    'flex items-start gap-2.5 rounded-xl px-3 py-2 no-underline',
+    'w-[calc(100%-26px)] flex items-start gap-2.5 rounded-xl px-3 py-2 no-underline',
     tone === 'bubble' || tone === 'own' ? 'bg-black/[.045] dark:bg-white/[.07] text-fg' :
     'border border-line bg-panel text-fg',
   );
@@ -481,17 +480,17 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                 <p className={cn('m-0 text-[13px] italic', own ? 'text-(--bubble-own-fg-dim)' : 'text-muted')}>This message was deleted{time}</p>
               ) : (
                 <>
+                    {m.issues.length > 0 ? (
+                      <div className={cn('grid gap-1.5', m.text ? 'mt-1.5' : 'mt-0.5')}>
+                        {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} tone={own ? 'own' : 'bubble'} />)}
+                        {!m.text ? <div className="text-right">{time}</div> : null}
+                      </div>
+                    ) : null}
                   {m.text ? (
                     <p className="m-0 leading-relaxed break-words whitespace-pre-wrap">
                       {withMentions(m.text, names, (part, i) => <span key={i} className="rounded bg-(--mention)/12 text-(--mention)">{part}</span>)}
                       {time}
                     </p>
-                  ) : null}
-                  {m.issues.length > 0 ? (
-                    <div className={cn('grid gap-1.5', m.text ? 'mt-1.5' : 'mt-0.5')}>
-                      {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} tone={own ? 'own' : 'bubble'} />)}
-                      {!m.text ? <div className="text-right">{time}</div> : null}
-                    </div>
                   ) : null}
                 </>
               )}
@@ -541,7 +540,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             }}
             onClick={() => { setOpenMenu(null); setOpenReact(null); }}
           >
-            <div ref={content} className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-3 pt-12 pb-3 md:px-6">
+            <div ref={content} className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col px-3 pt-12 pb-3 md:px-6">
               {chat.error ? (
                 <div className="grid flex-1 place-items-center py-10">
                   <div className="inline-flex items-center gap-2 rounded-full bg-panel px-3.5 py-2 text-xs text-muted shadow-sm" role="status">
@@ -632,7 +631,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               ) : null}
 
               {attached.length > 0 ? (
-                <div className="mb-2 grid gap-2 sm:grid-cols-1">
+                <div className="mb-2 grid gap-2 sm:grid-cols-1 max-w-4xl w-full">
                   {attached.map((issue) => <IssueCard key={issue.id} issue={issue} onRemove={() => setAttached((list) => list.filter((i) => i.id !== issue.id))} />)}
                 </div>
               ) : null}

@@ -198,7 +198,7 @@ export function DataTable<T extends RowData>({
   return (
     <div className={cn(CARD, 'min-w-0 max-w-full', className)}>
       {hasHead ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3">
+        <div className="flex md:flex-col flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3">
           {title || description ? (
             <div className="min-w-0">
               {title ? <h3 className="m-0 text-sm font-semibold">{title}</h3> : null}
