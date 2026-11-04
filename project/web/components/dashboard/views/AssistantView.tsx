@@ -10,8 +10,8 @@ import { PromptInput, PromptInputBody, PromptInputFooter, PromptInputSubmit, Pro
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { AI_CHAT_MAX_AGE_DAYS, AI_CHATS_PER_USER, assistantChatKey, chatSignature, deleteChat, listAssistantChats, loadChat, saveChat, type AssistantChatInfo } from '@/lib/client/aiChats';
 import { timeAgo } from '@/lib/format';
-import { cn } from '@/lib/utils';
 import { Icon } from '../../ui/Icon';
+import { Menu } from '../../ui/Menu';
 import { pillButton } from '../../ui/kit';
 import { ChatMessage, errorText } from '../AiMessage';
 import { Page } from '../Page';
@@ -152,6 +152,7 @@ export function AssistantView() {
     setChatId(nanoid());
     router.push('/assistant', { scroll: false });
   };
+  const current = history.find((h) => h.chatId === chatId) ?? null;
   const remove = async (id: string) => {
     await deleteChat(user.id, assistantChatKey(id));
     if (id === chatId) newChat();
@@ -160,40 +161,41 @@ export function AssistantView() {
 
   return (
     <Page crumbs={[{ label: 'Assistant' }]} fill>
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-64 flex-none flex-col border-r border-line max-md:hidden" aria-label="Saved chats">
-          <div className="p-3">
-            <button type="button" className={pillButton('primary', 'w-full')} onClick={newChat}>
-              <Icon name="plus" />New chat
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex flex-none items-center gap-2 px-4 pt-3">
+          <Menu trigger={({ open, toggle }) => (
+            <button type="button" className={pillButton('secondary', 'max-w-[min(70vw,360px)]')} onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Saved chats">
+              <Icon name="chat" />
+              <span className="truncate">{current ? current.title : 'New chat'}</span>
+              <Icon name="chevron" />
             </button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-            {history.length === 0 ? <p className="px-2 text-[12.5px] text-muted">No saved chats yet.</p> : null}
-            {history.map((h) => (
-              <div key={h.chatId} className={cn('group flex items-center rounded-xl', h.chatId === chatId ? 'bg-(--hover)' : 'hover:bg-(--hover)')}>
-                <button type="button" className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent px-2.5 py-2 text-left shadow-none" onClick={() => open(h.chatId)} aria-current={h.chatId === chatId ? 'page' : undefined}>
-                  <span className="block truncate text-[13px]">{h.title}</span>
-                  <span className="block text-[11.5px] text-muted">{timeAgo(new Date(h.updatedAt))}</span>
-                </button>
-                <button type="button" className="mr-1 grid h-7 w-7 flex-none cursor-pointer place-items-center rounded-full border-0 bg-transparent text-muted opacity-0 shadow-none group-hover:opacity-100 focus-visible:opacity-100 hover:text-danger [&_svg]:h-3.5 [&_svg]:w-3.5" onClick={() => void remove(h.chatId)} aria-label={`Delete chat: ${h.title}`} title="Delete chat">
-                  <Icon name="trash" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </aside>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-none justify-end px-3 pt-2 md:hidden">
-            <button type="button" className={pillButton('secondary')} onClick={newChat}><Icon name="plus" />New chat</button>
-          </div>
-          <AssistantChat
-            key={chatId}
-            chatId={chatId}
-            userId={user.id}
-            onSaved={reload}
-            onStarted={() => { if (fromUrl !== chatId) router.replace(`/assistant?chat=${chatId}`, { scroll: false }); }}
-          />
+          )}>
+            <div className="menu-label">Saved chats</div>
+            {history.length === 0 ? <p className="px-3 py-2 text-[12.5px] text-muted">No saved chats yet.</p> : null}
+            <div className="max-h-80 overflow-y-auto">
+              {history.map((h) => (
+                <div key={h.chatId} className="group flex items-center">
+                  <button type="button" className="menu-item min-w-0 flex-1" role="menuitemradio" aria-checked={h.chatId === chatId} onClick={() => open(h.chatId)}>
+                    <span className="min-w-0 flex-1 truncate text-left">{h.title}</span>
+                    <span className="flex-none text-[11.5px] text-muted">{timeAgo(new Date(h.updatedAt))}</span>
+                    {h.chatId === chatId ? <Icon name="check" className="menu-check" /> : null}
+                  </button>
+                  <button type="button" className="mr-1 grid h-7 w-7 flex-none cursor-pointer place-items-center rounded-full border-0 bg-transparent text-muted shadow-none hover:text-danger [&_svg]:h-3.5 [&_svg]:w-3.5" onClick={() => void remove(h.chatId)} aria-label={`Delete chat: ${h.title}`} title="Delete chat">
+                    <Icon name="trash" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </Menu>
+          <button type="button" className={pillButton('secondary')} onClick={newChat}><Icon name="plus" />New chat</button>
         </div>
+        <AssistantChat
+          key={chatId}
+          chatId={chatId}
+          userId={user.id}
+          onSaved={reload}
+          onStarted={() => { if (fromUrl !== chatId) router.replace(`/assistant?chat=${chatId}`, { scroll: false }); }}
+        />
       </div>
     </Page>
   );
