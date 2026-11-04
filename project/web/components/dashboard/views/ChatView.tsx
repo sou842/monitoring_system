@@ -404,7 +404,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             onClick={() => { if (showTools) setActiveId((id) => (id === m.id ? null : m.id)); }}
             className={cn(
               'overflow-hidden px-3 py-1.5 text-sm shadow-[0_1px_1px_rgba(0,0,0,.08)]',
-              own ? 'bg-[#d9fdd3] dark:bg-[#0f4f43]' : 'bg-panel',
+              own ? 'bg-[#d9fdd3] dark:bg-[#f6f6f7]' : 'bg-panel',
               continued ? 'rounded-2xl' : own ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm',
               row.status === 'sending' && 'opacity-80',
             )}
@@ -468,7 +468,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   return (
     <Page crumbs={crumbs} fill>
-      <div className="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-line bg-[#eceff1] md:mx-6 md:mb-6 dark:bg-[#10131a]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-[#eceff1] dark:bg-[#10131a]">
         <div className="relative min-h-0 flex-1">
           <div
             ref={scroller}
@@ -481,7 +481,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             }}
             onClick={() => setActiveId(null)}
           >
-            <div ref={content} className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-3 pt-12 pb-3 md:px-6">
+            <div ref={content} className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-3 pt-12 pb-3 md:px-6">
               {chat.error ? (
                 <div className="grid flex-1 place-items-center py-10">
                   <div className="inline-flex items-center gap-2 rounded-full bg-panel px-3.5 py-2 text-xs text-muted shadow-sm" role="status">
@@ -520,7 +520,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : null}
         </div>
 
-        <footer className="relative shrink-0 border-t border-line bg-panel px-3 py-2.5 md:px-4">
+        <footer className="relative shrink-0 border-t border-line bg-panel px-3 py-2.5 md:px-4 flex justify-center">
           {canPost ? (
             <>
               {picker && (options.length > 0 || (picker.kind === 'issue' && !searching)) ? (
@@ -577,7 +577,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                 </div>
               ) : null}
 
-              <div className="flex items-end gap-1.5">
+              <div className="flex items-end gap-1.5 max-w-4xl w-full">
                 <button type="button" title="Emoji" aria-label="Emoji" aria-expanded={emojiOpen} onClick={() => { setEmojiOpen((o) => !o); setPicker(null); }}
                   className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="smile" className="size-5" /></button>
                 <button type="button" title="Mention someone" aria-label="Mention someone" onClick={() => insertAtCaret('@', 'mention')}
