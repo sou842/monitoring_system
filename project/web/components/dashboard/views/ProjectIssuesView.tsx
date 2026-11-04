@@ -12,6 +12,7 @@ import { Avatar, EmptyState, ErrorNotice, Loading, SettingsCard } from '../../ui
 import { useDialog } from '../../ui/Dialog';
 import { KeyBox, useOrigin } from '../../ui/KeyBox';
 import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
+import { ActiveFilterChips, IssueFilters } from '../IssueFilters';
 import { PageTitle, Pill, PillButton, TabBar, type Tone } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
@@ -24,7 +25,6 @@ type StatusFilter = (typeof STATUSES)[number];
 const SORT_OPTIONS: Array<[string, string]> = [['lastSeen', 'Last seen'], ['count', 'Most events'], ['firstSeen', 'Newest']];
 type ProjectTab = 'issues' | 'members' | 'settings';
 
-const FIELD = 'h-9 rounded-full border border-line-strong bg-panel px-4 text-[13px] text-fg placeholder:text-faint';
 const EVENT_TONE: Record<string, Tone> = { crash: 'dark', error: 'red', performance: 'amber', message: 'neutral' };
 const SEVERITY_DOT: Record<string, string> = { crash: 'bg-fg', error: 'bg-red-500', performance: 'bg-amber-500' };
 const issueHelper = columnHelper<IssueListItem>();
@@ -144,6 +144,8 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
   const clearLabel = filters.status === 'all' ? 'all' : filters.status;
   const clearCount = filters.status === 'all' ? allCount : data.counts[filters.status];
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  const statusOptions = STATUSES.map((s) => ({ value: s, label: `${s[0].toUpperCase()}${s.slice(1)}`, count: s === 'all' ? allCount : data.counts[s] }));
+  const typeOptions = ISSUE_EVENT_TYPES.map((x) => ({ value: x, label: x }));
 
   const deleteSelected = action(async () => {
     const count = selected.size;
@@ -236,68 +238,10 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
         </div>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap gap-1" role="group" aria-label="Status">
-              {STATUSES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={filters.status === s}
-                  onClick={() => setFilter({ status: s })}
-                  className={cn(
-                    'h-8 cursor-pointer rounded-full border-0 px-3.5 shadow-none text-[13px] font-medium transition-colors',
-                    filters.status === s ? 'bg-invert-bg text-invert-fg' : 'bg-transparent text-muted hover:bg-(--hover) hover:text-fg',
-                  )}
-                >
-                  {`${s[0].toUpperCase()}${s.slice(1)} · ${s === 'all' ? allCount : data.counts[s]}`}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="mb-4 flex flex-wrap gap-2">
-            <input
-              type="search"
-              placeholder="Search message, type, location or API call id…"
-              aria-label="Search issues"
-              className={cn(FIELD, 'min-w-56 flex-1')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') setFilter({ q: search.trim() }); }}
-            />
-            <select aria-label="Event type" className={FIELD} value={filters.type} onChange={(e) => setFilter({ type: e.target.value })}>
-              <option value="">All types</option>
-              {ISSUE_EVENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select aria-label="Environment" className={FIELD} value={filters.env} onChange={(e) => setFilter({ env: e.target.value })}>
-              <option value="">All environments</option>
-              {data.environments.map((e) => <option key={e} value={e}>{e}</option>)}
-            </select>
-            <select aria-label="Sort" className={FIELD} value={filters.sort} onChange={(e) => setFilter({ sort: e.target.value })}>
-              {SORT_OPTIONS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-            </select>
-          </div>
-
-          {data.issues.length > 0 && can('issues.delete') ? (
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <PillButton variant="danger" className="h-8" disabled={selected.size === 0} onClick={deleteSelected}>
-                {selected.size > 0 ? `Delete selected (${selected.size})` : 'Delete selected'}
-              </PillButton>
-              <span className="flex-1" />
-              <PillButton variant="ghost" className="h-8 hover:text-danger" disabled={clearCount === 0} onClick={clearAll}>
-                {filters.status === 'all' ? `Delete everything (${clearCount})` : `Delete all ${clearLabel} (${clearCount})`}
-              </PillButton>
-            </div>
-          ) : null}
-
-          {data.issues.length === 0 ? (
-            allCount === 0 ? (
-              <EmptyState icon="inbox" title="No issues yet" text={`Errors appear here as soon as an app using this project's key (${project.apiKeyHint}) sends them. Setup:`}>
-                <div className="key-box mt-4 max-w-full text-left"><pre>{setupSnippet('<your API key>', origin)}</pre></div>
-              </EmptyState>
-            ) : (
-              <EmptyState icon="search" title="No issues match these filters" text="Try a different status, type or search term." />
-            )
+          {allCount === 0 ? (
+            <EmptyState icon="inbox" title="No issues yet" text={`Errors appear here as soon as an app using this project's key (${project.apiKeyHint}) sends them. Setup:`}>
+              <div className="key-box mt-4 max-w-full text-left"><pre>{setupSnippet('<your API key>', origin)}</pre></div>
+            </EmptyState>
           ) : (
             <DataTable
               data={data.issues}
@@ -310,6 +254,31 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
               rowHref={issueHref}
               onRowHover={(issue) => prefetch(`/api/issue?id=${issue.id}`)}
               minWidth={560}
+              toolbar={(
+                <IssueFilters
+                  values={filters}
+                  onChange={(changes) => setFilter(changes)}
+                  statuses={statusOptions}
+                  types={typeOptions}
+                  environments={data.environments.map((e) => ({ value: e, label: e }))}
+                  sorts={SORT_OPTIONS.map(([value, label]) => ({ value, label }))}
+                  search={search}
+                  onSearchChange={setSearch}
+                  onSearchSubmit={() => setFilter({ q: search.trim() })}
+                />
+              )}
+              subbar={<ActiveFilterChips values={filters} statuses={statusOptions} types={typeOptions} sorts={SORT_OPTIONS.map(([value, label]) => ({ value, label }))} onChange={(changes) => setFilter(changes)} />}
+              actions={can('issues.delete') ? (
+                <>
+                  <PillButton variant="danger" className="h-8 text-xs" disabled={selected.size === 0} onClick={deleteSelected}>
+                    {selected.size > 0 ? `Delete selected (${selected.size})` : 'Delete selected'}
+                  </PillButton>
+                  <PillButton variant="ghost" className="h-8 text-xs hover:text-danger" disabled={clearCount === 0} onClick={clearAll}>
+                    {filters.status === 'all' ? `Delete everything (${clearCount})` : `Delete all ${clearLabel} (${clearCount})`}
+                  </PillButton>
+                </>
+              ) : null}
+              empty="No issues match these filters. Try a different status, type or search term."
             />
           )}
 

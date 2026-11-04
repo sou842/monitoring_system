@@ -81,6 +81,10 @@ interface DataTableProps<T extends RowData> {
   description?: ReactNode;
   /** Extra controls in the toolbar (right side). */
   actions?: ReactNode;
+  /** Replaces the search box with your own controls (server-side search and filters). */
+  toolbar?: ReactNode;
+  /** A full-width row between the toolbar and the table (active filter chips). */
+  subbar?: ReactNode;
   /** A search box over the text this returns for every row. */
   search?: { placeholder: string; text: (row: T) => string };
   /** Sort on load; sortable columns can be clicked. Pass `false` for a list the server has already ordered. */
@@ -104,7 +108,7 @@ interface DataTableProps<T extends RowData> {
 
 /** The shared table. See the file comment for how to build `columns`. */
 export function DataTable<T extends RowData>({
-  data, columns, getRowId, title, description, actions, search, initialSort, selectable, selected, onSelectionChange,
+  data, columns, getRowId, title, description, actions, toolbar, subbar, search, initialSort, selectable, selected, onSelectionChange,
   rowHref, onRowOpen, onRowHover, rowClassName, empty, minWidth = 720, className,
 }: DataTableProps<T>) {
   const router = useRouter();
@@ -184,7 +188,7 @@ export function DataTable<T extends RowData>({
   const visible = table.getRowModel().rows;
   const selectedCount = table.getSelectedRowModel().rows.length;
   const query = typeof table.state.globalFilter === 'string' ? table.state.globalFilter : '';
-  const hasHead = Boolean(title || description || search || actions);
+  const hasHead = Boolean(title || description || search || actions || toolbar);
   const clickable = Boolean(rowHref || onRowOpen);
   const open = (row: T) => {
     onRowOpen?.(row);
@@ -192,7 +196,7 @@ export function DataTable<T extends RowData>({
   };
 
   return (
-    <div className={cn(CARD, 'overflow-hidden', className)}>
+    <div className={cn(CARD, className)}>
       {hasHead ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3">
           {title || description ? (
@@ -201,6 +205,7 @@ export function DataTable<T extends RowData>({
               {description ? <p className="m-0 mt-0.5 text-xs text-muted">{description}</p> : null}
             </div>
           ) : null}
+          {toolbar}
           {search ? (
             <div className="relative w-full max-w-xs min-w-48 flex-1">
               <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
@@ -226,7 +231,8 @@ export function DataTable<T extends RowData>({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
+      {subbar}
+      <div className={cn('overflow-x-auto rounded-b-2xl', !hasHead && !subbar && 'rounded-t-2xl')}>
         <table className="w-full border-collapse text-[13px]" style={{ minWidth }}>
           <thead>
             {table.getHeaderGroups().map((group) => (
