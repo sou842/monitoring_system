@@ -21,7 +21,7 @@ function RefreshButton() {
   const [spinning, setSpinning] = useState(false);
   return (
     <button
-      className={`icon-btn${spinning ? ' spinning' : ''}`}
+      className={`icon-btn h-7 gap-1.5 px-3 text-[12px] [&_svg]:h-3.5 [&_svg]:w-3.5${spinning ? ' spinning' : ''}`}
       type="button"
       aria-label="Refresh data"
       title="Refresh"

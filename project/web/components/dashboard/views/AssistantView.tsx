@@ -87,7 +87,7 @@ function AssistantChat({ chatId, userId, onSaved, onStarted }: { chatId: string;
           {messages.length === 0 ? (
             <ConversationEmptyState
               className="ai-empty"
-              icon={<Icon name="sparkle" />}
+              icon={<Icon name="ghost" />}
               title="Ask about your projects"
               description={`The assistant looks up your projects' issues, events, performance and members when a question needs them. Chats are saved in this browser only (your ${AI_CHATS_PER_USER} most recent, for ${AI_CHAT_MAX_AGE_DAYS} days).`}
             />
