@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { formatDate } from '@/lib/format';
+import { formatDate, timeAgo } from '@/lib/format';
 import { analyzeEvent, frameLabel, stackText, type ClassifiedFrame, type FrameKind, type Insight } from '@/lib/insights';
 import type { Serialized, EventPayload, StackFrame } from '@/lib/schema';
 import type { ClientEvent, InsightSettingsView } from '@/lib/types';
@@ -144,12 +144,64 @@ function Timeline({ items, jump }: { items: TimelineItem[]; jump: Jump }) {
   );
 }
 
-/** Overview: where to look, the facts as tiles, hints and the last moments. */
-function OverviewTab({ insight, payload, jump, showTrail }: { insight: Insight<StackFrame> | null; payload: Payload; jump: Jump; showTrail: () => void }) {
-  if (!insight) return <p className="m-0 text-[13px] text-muted">Not enough data in this event for a summary.</p>;
-  const look = insight.whereToLook;
+/** A small heading above a group on the overview. */
+function GroupTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="mb-2.5 flex items-center justify-between gap-2">
+      <h3 className="m-0 text-[11px] font-semibold tracking-wider text-muted uppercase">{children}</h3>
+      {aside}
+    </div>
+  );
+}
+
+/** Who, where and on what the event happened: the facts a reader wants first, from the payload itself. */
+function QuickFacts({ payload, receivedAt }: { payload: Payload; receivedAt: string | Date }) {
+  const d = payload.device;
+  const user = payload.user.name || payload.user.email || payload.user.id;
+  const items: Array<[string, string | null, string?]> = [
+    ['When', timeAgo(receivedAt), formatDate(receivedAt)],
+    ['Handled', payload.error ? (payload.error.handled ? 'Yes, caught by the app' : 'No, uncaught') : null],
+    ['Screen', payload.screen || null],
+    ['Page', d.url ? shortUrl(d.url) : null, d.url || undefined],
+    ['User', user || null, [payload.user.id, payload.user.name, payload.user.email].filter(Boolean).join(' · ') || undefined],
+    ['Browser', [d.browser, d.browser_version].filter(Boolean).join(' ') || null],
+    ['OS / device', [d.os, d.os_version].filter(Boolean).join(' ') || [d.manufacturer, d.model].filter(Boolean).join(' ') || null],
+    ['Screen size', d.screen_width ? `${d.screen_width} × ${d.screen_height}` : null],
+    ['App version', payload.app_version],
+    ['Environment', payload.environment],
+  ];
+  const shown = items.filter((i): i is [string, string, string?] => Boolean(i[1]));
+  if (shown.length === 0) return null;
+  return (
+    <section aria-label="This event">
+      <GroupTitle>This event</GroupTitle>
+      <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(min(100%,168px),1fr))] overflow-hidden rounded-2xl border border-line bg-panel">
+        {shown.map(([label, value, title]) => (
+          <div key={label} className="min-w-0 border-r border-b border-line px-3.5 py-2.5 [margin:0_-1px_-1px_0]" title={title}>
+            <dt className="text-[10px] font-semibold tracking-wider text-muted uppercase">{label}</dt>
+            <dd className="m-0 mt-0.5 truncate text-[13px] font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/** Path of a page URL (the host is the same for every event of an app). */
+function shortUrl(value: string): string {
+  try {
+    const u = new URL(value);
+    return `${u.pathname}${u.hash}` || '/';
+  } catch {
+    return value;
+  }
+}
+
+/** Overview: where to look, this event's facts, what the analysis found, hints and the last moments. */
+function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack }: { insight: Insight<StackFrame> | null; payload: Payload; receivedAt: string | Date; jump: Jump; showTrail: () => void; showStack: () => void }) {
+  const look = insight ? insight.whereToLook : null;
   const errorText = payload.error ? `${payload.error.type}: ${payload.error.message}` : payload.event_type;
-  const reversed = insight.moments.slice().reverse();
+  const reversed = insight ? insight.moments.slice().reverse() : [];
   const moments: TimelineItem[] = [
     { key: 'error', time: '0 s', type: payload.event_type, message: errorText, tone: 'bad', error: true, path: payload.error ? 'error' : 'event_type' },
     ...reversed.slice(0, OVERVIEW_MOMENTS).map((m, i) => ({
@@ -162,51 +214,75 @@ function OverviewTab({ insight, payload, jump, showTrail }: { insight: Insight<S
     })),
   ];
   const hidden = reversed.length - OVERVIEW_MOMENTS;
+  const facts = insight ? insight.facts : [];
+  const hints = insight ? insight.hints : [];
 
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
       {look ? (
-        <div {...jumpProps(`stacktrace.${payload.stacktrace.indexOf(look.frame)}`, jump, 'rounded-2xl border border-line bg-panel-2 p-4 shadow-[inset_3px_0_0_var(--accent)] hover:border-line-strong')}>
-          <div className="flex items-center gap-2"><Icon name="search" className="size-4 text-muted" /><span className={LABEL}>Where to look</span></div>
-          <code className="mt-1.5 block text-[13px] font-semibold break-all">{frameLabel(look.frame)}</code>
-          {look.frame.filename ? <div className="mt-0.5 font-mono text-xs break-all text-muted">{look.frame.filename}</div> : null}
-        </div>
+        <section aria-label="Where to look">
+          <GroupTitle aside={p_hasStack(payload) ? <button type="button" onClick={showStack} className="cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-muted underline shadow-none hover:text-fg">Open stack trace</button> : null}>Where to look</GroupTitle>
+          <div {...jumpProps(`stacktrace.${payload.stacktrace.indexOf(look.frame)}`, jump, 'flex items-start gap-3 rounded-2xl border border-line bg-panel-2 p-4 shadow-[inset_3px_0_0_var(--accent)] hover:border-line-strong')}>
+            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-panel text-muted"><Icon name="search" className="size-4" /></span>
+            <div className="min-w-0 flex-1">
+              <code className="block text-sm font-semibold break-all">{frameLabel(look.frame)}</code>
+              {look.frame.filename ? <div className="mt-0.5 font-mono text-xs break-all text-muted">{look.frame.filename}{look.frame.lineno !== null ? `:${look.frame.lineno}` : ''}{look.frame.colno !== null ? `:${look.frame.colno}` : ''}</div> : null}
+            </div>
+            <Pill tone="neutral">your code</Pill>
+          </div>
+        </section>
       ) : null}
 
-      {insight.facts.length > 0 ? (
-        <div className="grid gap-2.5 sm:grid-cols-2">
-          {insight.facts.map((f, i) => (
-            <div key={`${f.label}-${i}`} className={cn('rounded-xl bg-panel-2 px-3.5 py-3', f.text.length > WIDE_FACT_CHARS && 'sm:col-span-2')}>
-              <div className={LABEL}>{f.label}</div>
-              <div className={cn('mt-1 text-[13px] break-words', f.tone && TONE_TEXT[f.tone])}>{f.text}</div>
+      {hints.length > 0 ? (
+        <section aria-label="Hints" className="grid gap-2.5">
+          {hints.map((h, i) => (
+            <div key={i} className="flex gap-3 rounded-2xl border border-amber/40 bg-amber/10 p-4">
+              <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-amber" />
+              <div className="min-w-0">
+                <div className={LABEL}>{h.source === 'project' ? 'Team hint' : 'Hint'}</div>
+                <p className="m-0 mt-1 text-[13px]">{h.text}</p>
+              </div>
             </div>
           ))}
-        </div>
+        </section>
       ) : null}
 
-      {insight.hints.map((h, i) => (
-        <div key={i} className="flex gap-3 rounded-2xl border border-amber/40 bg-amber/10 p-4">
-          <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-amber" />
-          <div className="min-w-0">
-            <div className={LABEL}>{h.source === 'project' ? 'Team hint' : 'Hint'}</div>
-            <p className="m-0 mt-1 text-[13px]">{h.text}</p>
-          </div>
-        </div>
-      ))}
+      <QuickFacts payload={payload} receivedAt={receivedAt} />
 
-      {insight.moments.length > 0 ? (
-        <Block title="Last moments" aside={<span className="text-xs text-muted">newest first</span>}>
-          <Timeline items={moments} jump={jump} />
+      {facts.length > 0 || insight === null ? (
+        <section aria-label="What the analysis found">
+          <GroupTitle>What we found</GroupTitle>
+          {facts.length > 0 ? (
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              {facts.map((f, i) => (
+                <div key={`${f.label}-${i}`} className={cn('rounded-xl border-l-[3px] bg-panel-2 px-3.5 py-3', f.tone === 'bad' ? 'border-danger' : f.tone === 'warn' ? 'border-amber' : 'border-line-strong', f.text.length > WIDE_FACT_CHARS && 'sm:col-span-2')}>
+                  <div className={LABEL}>{f.label}</div>
+                  <div className={cn('mt-1 text-[13px] break-words', f.tone && TONE_TEXT[f.tone])}>{f.text}</div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="m-0 text-[13px] text-muted">Not enough data in this event for a summary.</p>}
+        </section>
+      ) : null}
+
+      {reversed.length > 0 ? (
+        <section aria-label="Last moments">
+          <GroupTitle aside={<span className="text-xs text-muted">newest first</span>}>Last moments</GroupTitle>
+          <div className="rounded-2xl border border-line bg-panel p-2">
+            <Timeline items={moments} jump={jump} />
+          </div>
           {hidden > 0 ? (
             <button type="button" onClick={showTrail} className="mt-2 cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-muted underline shadow-none hover:text-fg">
               Show {hidden} earlier in Breadcrumbs
             </button>
           ) : null}
-        </Block>
+        </section>
       ) : null}
     </div>
   );
 }
+
+const p_hasStack = (payload: Payload): boolean => payload.stacktrace.length > 0;
 
 function FrameRow({ c, focus, payload, jump }: { c: Frame; focus: boolean; payload: Payload; jump: Jump }) {
   const f = c.frame;
@@ -311,7 +387,7 @@ function PerformanceTab({ payload }: { payload: Payload }) {
   ];
   const shown = stats.filter((s): s is [string, string] => s[1] !== null);
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       {shown.length > 0 ? (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{shown.map(([label, value]) => <Stat key={label} label={label} value={value} />)}</div>
       ) : <p className="m-0 text-[13px] text-muted">No performance numbers in this event.</p>}
@@ -392,7 +468,7 @@ export function EventDetail({ event, insightSettings }: { event: ClientEvent; in
 
       <TabBar label="Event sections" tabs={tabs} value={tab} onChange={setTab} />
 
-      {tab === 'overview' ? <OverviewTab insight={insight} payload={p} jump={jump} showTrail={() => setTab('trail')} /> : null}
+      {tab === 'overview' ? <OverviewTab insight={insight} payload={p} receivedAt={event.receivedAt} jump={jump} showTrail={() => setTab('trail')} showStack={() => setTab('stack')} /> : null}
 
       {tab === 'stack' ? (
         <StackTab
@@ -411,7 +487,7 @@ export function EventDetail({ event, insightSettings }: { event: ClientEvent; in
       ) : null}
 
       {tab === 'details' ? (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-4">
           <Block title="Event">
             <KeyValues rows={[
               ['Time', formatDate(p.timestamp)],
@@ -438,7 +514,7 @@ export function EventDetail({ event, insightSettings }: { event: ClientEvent; in
             ]} />
           </Block>
           {p.context ? (
-            <Block title="Context" className="xl:col-span-2" aside={<CopyButton text={JSON.stringify(p.context, null, 2)} />}>
+            <Block title="Context" className="col-span-full" aside={<CopyButton text={JSON.stringify(p.context, null, 2)} />}>
               <pre className="mono m-0 max-h-96 overflow-auto text-xs">{JSON.stringify(p.context, null, 2)}</pre>
             </Block>
           ) : null}
