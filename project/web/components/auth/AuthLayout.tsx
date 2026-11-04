@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { SDK_PACKAGE } from '@/lib/format';
-import { ICONS } from '../ui/Icon';
+import { Icon } from '../ui/Icon';
 import { useOrigin } from '../ui/KeyBox';
 import { ThemeToggle } from '../ui/ThemeToggle';
 
@@ -27,7 +27,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             {AUTH_FEATURES.map(([title, text]) => (
               <li key={title}>
                 <span className="feature-icon">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d={ICONS.check} /></svg>
+                  <Icon name="check" />
                 </span>
                 <div><b>{title}</b><span>{text}</span></div>
               </li>
