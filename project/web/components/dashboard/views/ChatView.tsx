@@ -580,10 +580,10 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               <div className="flex items-end gap-1.5 max-w-4xl w-full">
                 <button type="button" title="Emoji" aria-label="Emoji" aria-expanded={emojiOpen} onClick={() => { setEmojiOpen((o) => !o); setPicker(null); }}
                   className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="smile" className="size-5" /></button>
-                <button type="button" title="Mention someone" aria-label="Mention someone" onClick={() => insertAtCaret('@', 'mention')}
+                {/* <button type="button" title="Mention someone" aria-label="Mention someone" onClick={() => insertAtCaret('@', 'mention')}
                   className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-base font-semibold text-muted shadow-none hover:bg-(--hover) hover:text-fg max-sm:hidden">@</button>
                 <button type="button" title="Attach an issue" aria-label="Attach an issue" disabled={attached.length >= MAX_ISSUES} onClick={() => insertAtCaret('/', 'issue')}
-                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-base font-semibold text-muted shadow-none hover:bg-(--hover) hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 max-sm:hidden">/</button>
+                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-base font-semibold text-muted shadow-none hover:bg-(--hover) hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 max-sm:hidden">/</button> */}
 
                 <div className="relative min-w-0 flex-1 rounded-3xl bg-panel-2 px-4 py-2.5">
                   <div className="relative">
