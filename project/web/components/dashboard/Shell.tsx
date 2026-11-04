@@ -57,8 +57,8 @@ const MAIN_NAV: NavEntry[] = [
   { label: 'Assistant', icon: 'ghost' },
   { href: '/dashboard', label: 'Dashboard', icon: 'grid', match: ['/dashboard'] },
   // href is replaced by the active project's issues page in the sidebar.
-  { href: '/projects', label: 'Issues', icon: 'inbox', match: ['/issues'] },
   { href: '/performance', label: 'Performance', icon: 'performance', match: ['/performance'] },
+  { href: '/projects', label: 'Issues', icon: 'inbox', match: ['/issues'] },
   { href: '/chats', label: 'Chats', icon: 'chat', match: ['/chats'] },
 ];
 const ADMIN_NAV: NavEntry[] = [{ href: '/admin', label: 'Admin', icon: 'shield', match: ['/admin'] }];

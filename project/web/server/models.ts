@@ -163,6 +163,10 @@ export interface ChatMessageDoc {
   mentions: ObjectId[];
   /** Issues of the same project attached to the message (shown as cards). */
   issueIds?: ObjectId[];
+  /** The message this one answers. */
+  replyToId?: ObjectId;
+  /** Reactions: emoji (one of lib/chat.ts CHAT_REACTIONS) → the users who reacted with it. */
+  reactions?: Record<string, ObjectId[]>;
   createdAt: Date;
   deletedAt?: Date;
 }

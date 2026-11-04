@@ -1,6 +1,6 @@
 import {
-  Activity, ArrowUp, Bell, Check, ChevronDown, Folder, Ghost, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
-  Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Sun, User, Users, X, LayoutDashboard,
+  Activity, ArrowDown, ArrowUp, Bell, Check, ChevronDown, Folder, Ghost, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
+  Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Sun, User, Users, X, LayoutDashboard, Clock, Copy, CircleAlert, Reply, RotateCw, Smile, Trash2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -32,6 +32,14 @@ export const ICONS = {
   menu: Menu,
   sun: Sun,
   send: ArrowUp,
+  arrowDown: ArrowDown,
+  clock: Clock,
+  copy: Copy,
+  alert: CircleAlert,
+  reply: Reply,
+  retry: RotateCw,
+  smile: Smile,
+  trash: Trash2,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

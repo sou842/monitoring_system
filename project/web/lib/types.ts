@@ -80,6 +80,21 @@ export interface ChatIssueView {
   count: number;
 }
 
+export interface ChatReplyView {
+  id: string;
+  userName: string | null;
+  text: string;
+  deleted: boolean;
+  hasIssues: boolean;
+}
+
+export interface ChatReactionView {
+  emoji: string;
+  count: number;
+  mine: boolean;
+  names: string[];
+}
+
 export interface ChatMessageView {
   id: string;
   projectId: string;
@@ -89,6 +104,9 @@ export interface ChatMessageView {
   mentions: string[];
   /** Issues attached to the message (only ones that still exist). */
   issues: ChatIssueView[];
+  /** The message this one answers (null when it isn't a reply or the original is gone). */
+  replyTo: ChatReplyView | null;
+  reactions: ChatReactionView[];
   createdAt: string;
   deleted: boolean;
 }
@@ -98,6 +116,8 @@ export interface ChatResponse {
   hasMore: boolean;
   /** Whether Pusher is set up on the server (otherwise the page polls). */
   realtime: boolean;
+  /** When you read the chat before this visit (newest page only; null = never or not applicable). */
+  lastReadAt: string | null;
 }
 
 export interface IssueView {

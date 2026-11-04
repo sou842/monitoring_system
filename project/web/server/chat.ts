@@ -1,4 +1,5 @@
 import { ObjectId, type Db, type Filter } from 'mongodb';
+import { isChatReaction, REPLY_SNIPPET_LENGTH } from '../lib/chat.ts';
 import { CHAT_PAGE_SIZE, MAX_CHAT_ISSUES, MAX_CHAT_MENTIONS, MAX_CHAT_MESSAGE_LENGTH, MAX_UNREAD_COUNT } from './constants.ts';
 import { collections } from './db.ts';
 import type { ChatMessageDoc } from './models.ts';
@@ -15,6 +16,25 @@ export interface ChatIssueView {
   count: number;
 }
 
+/** The message a reply quotes. */
+export interface ChatReplyView {
+  id: string;
+  userName: string | null;
+  /** First characters of the quoted text (empty when deleted or issue-only). */
+  text: string;
+  deleted: boolean;
+  /** The quoted message carries issues (shown as "Issue" when it has no text). */
+  hasIssues: boolean;
+}
+
+/** One emoji on a message: how many people, whether you are one of them, and who (first names). */
+export interface ChatReactionView {
+  emoji: string;
+  count: number;
+  mine: boolean;
+  names: string[];
+}
+
 export interface ChatMessageView {
   id: string;
   projectId: string;
@@ -26,9 +46,15 @@ export interface ChatMessageView {
   mentions: string[];
   /** Attached issues that still exist (deleted ones are left out). */
   issues: ChatIssueView[];
+  /** The message this one answers (null when it is not a reply, or the original is gone). */
+  replyTo: ChatReplyView | null;
+  reactions: ChatReactionView[];
   createdAt: Date;
   deleted: boolean;
 }
+
+/** Names listed in a reaction's tooltip. */
+const REACTION_NAMES_SHOWN = 10;
 
 /** The text of a new message: trimmed, control characters (except new lines and tabs) removed, or null when it isn't text, is too long, or is empty (unless `allowEmpty`: a message that is only attached issues). */
 export function cleanMessageText(value: unknown, allowEmpty = false): string | null {
@@ -54,28 +80,61 @@ export async function cleanIssueRefs(db: Db, value: unknown, projectId: ObjectId
   return ids.filter((id) => found.some((f) => f._id.equals(id)));
 }
 
-/** Messages as the browser sees them, with author names and the attached issues as they are now. */
-export async function messageViews(db: Db, messages: ChatMessageDoc[]): Promise<ChatMessageView[]> {
-  const ids = [...new Set(messages.map((m) => String(m.userId)))].map((id) => new ObjectId(id));
+/** The id of the message being answered, when it is a message of this project (otherwise null). */
+export async function cleanReplyTo(db: Db, value: unknown, projectId: ObjectId): Promise<ObjectId | null> {
+  if (typeof value !== 'string' || !ObjectId.isValid(value) || value.length !== 24) return null;
+  const found = await collections(db).chatMessages.findOne({ _id: new ObjectId(value), projectId }, { projection: { _id: 1 } });
+  return found ? found._id : null;
+}
+
+/** Messages as `viewerId` sees them: author names, attached issues as they are now, the quoted message and reactions. */
+export async function messageViews(db: Db, messages: ChatMessageDoc[], viewerId: ObjectId): Promise<ChatMessageView[]> {
+  const c = collections(db);
   const issueIds = [...new Set(messages.flatMap((m) => (m.deletedAt ? [] : (m.issueIds ?? []).map(String))))].map((id) => new ObjectId(id));
+  const replyIds = [...new Set(messages.flatMap((m) => (m.replyToId ? [String(m.replyToId)] : [])))].map((id) => new ObjectId(id));
+  const quoted = replyIds.length === 0 ? [] : await c.chatMessages.find({ _id: { $in: replyIds } }).toArray();
+  // Everyone whose name is needed: authors, quoted authors and the people who reacted.
+  const userIds = new Map<string, ObjectId>();
+  for (const m of [...messages, ...quoted]) {
+    userIds.set(String(m.userId), m.userId);
+    if (!m.deletedAt) for (const list of Object.values(m.reactions ?? {})) for (const id of list) userIds.set(String(id), id);
+  }
   const [users, issues] = await Promise.all([
-    collections(db).users.find({ _id: { $in: ids } }, { projection: { name: 1 } }).toArray(),
-    issueIds.length === 0 ? [] : collections(db).issues.find({ _id: { $in: issueIds } }, { projection: { eventType: 1, errorType: 1, message: 1, status: 1, count: 1 } }).toArray(),
+    c.users.find({ _id: { $in: [...userIds.values()] } }, { projection: { name: 1 } }).toArray(),
+    issueIds.length === 0 ? [] : c.issues.find({ _id: { $in: issueIds } }, { projection: { eventType: 1, errorType: 1, message: 1, status: 1, count: 1 } }).toArray(),
   ]);
-  return messages.map((m) => ({
-    id: String(m._id),
-    projectId: String(m.projectId),
-    userId: String(m.userId),
-    userName: users.find((u) => u._id.equals(m.userId))?.name ?? null,
-    text: m.deletedAt ? '' : m.text,
-    mentions: m.deletedAt ? [] : m.mentions.map(String),
-    issues: m.deletedAt ? [] : (m.issueIds ?? []).flatMap((id) => {
-      const i = issues.find((x) => x._id.equals(id));
-      return i ? [{ id: String(i._id), eventType: i.eventType, errorType: i.errorType, message: i.message, status: i.status, count: i.count }] : [];
-    }),
-    createdAt: m.createdAt,
-    deleted: Boolean(m.deletedAt),
-  }));
+  const nameOf = (id: ObjectId) => users.find((u) => u._id.equals(id))?.name ?? null;
+
+  return messages.map((m) => {
+    const original = m.replyToId ? quoted.find((q) => q._id.equals(m.replyToId as ObjectId)) : undefined;
+    return {
+      id: String(m._id),
+      projectId: String(m.projectId),
+      userId: String(m.userId),
+      userName: nameOf(m.userId),
+      text: m.deletedAt ? '' : m.text,
+      mentions: m.deletedAt ? [] : m.mentions.map(String),
+      issues: m.deletedAt ? [] : (m.issueIds ?? []).flatMap((id) => {
+        const i = issues.find((x) => x._id.equals(id));
+        return i ? [{ id: String(i._id), eventType: i.eventType, errorType: i.errorType, message: i.message, status: i.status, count: i.count }] : [];
+      }),
+      replyTo: m.deletedAt || !original ? null : {
+        id: String(original._id),
+        userName: nameOf(original.userId),
+        text: original.deletedAt ? '' : original.text.slice(0, REPLY_SNIPPET_LENGTH),
+        deleted: Boolean(original.deletedAt),
+        hasIssues: !original.deletedAt && (original.issueIds ?? []).length > 0,
+      },
+      reactions: m.deletedAt ? [] : Object.entries(m.reactions ?? {}).filter(([, list]) => list.length > 0).map(([emoji, list]) => ({
+        emoji,
+        count: list.length,
+        mine: list.some((id) => id.equals(viewerId)),
+        names: list.slice(0, REACTION_NAMES_SHOWN).map((id) => nameOf(id) ?? 'Deleted user'),
+      })),
+      createdAt: m.createdAt,
+      deleted: Boolean(m.deletedAt),
+    };
+  });
 }
 
 /**
@@ -94,16 +153,42 @@ export async function listMessages(db: Db, projectId: ObjectId, options: { befor
   return { messages: newest.slice(0, CHAT_PAGE_SIZE).reverse(), hasMore: newest.length > CHAT_PAGE_SIZE };
 }
 
+/** One message of the project, or null. */
+export function getMessage(db: Db, projectId: ObjectId, id: ObjectId): Promise<ChatMessageDoc | null> {
+  return collections(db).chatMessages.findOne({ _id: id, projectId });
+}
+
 /** Saves a new message. */
-export async function postMessage(db: Db, projectId: ObjectId, userId: ObjectId, text: string, mentions: ObjectId[], issueIds: ObjectId[] = [], now = new Date()): Promise<ChatMessageDoc> {
-  const message: ChatMessageDoc = { _id: new ObjectId(), projectId, userId, text, mentions, issueIds, createdAt: now };
+export async function postMessage(
+  db: Db, projectId: ObjectId, userId: ObjectId, text: string,
+  extras: { mentions?: ObjectId[]; issueIds?: ObjectId[]; replyToId?: ObjectId | null } = {}, now = new Date(),
+): Promise<ChatMessageDoc> {
+  const message: ChatMessageDoc = { _id: new ObjectId(), projectId, userId, text, mentions: extras.mentions ?? [], issueIds: extras.issueIds ?? [], createdAt: now };
+  if (extras.replyToId) message.replyToId = extras.replyToId;
   await collections(db).chatMessages.insertOne(message);
   return message;
 }
 
-/** Records that the user has read the project's chat up to now. */
-export async function markRead(db: Db, projectId: ObjectId, userId: ObjectId, now = new Date()): Promise<void> {
-  await collections(db).chatReads.updateOne({ projectId, userId }, { $set: { lastReadAt: now }, $setOnInsert: { _id: new ObjectId() } }, { upsert: true });
+/** Adds `userId`'s `emoji` to a message, or takes it away when it is already there. Returns false for an unknown emoji or a deleted message. */
+export async function toggleReaction(db: Db, message: ChatMessageDoc, userId: ObjectId, emoji: unknown): Promise<boolean> {
+  if (!isChatReaction(emoji) || message.deletedAt) return false;
+  const c = collections(db);
+  const key = `reactions.${emoji}`;
+  const removed = await c.chatMessages.updateOne({ _id: message._id, [key]: userId }, { $pull: { [key]: userId } });
+  if (removed.modifiedCount === 0) await c.chatMessages.updateOne({ _id: message._id }, { $addToSet: { [key]: userId } });
+  return true;
+}
+
+/** Records that the user has read the project's chat up to now; returns the previous read time (null = never read). */
+export async function markRead(db: Db, projectId: ObjectId, userId: ObjectId, now = new Date()): Promise<Date | null> {
+  const previous = await collections(db).chatReads.findOneAndUpdate({ projectId, userId }, { $set: { lastReadAt: now }, $setOnInsert: { _id: new ObjectId() } }, { upsert: true, returnDocument: 'before' });
+  return previous ? previous.lastReadAt : null;
+}
+
+/** When the user last read the chat (null = never), without changing it. */
+export async function lastRead(db: Db, projectId: ObjectId, userId: ObjectId): Promise<Date | null> {
+  const row = await collections(db).chatReads.findOne({ projectId, userId });
+  return row ? row.lastReadAt : null;
 }
 
 /**

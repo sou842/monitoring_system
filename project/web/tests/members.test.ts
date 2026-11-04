@@ -278,6 +278,48 @@ describe('project members and chat (integration)', { skip: enabled ? false : 'MO
       assert.deepEqual(shown.issues, []);
     });
 
+    it('replies quote the original; reactions toggle per person; unknown emoji are refused', async () => {
+      const original = (await (await post(owner, 'Who owns the login bug?')).json()).message;
+      const reply = (await (await post(bob, 'I can take it', { replyTo: original.id })).json()).message;
+      assert.equal(reply.replyTo.id, original.id);
+      assert.equal(reply.replyTo.userName, 'Olive Owner');
+      assert.equal(reply.replyTo.text, 'Who owns the login bug?');
+      const stray = (await (await post(bob, 'no quote', { replyTo: '0'.repeat(24) })).json()).message;
+      assert.equal(stray.replyTo, null); // an id that is not a message of this project is ignored
+
+      const react = (who: typeof bob, id: string, emoji: unknown) => chat.POST(who.as('/api/chat?action=react', { method: 'POST', body: { id, emoji } }));
+      const first = await (await react(bob, original.id, '👍')).json();
+      assert.deepEqual(first.message.reactions, [{ emoji: '👍', count: 1, mine: true, names: ['Bob Member'] }]);
+      const second = await (await react(owner, original.id, '👍')).json();
+      assert.equal(second.message.reactions[0].count, 2);
+      assert.equal(second.message.reactions[0].mine, true);
+      const off = await (await react(bob, original.id, '👍')).json();
+      assert.equal(off.message.reactions[0].count, 1);
+      assert.equal(off.message.reactions[0].mine, false); // bob took his reaction away
+      assert.equal((await react(bob, original.id, 'x.y')).status, 400);
+      assert.equal((await react(stranger, original.id, '👍')).status, 404);
+      // The single-message fetch (used after a live "message-updated") shows the same reactions.
+      const fetched = (await (await chat.GET(owner.as(`/api/chat?projectId=${projectId}&message=${original.id}`))).json()).messages[0];
+      assert.equal(fetched.reactions[0].count, 1);
+      // A deleted message loses its reactions and cannot be reacted to.
+      await chat.DELETE(owner.as(`/api/chat?id=${original.id}`, { method: 'DELETE' }));
+      assert.equal((await react(bob, original.id, '👍')).status, 400);
+      const quoted = (await list(owner)).messages.find((m: { id: string }) => m.id === reply.id);
+      assert.equal(quoted.replyTo.deleted, true);
+      assert.equal(quoted.replyTo.text, '');
+    });
+
+    it('tells the browser when the chat was last read, for the "unread" divider', async () => {
+      const firstVisit = await list(carol);
+      assert.ok(firstVisit.lastReadAt === null || typeof firstVisit.lastReadAt === 'string');
+      await post(owner, 'a message carol has not seen');
+      const secondVisit = await list(carol);
+      assert.equal(typeof secondVisit.lastReadAt, 'string'); // when carol was here before
+      const lastMessage = secondVisit.messages[secondVisit.messages.length - 1];
+      assert.ok(new Date(lastMessage.createdAt) > new Date(secondVisit.lastReadAt)); // so it counts as unread
+      assert.equal((await list(carol, `&after=${lastMessage.id}`)).lastReadAt, null); // polling does not report it
+    });
+
     it('limits how fast one user can post', async () => {
       let last = 201;
       for (let i = 0; i < 35 && last === 201; i++) last = (await post(owner, `spam ${i}`)).status;
