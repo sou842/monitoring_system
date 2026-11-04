@@ -891,16 +891,6 @@
     background-image: radial-gradient(circle at 1px 1px, var(--chat-wallpaper-dot) 1px, transparent 0);
     background-size: 22px 22px;
   }
-  /* The small flap on the first bubble of a group, pointing toward the sender's side. */
-  .chat-tail-own::after, .chat-tail-other::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    width: 10px;
-    height: 13px;
-  }
-  .chat-tail-own::after { right: -7px; background: var(--bubble-own); clip-path: polygon(0 0, 100% 0, 100% 40%, 0 100%); }
-  .chat-tail-other::after { left: -7px; background: var(--panel); clip-path: polygon(100% 0, 0 0, 0 40%, 100% 100%); }
 }
 
 /* The Markdown renderer in AI answers (streamdown, in node_modules) uses shadcn's bg-muted, which here would be the
