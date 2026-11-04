@@ -253,10 +253,9 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
       {hints.length > 0 ? (
         <section aria-label="Hints">
           <GroupTitle>{hints.length === 1 ? 'Hint' : 'Hints'}</GroupTitle>
-          <ul className="m-0 grid list-none gap-2 p-0">
+          <ul className="m-0 flex flex-col gap-2 p-0">
             {hints.map((h, i) => (
-              <li key={i} className="flex items-start gap-3 rounded-xl border border-amber/30 bg-amber/8 px-3.5 py-3">
-                <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-amber" />
+              <li key={i} className="flex items-start gap-3">
                 <p className="m-0 min-w-0 flex-1 text-[13px] leading-relaxed">{h.text}</p>
                 {h.source === 'project' ? <Pill tone="amber" className="shrink-0">Team</Pill> : null}
               </li>

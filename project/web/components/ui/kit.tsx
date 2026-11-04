@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
  */
 
 /** White rounded card with a very soft shadow. */
-export const CARD = 'rounded-2xl border border-line/70 bg-panel shadow-[0_1px_2px_rgba(0,0,0,.04),0_8px_24px_rgba(0,0,0,.04)]';
+export const CARD = 'rounded border border-line/70 bg-panel shadow-[0_1px_2px_rgba(0,0,0,.04),0_8px_24px_rgba(0,0,0,.04)]';
 
 const BUTTON_BASE =
   'inline-flex h-9 cursor-pointer shadow-none items-center justify-center gap-2 rounded-full px-4 text-[13px] font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-40';
