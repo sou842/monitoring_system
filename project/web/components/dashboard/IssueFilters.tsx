@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon } from '../ui/Icon';
-import { pillButton } from '../ui/kit';
+import { Badge, pillButton } from '../ui/kit';
 
 /** The filter values of the issue list. `status` is open | resolved | ignored | all. */
 export interface IssueFilterValues {
@@ -160,7 +160,7 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
         >
           <Icon name="sliders" className="size-4" />
           Filter
-          {active > 0 ? <span className="grid h-5 min-w-5 place-items-center rounded-full bg-invert-bg px-1.5 text-[11px] leading-none text-invert-fg tabular-nums">{active}</span> : null}
+          {active > 0 ? <Badge tone="dark" className="tabular-nums">{active}</Badge> : null}
         </button>
 
         {open ? (

@@ -15,11 +15,6 @@ export function Button({ busy = false, className = '', disabled, children, ...pr
   );
 }
 
-/** Small uppercase tag: event type, status, role… `kind` picks the style (defaults to the text). */
-export function Badge({ text, kind = text }: { text: string; kind?: string }) {
-  return <span className={`badge ${kind}`}>{text}</span>;
-}
-
 /** Deterministic hue (0-359) from a name, so the same person or project always gets the same colour. */
 function hueOf(name: string): number {
   let h = 0;

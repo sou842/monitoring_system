@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 /*
  * Tailwind building blocks for the app-frame look (docs/DESIGN.md): soft white cards on the grey frame,
  * radius 16, pill buttons and badges, almost no borders. New screens use these instead of the older
- * global classes (.card, .badge, .page-head…). Utilities win over the base-layer button/input rules.
+ * global classes (.card, .page-head…). Utilities win over the base-layer button/input rules.
  */
 
 /** White rounded card with a very soft shadow. */
@@ -36,11 +36,26 @@ const TONES = {
   amber: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
   green: 'bg-green-500/12 text-green-700 dark:text-green-400',
   dark: 'bg-invert-bg text-invert-fg',
+  violet: 'bg-violet-500/12 text-violet-700 dark:text-violet-400',
+  solid: 'bg-red text-white',
 } as const;
 export type Tone = keyof typeof TONES;
 
-/** Small soft-tinted pill: status, event type, counts. */
-export function Pill({ tone = 'neutral', className, children }: { tone?: Tone; className?: string; children: ReactNode }) {
+/** Tone for the issue / event words the API uses (`error`, `crash`, `open`, `resolved`…); anything else is neutral. */
+export function toneOfKind(kind: string): Tone {
+  switch (kind) {
+    case 'error': return 'red';
+    case 'crash': case 'regressed': return 'solid';
+    case 'performance': return 'amber';
+    case 'open': return 'violet';
+    case 'resolved': return 'green';
+    case 'ignored': return 'muted';
+    default: return 'neutral';
+  }
+}
+
+/** The one badge: soft-tinted pill for status, event type, role, counts. Pick the colour with `tone`. */
+export function Badge({ tone = 'neutral', className, children }: { tone?: Tone; className?: string; children: ReactNode }) {
   return <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] leading-5 font-medium whitespace-nowrap', TONES[tone], className)}>{children}</span>;
 }
 

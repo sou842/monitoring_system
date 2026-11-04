@@ -5,7 +5,7 @@ import type { ProjectListItem } from '@/lib/types';
 import { Avatar } from '../../ui/bits';
 import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
 import { Icon } from '../../ui/Icon';
-import { Pill, pillButton } from '../../ui/kit';
+import { Badge, pillButton } from '../../ui/kit';
 
 const h = columnHelper<ProjectListItem>();
 const RIGHT: DataColumnMeta = { align: 'right' };
@@ -35,19 +35,19 @@ const columns = h.columns([
   h.accessor((p) => p.role, {
     id: 'role',
     header: 'Access',
-    cell: ({ row }) => <Pill tone={row.original.role === 'member' ? 'muted' : 'neutral'}>{row.original.role === 'member' ? 'Shared' : 'Owner'}</Pill>,
+    cell: ({ row }) => <Badge tone={row.original.role === 'member' ? 'muted' : 'neutral'}>{row.original.role === 'member' ? 'Shared' : 'Owner'}</Badge>,
   }),
   h.accessor((p) => p.events24h, {
     id: 'status',
     header: 'Status',
-    cell: ({ row }) => (row.original.events24h > 0 ? <Pill tone="green"><Dot />Receiving</Pill> : <Pill tone="muted"><Dot />Quiet</Pill>),
+    cell: ({ row }) => (row.original.events24h > 0 ? <Badge tone="green"><Dot />Receiving</Badge> : <Badge tone="muted"><Dot />Quiet</Badge>),
   }),
   h.accessor((p) => p.openIssues, {
     id: 'openIssues',
     header: 'Open issues',
     meta: RIGHT,
     cell: ({ row }) => (row.original.openIssues > 0
-      ? <Pill tone="red" className="tabular-nums">{row.original.openIssues.toLocaleString()}</Pill>
+      ? <Badge tone="red" className="tabular-nums">{row.original.openIssues.toLocaleString()}</Badge>
       : <span className="text-muted tabular-nums">0</span>),
   }),
   h.accessor((p) => p.events24h, {

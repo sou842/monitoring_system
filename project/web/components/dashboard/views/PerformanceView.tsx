@@ -7,7 +7,8 @@ import { useApi } from '@/lib/client/api';
 import { bucketLabel, formatBytes, formatDate, formatMs, formatPercent, queryString, RANGE_LABELS, SDK_PACKAGE, SECONDS_FROM_MS, timeAgo, type Range } from '@/lib/format';
 import type { EndpointDetailResponse, PageDetailResponse, PerformanceResponse, VitalRating, VitalSummary } from '@/lib/types';
 import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
-import { Badge, EmptyState, ErrorNotice, Kpi, Loading, Panel } from '../../ui/bits';
+import { EmptyState, ErrorNotice, Kpi, Loading, Panel } from '../../ui/bits';
+import { Badge, toneOfKind, type Tone } from '../../ui/kit';
 import { CHART_LARGE, CHART_SMALL, CHART_WIDE, ColumnChart } from '../../ui/ColumnChart';
 import { Page, type Crumb } from '../Page';
 import { useSession } from '../Shell';
@@ -33,8 +34,10 @@ function formatVital(vital: PerfVital, value: number | null): string {
   return vital.format === 'cls' ? value.toFixed(3) : formatMs(value);
 }
 
+const RATING_TONE: Record<VitalRating, Tone> = { good: 'green', 'needs-improvement': 'amber', poor: 'red' };
+
 function RatingBadge({ rating }: { rating: VitalRating | null }) {
-  return rating ? <span className={`rating ${rating}`}>{RATING_TEXT[rating]}</span> : null;
+  return rating ? <Badge tone={RATING_TONE[rating]}>{RATING_TEXT[rating]}</Badge> : null;
 }
 
 function VitalCard({ vital, summary }: { vital: PerfVital; summary: VitalSummary }) {
@@ -104,7 +107,7 @@ function buildCallColumns(linkRef: MutableRefObject<(changes: Record<string, str
     callHelper.accessor((r) => num(r.server_ms), { id: 'server', header: 'Server', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.server_ms)}</span> }),
     callHelper.accessor((r) => num(r.download_ms), { id: 'download', header: 'Download', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatMs(row.original.download_ms)}</span> }),
     callHelper.accessor((r) => num(r.size_bytes), { id: 'size', header: 'Size', meta: RIGHT, cell: ({ row }) => <span className="text-muted tabular-nums">{formatBytes(row.original.size_bytes)}</span> }),
-    callHelper.accessor((r) => r.failure || String(r.status), { id: 'status', header: 'Status', cell: ({ row }) => <Badge text={row.original.failure || String(row.original.status)} kind={row.original.failed ? 'error' : 'info'} /> }),
+    callHelper.accessor((r) => r.failure || String(r.status), { id: 'status', header: 'Status', cell: ({ row }) => <Badge tone={toneOfKind(row.original.failed ? 'error' : 'info')} className="capitalize">{row.original.failure || String(row.original.status)}</Badge> }),
     callHelper.accessor((r) => r.page, { id: 'page', header: 'Page', meta: WRAP, cell: ({ row }) => <Link href={linkRef.current({ page: row.original.page, endpoint: null })}>{row.original.page}</Link> }),
     callHelper.accessor((r) => browserOf(r), { id: 'browser', header: 'Browser', cell: ({ row }) => <span className="text-muted">{browserOf(row.original)}</span> }),
     callHelper.accessor((r) => new Date(r.receivedAt).getTime(), { id: 'when', header: 'When', cell: ({ row }) => <span className="text-muted" title={formatDate(row.original.receivedAt)}>{timeAgo(row.original.receivedAt)}</span> }),

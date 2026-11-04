@@ -6,10 +6,10 @@ import { analyzeEvent, frameLabel, stackText, type ClassifiedFrame, type FrameKi
 import type { Serialized, EventPayload, StackFrame } from '@/lib/schema';
 import type { ClientEvent, InsightSettingsView } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { Badge, CopyButton } from '../ui/bits';
+import { CopyButton } from '../ui/bits';
 import { columnHelper, DataTable, type DataColumnMeta } from '../ui/DataTable';
 import { Icon } from '../ui/Icon';
-import { CARD, Pill, pillButton, TabBar } from '../ui/kit';
+import { Badge, CARD, pillButton, TabBar, toneOfKind } from '../ui/kit';
 
 type Payload = Serialized<EventPayload>;
 type Frame = ClassifiedFrame<StackFrame>;
@@ -128,7 +128,7 @@ function Timeline({ items, jump }: { items: TimelineItem[]; jump: Jump }) {
             <span className={cn('absolute top-[13px] left-0 size-[11px] rounded-full border-2 border-panel', item.error ? 'bg-danger' : item.tone === 'bad' ? 'bg-danger' : item.tone === 'warn' ? 'bg-amber' : item.tone === 'user' ? 'bg-fg' : 'bg-line-strong')} aria-hidden="true" />
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-[11px] text-muted tabular-nums">{item.time || '–'}</span>
-              <Badge text={item.type} kind={item.error ? 'error' : 'info'} />
+              <Badge tone={toneOfKind(item.error ? 'error' : 'info')} className="capitalize">{item.type}</Badge>
             </div>
             <div className={cn('mt-1 text-[13px] break-words', item.error ? 'font-semibold text-danger' : TONE_TEXT[item.tone])}>{item.message}</div>
           </>
@@ -232,7 +232,7 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
               <div className="min-w-0 flex-1 basis-64">
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="text-sm font-semibold break-all">{frameLabel(look.frame)}</code>
-                  <Pill tone="neutral">your code</Pill>
+                  <Badge tone="neutral">your code</Badge>
                 </div>
                 {look.frame.filename ? (
                   <div className="mt-1.5 flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
@@ -257,7 +257,7 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
             {hints.map((h, i) => (
               <li key={i} className="flex items-start gap-3">
                 <p className="m-0 min-w-0 flex-1 text-[13px] leading-relaxed">{h.text}</p>
-                {h.source === 'project' ? <Pill tone="amber" className="shrink-0">Team</Pill> : null}
+                {h.source === 'project' ? <Badge tone="amber" className="shrink-0">Team</Badge> : null}
               </li>
             ))}
           </ul>
@@ -377,7 +377,7 @@ const RIGHT: DataColumnMeta = { align: 'right' };
 const apiColumns = apiHelper.columns([
   apiHelper.accessor((c) => c.method, { id: 'method', header: 'Method', cell: ({ row }) => <span className="method">{row.original.method}</span> }),
   apiHelper.accessor((c) => c.url, { id: 'url', header: 'URL', meta: { className: 'min-w-56 whitespace-normal break-all' } satisfies DataColumnMeta, cell: ({ row }) => <span className="font-mono text-xs">{row.original.url}</span> }),
-  apiHelper.accessor((c) => c.status, { id: 'status', header: 'Status', cell: ({ row }) => <Badge text={String(row.original.status)} kind={row.original.status >= 400 || row.original.status === 0 ? 'error' : 'info'} /> }),
+  apiHelper.accessor((c) => c.status, { id: 'status', header: 'Status', cell: ({ row }) => <Badge tone={toneOfKind(row.original.status >= 400 || row.original.status === 0 ? 'error' : 'info')} className="capitalize">{String(row.original.status)}</Badge> }),
   apiHelper.accessor((c) => c.duration_ms, { id: 'duration', header: 'Duration', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.duration_ms} ms</span> }),
   // The _id (SDK 0.9.0+) can be pasted into the issue search to find every event that recorded the call.
   apiHelper.accessor((c) => c._id ?? '', { id: 'callId', header: 'Call id', cell: ({ row }) => <span className="font-mono text-xs text-muted">{row.original._id || '–'}</span> }),
@@ -479,9 +479,9 @@ export function EventDetail({ event, insightSettings }: { event: ClientEvent; in
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2 className="m-0 text-sm font-semibold">Event</h2>
         <span className="text-xs text-muted" title={formatDate(p.timestamp)}>{formatDate(p.timestamp)}</span>
-        {p.error ? <Pill tone={p.error.handled ? 'muted' : 'red'}>{p.error.handled ? 'handled' : 'unhandled'}</Pill> : null}
-        {p.level ? <Pill tone="neutral">{p.level}</Pill> : null}
-        {p.screen ? <Pill tone="neutral">{p.screen}</Pill> : null}
+        {p.error ? <Badge tone={p.error.handled ? 'muted' : 'red'}>{p.error.handled ? 'handled' : 'unhandled'}</Badge> : null}
+        {p.level ? <Badge tone="neutral">{p.level}</Badge> : null}
+        {p.screen ? <Badge tone="neutral">{p.screen}</Badge> : null}
       </div>
 
       <TabBar label="Event sections" tabs={tabs} value={tab} onChange={setTab} />

@@ -113,7 +113,7 @@
     --frame: var(--bg);
     --frame-line: rgba(255, 255, 255, 0.06);
     --frame-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
-    --page-bg: linear-gradient(180deg, #0e0f13 0%, #17141a 55%, #3b2018 100%);
+    --page-bg: linear-gradient(180deg, oklch(0.12 0 0) 0%, oklch(0.145 0 0) 55%, oklch(0.269 0 0) 100%);
     --hover: rgba(255, 255, 255, 0.06);
     --chip: rgba(255, 255, 255, 0.1);
     --card-glass: rgba(255, 255, 255, 0.04);
@@ -122,6 +122,7 @@
     --av-bg-s: 32%;
     --av-bg-l: 30%;
     --av-fg-l: 88%;
+    --content: var(--bg);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -170,8 +171,8 @@
     --ring: oklch(0.708 0 0 / 45%);
     color-scheme: light;
     --frame-line: rgba(255, 255, 255, 0.75);
-    --frame-shadow: 0 30px 80px rgba(70, 40, 30, 0.2), 0 2px 6px rgba(0, 0, 0, 0.05);
-    --page-bg: linear-gradient(180deg, #cdd0d4 0%, #d8d2d2 42%, #f0b08f 80%, #fb9070 100%);
+    --frame-shadow: 0 30px 80px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.05);
+    --page-bg: linear-gradient(180deg, oklch(0.87 0 0) 0%, oklch(0.922 0 0) 55%, oklch(0.97 0 0) 100%);
     --hover: rgba(17, 17, 20, 0.05);
     --chip: rgba(17, 17, 20, 0.07);
     --card-glass: rgba(255, 255, 255, 0.6);
@@ -180,6 +181,7 @@
     --av-bg-s: 75%;
     --av-bg-l: 88%;
     --av-fg-l: 28%;
+    --content: var(--panel);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -361,16 +363,6 @@
   .key-box code { word-break: break-all; }
   
   /* ---------- Tags (event type / status) ---------- */
-  .badge {
-    display: inline-flex; align-items: center; padding: 1px 7px; font-size: 10.5px; line-height: 1.6; text-transform: uppercase; letter-spacing: 0.06em;
-    border: 1px solid var(--line-strong); color: var(--fg-2); white-space: nowrap; vertical-align: middle; border-radius: 2px;
-  }
-  .badge.crash, .badge.regressed { background: var(--invert-bg); border-color: var(--invert-bg); color: var(--invert-fg); font-weight: 700; }
-  .badge.error { border-color: var(--fg); color: var(--fg); }
-  .badge.performance { border-style: dashed; }
-  .badge.message, .badge.info { border-style: dotted; color: var(--muted); }
-  .badge.open { border-color: var(--fg); color: var(--fg); }
-  .badge.resolved, .badge.ignored { color: var(--muted); border-color: var(--line); }
   
   /* ---------- Tabs & filters ---------- */
   .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -610,15 +602,6 @@
   /* avatars & tags */
   .avatar { border-radius: 50%; color: hsl(var(--h, 220) 45% var(--av-fg-l, 28%)); background: hsl(var(--h, 220) var(--av-bg-s, 75%) var(--av-bg-l, 88%)); }
   .avatar.square { border-radius: 100px; }
-  .badge { border: 0; border-radius: 999px; padding: 2px 10px; font-size: 11.5px; text-transform: capitalize; letter-spacing: 0; font-weight: 550; background: var(--panel-2); color: var(--fg-2); box-shadow: inset 0 0 0 1px var(--line); }
-  .badge.error, .badge.crash, .badge.regressed, .badge.performance, .badge.message, .badge.info, .badge.open, .badge.resolved { box-shadow: none; }
-  .badge.error { background: var(--red-soft); color: var(--red); }
-  .badge.crash, .badge.regressed { background: var(--red); color: #fff; }
-  .badge.performance { background: var(--amber-soft); color: var(--amber); }
-  .badge.message, .badge.info { background: var(--accent-soft); color: var(--accent); }
-  .badge.open { background: var(--violet-soft); color: var(--violet); }
-  .badge.resolved { background: var(--green-soft); color: var(--green); }
-  .badge.ignored { background: var(--panel-2); color: var(--muted); }
   
   /* issue list & detail */
   .issue-row.sev-error::before { background: var(--red); }
@@ -808,10 +791,6 @@
   /* ---------- Performance ---------- */
   .vitals-grid { display: grid; gap: 14px; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 14px; }
   .vitals-grid .big { font-size: 22px; }
-  .rating { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 6px; border: 1px solid currentColor; border-radius: 3px; }
-  .rating.good { color: var(--green); }
-  .rating.needs-improvement { color: var(--amber); }
-  .rating.poor { color: var(--danger); }
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: middle; }
   .dot.good { background: var(--green); }
   .dot.needs-improvement { background: var(--amber); }
@@ -837,10 +816,10 @@
   .auth-hero {
     --fg: #ffffff; --fg-2: #dfe7ff; --muted: #a9bce8; --line: rgba(255, 255, 255, 0.12); --line-strong: rgba(255, 255, 255, 0.24);
     --bg: rgba(8, 22, 60, 0.35); --grid-dot: rgba(255, 255, 255, 0.07);
-    background-color: #14306d; background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px), linear-gradient(155deg, #12285a 0%, #1f4bb0 100%);
+    background-color: oklch(0.205 0 0); background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px), linear-gradient(155deg, oklch(0.145 0 0) 0%, oklch(0.371 0 0) 100%);
     background-size: 22px 22px, auto; border-right: 0;
   }
-  .auth-hero .brand-mark { background: #fff; box-shadow: none; }
+  .auth-hero .brand-mark { background: oklch(0.985 0 0); box-shadow: none; }
   /* These are h2s; the light theme's generic h2 rule (12.5px panel headings) must not shrink them. */
   .auth-headline { font-size: 32px; letter-spacing: -0.02em; font-weight: 700; }
   .modal-title { font-size: 17px; font-weight: 700; }
@@ -855,7 +834,7 @@
   .strength-bars i { border-radius: 999px; }
   .modal { border: 0; border-radius: 16px; }
   .modal-danger { border-top: 0; box-shadow: inset 0 3px 0 var(--danger), var(--modal-shadow); }
-  .modal::backdrop { background: rgba(15, 27, 58, 0.45); }
+  .modal::backdrop { background: oklch(0.145 0 0 / 45%); }
   .toast { border-radius: 12px; }
   
     .step-n { border: 0; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }

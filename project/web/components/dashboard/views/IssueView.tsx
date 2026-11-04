@@ -8,8 +8,8 @@ import { formatDate, timeAgo } from '@/lib/format';
 import type { IssueStatus } from '@/lib/schema';
 import type { ClientEvent, EventResponse, ImpactValue, IssueImpact, IssueResponse } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { Badge, Button, EmptyState, ErrorNotice, Loading } from '../../ui/bits';
-import { CARD, Pill } from '../../ui/kit';
+import { Button, EmptyState, ErrorNotice, Loading } from '../../ui/bits';
+import { Badge, CARD, toneOfKind } from '../../ui/kit';
 import { useDialog } from '../../ui/Dialog';
 import { useToast } from '../../ui/Toasts';
 import { Icon } from '../../ui/Icon';
@@ -103,8 +103,8 @@ function ImpactPanel({ impact, total }: { impact: IssueImpact; total: number }) 
               <span className="text-muted">{label}</span><span className="truncate font-medium">{text ?? 'not set'}</span>
             </span>
           ))}
-          {impact.offline > 0 ? <Pill tone="amber">{percent(impact.offline, impact.withSituation)} offline</Pill> : null}
-          {impact.duringPageLoad > 0 ? <Pill tone="amber">{percent(impact.duringPageLoad, impact.withSituation)} while loading</Pill> : null}
+          {impact.offline > 0 ? <Badge tone="amber">{percent(impact.offline, impact.withSituation)} offline</Badge> : null}
+          {impact.duringPageLoad > 0 ? <Badge tone="amber">{percent(impact.duringPageLoad, impact.withSituation)} while loading</Badge> : null}
         </div>
         <button type="button" aria-expanded={open} onClick={() => setOpen((was) => !was)} className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs font-medium text-muted shadow-none hover:text-fg">
           {open ? 'Hide breakdown' : 'Breakdown'}<Icon name="chevron" className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
@@ -194,9 +194,9 @@ export function IssueView({ issueId }: { issueId: string }) {
           <div className="min-w-0 flex-1 basis-80">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h1 className="m-0 text-lg font-semibold tracking-tight break-words">{issue.errorType}</h1>
-              <Badge text={issue.eventType} />
-              <Badge text={issue.status} />
-              {issue.regressedAt && issue.status === 'open' ? <Badge text="regressed" kind="error" /> : null}
+              <Badge tone={toneOfKind(issue.eventType)} className="capitalize">{issue.eventType}</Badge>
+              <Badge tone={toneOfKind(issue.status)} className="capitalize">{issue.status}</Badge>
+              {issue.regressedAt && issue.status === 'open' ? <Badge tone="solid">Regressed</Badge> : null}
             </div>
             <p className="m-0 mt-1 line-clamp-2 text-[13px] break-words text-fg-2" title={issue.message}>{issue.message || '(no message)'}</p>
             {issue.culprit ? <div className="mt-1.5 truncate font-mono text-xs text-muted" title={issue.culprit}>{issue.culprit}</div> : null}
@@ -231,7 +231,7 @@ export function IssueView({ issueId }: { issueId: string }) {
           <div className={cn(CARD, 'issue-events overflow-hidden')}>
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <h2 className="m-0 text-[13px] font-semibold">Latest events</h2>
-              <Pill tone="muted">{data.events.length}</Pill>
+              <Badge tone="muted">{data.events.length}</Badge>
             </div>
             <div className="issue-events-scroll overflow-y-auto">
               {data.events.map((e) => {

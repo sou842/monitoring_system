@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'rea
 import { api, useApi } from '@/lib/client/api';
 import { formatDate, queryString, timeAgo } from '@/lib/format';
 import type { AdminResponse, AdminUserRow } from '@/lib/types';
-import { Avatar, Badge, EmptyState, ErrorNotice, Kpi, Loading } from '../../ui/bits';
+import { Avatar, EmptyState, ErrorNotice, Kpi, Loading } from '../../ui/bits';
+import { Badge, toneOfKind } from '../../ui/kit';
 import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
 import { useDialog } from '../../ui/Dialog';
 import { useToast } from '../../ui/Toasts';
@@ -54,15 +55,15 @@ function buildColumns(ref: MutableRefObject<RowActions>) {
           <div className="flex items-center gap-3">
             <Avatar name={u.name} />
             <div className="min-w-0">
-              <div className="flex items-center gap-2"><b className="font-semibold">{u.name}</b>{u.id === ref.current.meId ? <Badge text="you" kind="info" /> : null}</div>
+              <div className="flex items-center gap-2"><b className="font-semibold">{u.name}</b>{u.id === ref.current.meId ? <Badge tone="neutral">You</Badge> : null}</div>
               <div className="text-xs text-muted">{u.email}</div>
             </div>
           </div>
         );
       },
     }),
-    h.accessor((u) => u.role, { id: 'role', header: 'Role', cell: ({ row }) => <Badge text={row.original.role} kind={row.original.role === 'admin' ? 'open' : 'info'} /> }),
-    h.accessor((u) => u.status, { id: 'status', header: 'Status', cell: ({ row }) => <Badge text={row.original.status} kind={row.original.status === 'active' ? 'resolved' : 'error'} /> }),
+    h.accessor((u) => u.role, { id: 'role', header: 'Role', cell: ({ row }) => <Badge tone={toneOfKind(row.original.role === 'admin' ? 'open' : 'info')} className="capitalize">{row.original.role}</Badge> }),
+    h.accessor((u) => u.status, { id: 'status', header: 'Status', cell: ({ row }) => <Badge tone={toneOfKind(row.original.status === 'active' ? 'resolved' : 'error')} className="capitalize">{row.original.status}</Badge> }),
     h.accessor((u) => u.projects, { id: 'projects', header: 'Projects', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.projects.toLocaleString()}</span> }),
     h.accessor((u) => u.events24h, { id: 'events24h', header: 'Events 24h', meta: RIGHT, cell: ({ row }) => <span className="tabular-nums">{row.original.events24h.toLocaleString()}</span> }),
     h.accessor((u) => new Date(u.createdAt).getTime(), {

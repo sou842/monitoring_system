@@ -13,7 +13,7 @@ import { useDialog } from '../../ui/Dialog';
 import { KeyBox, useOrigin } from '../../ui/KeyBox';
 import { columnHelper, DataTable, type DataColumnMeta } from '../../ui/DataTable';
 import { ActiveFilterChips, IssueFilters } from '../IssueFilters';
-import { PageTitle, Pill, PillButton, TabBar, type Tone } from '../../ui/kit';
+import { PageTitle, Badge, PillButton, TabBar, type Tone } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
 import { MembersPanel } from '../MembersPanel';
@@ -43,9 +43,9 @@ const issueColumns = issueHelper.columns([
           <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
             {/* <span className={cn('size-2 shrink-0 rounded-full', SEVERITY_DOT[issue.eventType] ?? 'bg-muted')} aria-hidden="true" /> */}
             {issue.errorType}
-            <Pill tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Pill>
-            {issue.status !== 'open' ? <Pill tone="muted">{issue.status}</Pill> : null}
-            {issue.regressedAt && issue.status === 'open' ? <Pill tone="red">regressed</Pill> : null}
+            <Badge tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Badge>
+            {issue.status !== 'open' ? <Badge tone="muted">{issue.status}</Badge> : null}
+            {issue.regressedAt && issue.status === 'open' ? <Badge tone="red">regressed</Badge> : null}
           </div>
           <div className="mt-1 max-w-3xl truncate text-[13px] text-fg-2">{issue.message || '(no message)'}</div>
           {meta ? <div className="mt-1 max-w-3xl truncate text-xs text-muted">{meta}</div> : null}

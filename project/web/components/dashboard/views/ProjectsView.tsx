@@ -9,7 +9,7 @@ import { Button, EmptyState, ErrorNotice, Loading } from '../../ui/bits';
 import { Field } from '../../ui/fields';
 import { Icon } from '../../ui/Icon';
 import { KeyBox } from '../../ui/KeyBox';
-import { CARD, PageTitle, Pill, PillButton, pillButton } from '../../ui/kit';
+import { CARD, PageTitle, Badge, PillButton, pillButton } from '../../ui/kit';
 import { ProjectsTable } from './ProjectsTable';
 import { Page, scrollPageToTop } from '../Page';
 import { useSession } from '../Shell';
@@ -46,7 +46,7 @@ export function ProjectsView() {
             sub={atLimit ? `You have reached the limit of ${limit} projects. Delete a project to create another.` : 'Each app that sends errors is a project with its own API key.'}
             actions={(
               <>
-                <Pill tone={atLimit ? 'amber' : 'neutral'}>{limit === null ? `${projects.length} project(s)` : `${projects.length} / ${limit} projects`}</Pill>
+                <Badge tone={atLimit ? 'amber' : 'neutral'}>{limit === null ? `${projects.length} project(s)` : `${projects.length} / ${limit} projects`}</Badge>
                 <PillButton variant="primary" disabled={atLimit || creating} title={atLimit ? `You can have at most ${limit} projects` : undefined} onClick={() => setCreating(true)}>
                   <Icon name="plus" className="size-4" />New project
                 </PillButton>

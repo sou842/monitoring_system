@@ -13,7 +13,7 @@
   height: 100dvh; min-height: 520px;
   background: var(--frame); border: 1px solid var(--frame-line); box-shadow: var(--frame-shadow);
 }
-.app-frame .content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.app-frame .content { background: var(--content); flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .page-bar { flex: none; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 24px; }
 .page-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 .app-frame .app-main { max-width: 1280px; margin: 0 auto; padding: 4px 24px 48px; }
@@ -21,7 +21,7 @@
 .bar-menu svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
 /* ---------- Team rail ---------- */
-.rail { flex: none; width: 68px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px 0 14px; border-right: 1px solid var(--line); }
+.rail { flex: none; width: 68px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px 0 14px; border-right: 1px solid var(--sidebar-border); background: var(--sidebar); }
 .rail-grow { flex: 1; }
 .rail-tile {
   position: relative; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 12px;
@@ -40,7 +40,7 @@
 /* ---------- Sidebar ---------- */
 .side {
   position: relative; flex: none; width: var(--sidebar-w, 220px); min-height: 0; display: flex; flex-direction: column;
-  padding: 14px 10px 12px; border-right: 1px solid var(--line); transition: width 0.15s ease, padding 0.15s ease;
+  padding: 14px 10px 12px; border-right: 1px solid var(--sidebar-border); background: var(--sidebar); transition: width 0.15s ease, padding 0.15s ease;
 }
 .resizing .side { transition: none; }
 .side-head { display: flex; align-items: center; gap: 6px; padding: 0 2px 10px; }
@@ -176,7 +176,7 @@
   .app-frame.collapsed .nav-item svg { width: 18px; height: 18px; }
   .app-frame.collapsed .nav-item .avatar { margin: 0; }
   /* The unread / open count becomes a small badge on the tile's corner. */
-  .app-frame.collapsed .nav-count { position: absolute; top: 2px; right: 0; margin: 0; min-width: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; background: #9d9d9d; color: var(--invert-fg); box-shadow: 0 0 0 2px var(--frame); }
+  .app-frame.collapsed .nav-count { position: absolute; top: 2px; right: 0; margin: 0; min-width: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; background: var(--faint); color: var(--invert-fg); box-shadow: 0 0 0 2px var(--frame); }
   .app-frame.collapsed .side-foot { width: 100%; justify-items: center; }
   .app-frame.collapsed .side-foot .menu-wrap { width: auto; }
   .app-frame.collapsed .user-card { justify-content: center; width: 40px; height: 40px; padding: 0; border-radius: 12px; }

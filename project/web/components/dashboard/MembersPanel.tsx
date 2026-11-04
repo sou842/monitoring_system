@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { Avatar, ErrorNotice, Loading } from '../ui/bits';
 import { columnHelper, DataTable } from '../ui/DataTable';
 import { useDialog } from '../ui/Dialog';
-import { CARD, Pill, PillButton, pillButton } from '../ui/kit';
+import { CARD, Badge, PillButton, pillButton } from '../ui/kit';
 import { useToast } from '../ui/Toasts';
 import { useSession } from './Shell';
 
@@ -38,10 +38,10 @@ function PermissionPicker({ value, onChange, unavailable = [] }: { value: Permis
 
 /** The permissions of a member as small chips ("Can only view" when none). */
 function PermissionChips({ permissions }: { permissions: Permission[] }) {
-  if (permissions.length === 0) return <Pill tone="muted">View only</Pill>;
+  if (permissions.length === 0) return <Badge tone="muted">View only</Badge>;
   return (
     <div className="flex flex-wrap gap-1">
-      {permissions.map((p) => <Pill key={p} tone="neutral">{PERMISSION_INFO[p].label}</Pill>)}
+      {permissions.map((p) => <Badge key={p} tone="neutral">{PERMISSION_INFO[p].label}</Badge>)}
     </div>
   );
 }
@@ -86,7 +86,7 @@ function buildColumns(tools: MutableRefObject<RowTools>) {
       header: 'Person',
       cell: ({ row }) => {
         const { person, member } = row.original;
-        const badge = !member ? <Pill tone="dark">Owner</Pill> : member.id === tools.current.userId ? <Pill tone="muted">You</Pill> : undefined;
+        const badge = !member ? <Badge tone="dark">Owner</Badge> : member.id === tools.current.userId ? <Badge tone="muted">You</Badge> : undefined;
         return <Person person={person} badge={badge} />;
       },
     }),
@@ -193,7 +193,7 @@ export function MembersPanel({ projectId, projectName }: { projectId: string; pr
         data={rows}
         columns={columns}
         getRowId={(r) => r.id}
-        title={<span className="inline-flex items-center gap-2">People with access<Pill tone="muted">{rows.length}</Pill></span>}
+        title={<span className="inline-flex items-center gap-2">People with access<Badge tone="muted">{rows.length}</Badge></span>}
         initialSort={{ id: 'person' }}
         minWidth={560}
         empty={`Nobody else has access yet.${data.canManage ? ' Add a teammate below.' : ''}`}

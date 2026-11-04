@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/shadcn/badge";
+import { Badge } from "@/components/ui/kit";
 import {
   Collapsible,
   CollapsibleContent,
@@ -65,7 +65,7 @@ const statusIcons: Record<ToolPart["state"], ReactNode> = {
 };
 
 export const getStatusBadge = (status: ToolPart["state"]) => (
-  <Badge className="gap-1 rounded-full px-2 py-0 text-[11px] font-normal text-muted-foreground" variant="secondary">
+  <Badge tone="muted" className="gap-1 font-normal">
     {statusIcons[status]}
     {statusLabels[status]}
   </Badge>

@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { Avatar, Loading } from '../../ui/bits';
 import { useDialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
-import { Pill, pillButton, type Tone } from '../../ui/kit';
+import { Badge, pillButton, type Tone } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
 import { useSession } from '../Shell';
@@ -69,8 +69,8 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold">
           {issue.errorType}
-          <Pill tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Pill>
-          {issue.status !== 'open' ? <Pill tone={STATUS_TONE[issue.status] ?? 'muted'}>{issue.status}</Pill> : null}
+          <Badge tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Badge>
+          {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue.status] ?? 'muted'}>{issue.status}</Badge> : null}
         </span>
         <span className="mt-0.5 block truncate text-xs text-fg-2">{issue.message || '(no message)'}</span>
         <span className="mt-0.5 block text-xs text-muted">{issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
@@ -404,7 +404,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             onClick={() => { if (showTools) setActiveId((id) => (id === m.id ? null : m.id)); }}
             className={cn(
               'overflow-hidden px-3 py-1.5 text-sm shadow-[0_1px_1px_rgba(0,0,0,.08)]',
-              own ? 'bg-[#f6f6f7] dark:bg-[#f6f6f7]' : 'bg-panel',
+              own ? 'bg-secondary' : 'bg-panel',
               continued ? 'rounded-2xl' : own ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm',
               row.status === 'sending' && 'opacity-80',
             )}
@@ -468,7 +468,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   return (
     <Page crumbs={crumbs} fill>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-[#eceff1] dark:bg-[#10131a]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-bg">
         <div className="relative min-h-0 flex-1">
           <div
             ref={scroller}
@@ -515,7 +515,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             <button type="button" onClick={jumpToLatest} aria-label="Jump to the latest message" title="Jump to the latest message"
               className="absolute right-4 bottom-4 z-10 grid size-10 cursor-pointer place-items-center rounded-full border border-line bg-panel p-0 text-fg-2 shadow-(--menu-shadow) hover:text-fg">
               <Icon name="arrowDown" className="size-5" />
-              {newBelow > 0 ? <span className="absolute -top-1.5 -right-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-(--mention) px-1 text-[11px] font-semibold text-white">{newBelow > 99 ? '99+' : newBelow}</span> : null}
+              {newBelow > 0 ? <Badge className="absolute -top-1.5 -right-1.5 min-w-5 justify-center bg-(--mention) px-1 font-semibold text-white">{newBelow > 99 ? '99+' : newBelow}</Badge> : null}
             </button>
           ) : null}
         </div>
@@ -541,7 +541,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                           </>
                         ) : (
                           <>
-                            <Pill tone={EVENT_TONE[option.eventType] ?? 'neutral'}>{option.eventType}</Pill>
+                            <Badge tone={EVENT_TONE[option.eventType] ?? 'neutral'}>{option.eventType}</Badge>
                             <span className="min-w-0 flex-1"><b className="block truncate font-medium">{option.errorType}</b><span className="block truncate text-xs text-muted">{option.message || '(no message)'}</span></span>
                             <span className="shrink-0 text-xs text-muted tabular-nums">{option.count.toLocaleString()}</span>
                           </>
