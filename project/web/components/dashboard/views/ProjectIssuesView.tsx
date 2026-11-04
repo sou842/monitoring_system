@@ -41,7 +41,7 @@ const issueColumns = issueHelper.columns([
       return (
         <div className="min-w-0 py-0.5">
           <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <span className={cn('size-2 shrink-0 rounded-full', SEVERITY_DOT[issue.eventType] ?? 'bg-muted')} aria-hidden="true" />
+            {/* <span className={cn('size-2 shrink-0 rounded-full', SEVERITY_DOT[issue.eventType] ?? 'bg-muted')} aria-hidden="true" /> */}
             {issue.errorType}
             <Pill tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Pill>
             {issue.status !== 'open' ? <Pill tone="muted">{issue.status}</Pill> : null}

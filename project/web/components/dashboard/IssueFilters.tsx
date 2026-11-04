@@ -36,28 +36,36 @@ interface Props {
   onSearchSubmit: () => void;
 }
 
-const CHIP = 'h-8 cursor-pointer rounded-full border px-3 text-[13px] font-medium shadow-none transition-colors';
+/** Tailwind needs the full class names, so the column counts are spelled out here. */
+const COLUMNS: Record<number, string> = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' };
 
-/** A group of single-choice chips with a small heading. */
-function ChipGroup({ label, options, value, onPick }: { label: string; options: Option[]; value: string; onPick: (value: string) => void }) {
+/** One filter: a small heading and a grid of equal-width options (single choice). */
+function OptionGrid({ label, options, value, onPick, columns }: { label: string; options: Option[]; value: string; onPick: (value: string) => void; columns: 2 | 3 | 4 }) {
   return (
-    <fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
-      <legend className="mb-1 p-0 text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</legend>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label={label}>
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            aria-pressed={value === o.value}
-            onClick={() => onPick(o.value)}
-            className={cn(CHIP, value === o.value ? 'border-transparent bg-invert-bg text-invert-fg' : 'border-line-strong bg-panel text-fg hover:bg-(--hover)')}
-          >
-            {o.label}
-            {o.count !== undefined ? <span className={cn('ml-1.5 tabular-nums', value === o.value ? 'opacity-70' : 'text-muted')}>{o.count.toLocaleString()}</span> : null}
-          </button>
-        ))}
+    <section aria-label={label}>
+      <h4 className="m-0 mb-2 text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</h4>
+      <div className={cn('grid gap-1.5', COLUMNS[columns])} role="group" aria-label={label}>
+        {options.map((o) => {
+          const on = value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              title={o.label}
+              onClick={() => onPick(o.value)}
+              className={cn(
+                'flex h-10 min-w-0 cursor-pointer flex-col items-center justify-center rounded-xl border px-2 text-[13px] leading-tight font-medium shadow-none transition-colors',
+                on ? 'border-transparent bg-invert-bg text-invert-fg' : 'border-line bg-panel-2 text-fg hover:border-line-strong hover:bg-(--hover)',
+              )}
+            >
+              <span className="max-w-full truncate">{o.label}</span>
+              {o.count !== undefined ? <span className={cn('text-[11px] font-normal tabular-nums', on ? 'opacity-70' : 'text-muted')}>{o.count.toLocaleString()}</span> : null}
+            </button>
+          );
+        })}
       </div>
-    </fieldset>
+    </section>
   );
 }
 
@@ -116,18 +124,21 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
         </button>
 
         {open ? (
-          <div role="dialog" aria-label="Filter issues" className="absolute left-0 z-30 mt-2 w-[min(380px,calc(100vw-48px))] rounded-2xl border border-line bg-panel p-4 shadow-(--menu-shadow)">
-            <div className="grid gap-4">
-              <ChipGroup label="Status" options={statuses} value={values.status} onPick={(status) => onChange({ status })} />
-              <ChipGroup label="Event type" options={[{ value: '', label: 'All' }, ...types]} value={values.type} onPick={(type) => onChange({ type })} />
-              {environments.length > 0 ? (
-                <ChipGroup label="Environment" options={[{ value: '', label: 'All' }, ...environments]} value={values.env} onPick={(env) => onChange({ env })} />
-              ) : null}
-              <ChipGroup label="Sort by" options={sorts} value={values.sort} onPick={(sort) => onChange({ sort })} />
+          <div role="dialog" aria-label="Filter issues" className="absolute left-0 z-30 mt-2 w-[min(400px,calc(100vw-48px))] overflow-hidden rounded-2xl border border-line bg-panel shadow-(--menu-shadow)">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h3 className="m-0 text-sm font-semibold">Filters</h3>
+              <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-muted shadow-none enabled:hover:text-fg disabled:cursor-default disabled:opacity-40" disabled={active === 0} onClick={reset}>Reset all</button>
             </div>
-            <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
-              <button type="button" className={pillButton('ghost', 'h-8 px-3 text-xs')} disabled={active === 0} onClick={reset}>Reset all</button>
-              <button type="button" className={pillButton('primary', 'h-8 px-4 text-xs')} onClick={() => setOpen(false)}>Done</button>
+            <div className="grid max-h-[min(70vh,520px)] gap-5 overflow-y-auto px-4 py-4">
+              <OptionGrid label="Status" columns={4} options={statuses} value={values.status} onPick={(status) => onChange({ status })} />
+              <OptionGrid label="Event type" columns={3} options={[{ value: '', label: 'All' }, ...types]} value={values.type} onPick={(type) => onChange({ type })} />
+              {environments.length > 0 ? (
+                <OptionGrid label="Environment" columns={3} options={[{ value: '', label: 'All' }, ...environments]} value={values.env} onPick={(env) => onChange({ env })} />
+              ) : null}
+              <OptionGrid label="Sort by" columns={3} options={sorts} value={values.sort} onPick={(sort) => onChange({ sort })} />
+            </div>
+            <div className="flex justify-end border-t border-line bg-panel-2 px-4 py-3">
+              <button type="button" className={pillButton('primary', 'h-9 px-5')} onClick={() => setOpen(false)}>Show results</button>
             </div>
           </div>
         ) : null}

@@ -132,15 +132,24 @@
 .app-frame .ai-panel-head { height: 56px; }
 .drawer-backdrop { display: none; }
 
+/* ---------- Issue page: events list beside the event ---------- */
+.issue-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.issue-events-scroll { max-height: 240px; scrollbar-width: thin; }
+@media (min-width: 1024px) {
+  .issue-split { grid-template-columns: 264px minmax(0, 1fr); }
+  .issue-split > aside { position: sticky; top: 0; }
+  .issue-events-scroll { max-height: calc(100dvh - 220px); }
+}
+
 /* ---------- Search field and cards in the new look ---------- */
 .app-frame .filters input[type='search'] { border-radius: 999px; }
 
 /* ---------- Narrower than a wide desktop ---------- */
 @media (min-width: 1100px) and (max-width: 1699px) {
   /* The page is narrow next to the Ask AI panel: events list above the event instead of beside it. */
-  .app-frame:has(.ai-panel[data-open]) .detail { grid-template-columns: minmax(0, 1fr); }
-  .app-frame:has(.ai-panel[data-open]) .events-list { max-height: 240px; }
-  .app-frame:has(.ai-panel[data-open]) .meta { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .app-frame:has(.ai-panel[data-open]) .issue-split { grid-template-columns: minmax(0, 1fr); }
+  .app-frame:has(.ai-panel[data-open]) .issue-split > aside { position: static; }
+  .app-frame:has(.ai-panel[data-open]) .issue-events-scroll { max-height: 240px; }
 }
 @media (max-width: 1099px) {
   /* Not enough room beside the page: the panel covers the frame's right side. */

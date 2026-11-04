@@ -117,7 +117,7 @@ export function CopyButton({ text, label = 'Copy', className }: { text: string; 
 /** Settings section: title and description on the left, content on the right. */
 export function SettingsCard({ title, description, className = '', children }: { title: string; description?: string | null; className?: string; children: ReactNode }) {
   return (
-    <section className={cn(CARD, 'grid gap-4 p-5 md:grid-cols-[260px_minmax(0,1fr)] md:gap-8 md:p-6', className)}>
+    <section className={cn(CARD, 'gap-3 p-4 flex flex-col md:gap-8 md:p-5', className)}>
       <div>
         <h3 className="m-0 text-sm font-semibold">{title}</h3>
         {description ? <p className="mt-1 text-[13px] text-muted">{description}</p> : null}

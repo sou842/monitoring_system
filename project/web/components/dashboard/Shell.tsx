@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, clearCache, onUnauthorized, useApi } from '@/lib/client/api';
 import type { ProjectListItem, ProjectsResponse, UserView } from '@/lib/types';
 import { Avatar } from '../ui/bits';
@@ -129,9 +129,15 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   // The remembered project if it still exists, else the first one.
   const activeProject = projectItems ? (projectItems.find((p) => p.id === pickedId) ?? projectItems[0] ?? null) : null;
   const projectId = activeProject ? activeProject.id : null;
-  const setProjectId = (id: string) => {
+  // Stable identity: pages call it from effects (a project's page marks itself as the active one).
+  const setProjectId = useCallback((id: string) => {
     setPickedId(id);
     try { localStorage.setItem(PROJECT_KEY, id); } catch { /* storage blocked */ }
+  }, []);
+  // Picking a project in the sidebar menu: a page that shows one project (its issues, one of its issues) follows the choice.
+  const pickProject = (id: string) => {
+    setProjectId(id);
+    if (id !== projectId && (isUnder(pathname, '/projects') && pathname !== '/projects' || isUnder(pathname, '/issues'))) router.push(`/projects/${id}`);
   };
 
   useEffect(() => {
@@ -217,7 +223,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
               )}>
                 <div className="menu-label">Projects</div>
                 {(projectItems ?? []).map((p) => (
-                  <button key={p.id} type="button" className="menu-item" role="menuitemradio" aria-checked={p.id === projectId} onClick={() => setProjectId(p.id)}>
+                  <button key={p.id} type="button" className="menu-item" role="menuitemradio" aria-checked={p.id === projectId} onClick={() => pickProject(p.id)}>
                     <Avatar name={p.name} size="sm" shape="square" />{p.name}
                     {p.id === projectId ? <Icon name="check" className="menu-check" /> : null}
                   </button>

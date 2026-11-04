@@ -572,7 +572,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               ) : null}
 
               {attached.length > 0 ? (
-                <div className="mb-2 grid gap-2 sm:grid-cols-2">
+                <div className="mb-2 grid gap-2 sm:grid-cols-1">
                   {attached.map((issue) => <IssueCard key={issue.id} issue={issue} onRemove={() => setAttached((list) => list.filter((i) => i.id !== issue.id))} />)}
                 </div>
               ) : null}
