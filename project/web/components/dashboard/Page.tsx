@@ -42,7 +42,7 @@ function RefreshButton() {
 }
 
 /** One dashboard page: the top bar (menu on phones, breadcrumbs, refresh) and the scrolling content. */
-export function Page({ crumbs, children, fill = false }: { crumbs: Crumb[]; children: ReactNode; /** The content uses the whole area below the top bar and scrolls itself (chat), instead of a padded, scrolling page. */ fill?: boolean }) {
+export function Page({ crumbs, children, fill = false, barLeft }: { crumbs: Crumb[]; children: ReactNode; /** Replaces the breadcrumbs in the top bar (the Assistant page puts its chat picker there). */ barLeft?: ReactNode; /** The content uses the whole area below the top bar and scrolls itself (chat), instead of a padded, scrolling page. */ fill?: boolean }) {
   const { openDrawer } = useSession();
   return (
     <>
@@ -50,14 +50,14 @@ export function Page({ crumbs, children, fill = false }: { crumbs: Crumb[]; chil
         <button type="button" className="bar-menu" onClick={openDrawer} aria-label="Open the menu" title="Menu">
           <Icon name="menu" />
         </button>
-        <nav className="crumbs" aria-label="Breadcrumb">
+        {barLeft !== undefined ? <div className="flex min-w-0 flex-1 items-center gap-2">{barLeft}</div> : <nav className="crumbs" aria-label="Breadcrumb">
           {crumbs.map((crumb, i) => (
             <Fragment key={`${i}-${crumb.label}`}>
               {i > 0 ? <span aria-hidden="true">/</span> : null}
               {crumb.href ? <Link href={crumb.href}>{crumb.label}</Link> : <span>{crumb.label}</span>}
             </Fragment>
           ))}
-        </nav>
+        </nav>}
         <RefreshButton />
       </header>
       {fill ? (

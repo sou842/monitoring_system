@@ -160,11 +160,13 @@ export function AssistantView() {
   };
 
   return (
-    <Page crumbs={[{ label: 'Assistant' }]} fill>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex flex-none items-center gap-2 px-4 pt-3">
+    <Page
+      crumbs={[{ label: 'Assistant' }]}
+      fill
+      barLeft={(
+        <>
           <Menu trigger={({ open, toggle }) => (
-            <button type="button" className={pillButton('secondary', 'max-w-[min(70vw,360px)]')} onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Saved chats">
+            <button type="button" className={pillButton('secondary', 'h-7 max-w-[min(60vw,300px)] gap-1.5 px-3 text-[12px] [&_svg]:h-3.5 [&_svg]:w-3.5')} onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Saved chats">
               <Icon name="chat" />
               <span className="truncate">{current ? current.title : 'New chat'}</span>
               <Icon name="chevron" />
@@ -187,8 +189,11 @@ export function AssistantView() {
               ))}
             </div>
           </Menu>
-          <button type="button" className={pillButton('secondary')} onClick={newChat}><Icon name="plus" />New chat</button>
-        </div>
+          <button type="button" className={pillButton('secondary', 'h-7 gap-1.5 px-3 text-[12px] [&_svg]:h-3.5 [&_svg]:w-3.5')} onClick={newChat}><Icon name="plus" />New chat</button>
+        </>
+      )}
+    >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AssistantChat
           key={chatId}
           chatId={chatId}
