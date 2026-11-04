@@ -1,4 +1,5 @@
-import { APICallError, convertToModelMessages, safeValidateUIMessages, stepCountIs, streamText, type UIMessage } from 'ai';
+import { APICallError, convertToModelMessages, safeValidateUIMessages, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
+import { isProduction } from '../env.ts';
 import { ownedIssue } from '../access.ts';
 import { issueContext, loadIssueContext } from '../ai/context.ts';
 import { aiConfigured, chatModel } from '../ai/nvidia.ts';
@@ -32,6 +33,27 @@ function logModelError(error: unknown): void {
   if (APICallError.isInstance(error)) console.error('[ai] model error', error.statusCode ?? 'no status', error.message);
   else if (error instanceof Error && error.name === 'AbortError') return; // the user stopped the answer or left the page
   else console.error('[ai] model error', error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+}
+
+/**
+ * True when `AI_DEBUG_PROMPT=1` and this isn't production. The prompt holds
+ * event data (user ids, URLs…), so it must never reach production logs.
+ */
+function debugPromptEnabled(): boolean {
+  return process.env.AI_DEBUG_PROMPT === '1' && !isProduction();
+}
+
+/** Prints what one model call receives: the system prompt and every message, as sent. */
+function logPrompt(issueId: string, step: number, system: string, messages: readonly ModelMessage[]): void {
+  const json = JSON.stringify(messages, null, 2);
+  console.log([
+    `\n========== [ai] prompt · issue ${issueId} · step ${step} · system ${system.length} chars · ${messages.length} messages (${json.length} chars) ==========`,
+    '---------- system ----------',
+    system,
+    '---------- messages ----------',
+    json,
+    '========== [ai] end of prompt ==========\n',
+  ].join('\n'));
 }
 
 /** What the chat panel shows when the model call fails (details go to the server log). */
@@ -78,9 +100,13 @@ export const POST = handle(async (request) => {
 
   const context = await loadIssueContext(auth.db, issue, parseObjectId(input.eventId));
   const tools = issueTools(auth.db, issue, context.project);
+  const system = `${SYSTEM_PROMPT}\n\n${issueContext(context)}`;
+  const debug = debugPromptEnabled();
   const result = streamText({
     model: chatModel(),
-    system: `${SYSTEM_PROMPT}\n\n${issueContext(context)}`,
+    system,
+    // Runs before every model call (one per tool step), so the log shows each call's full input.
+    prepareStep: debug ? ({ stepNumber, messages: stepMessages }) => { logPrompt(String(issue._id), stepNumber, system, stepMessages); return undefined; } : undefined,
     messages: await convertToModelMessages(messages, { tools, ignoreIncompleteToolCalls: true }),
     tools,
     stopWhen: stepCountIs(AI_MAX_STEPS),

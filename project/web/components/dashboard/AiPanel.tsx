@@ -2,15 +2,17 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from 'ai';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Conversation, ConversationContent, ConversationEmptyState, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { PromptInput, PromptInputBody, PromptInputFooter, PromptInputSubmit, PromptInputTextarea, PromptInputTools, type PromptInputMessage } from '@/components/ai-elements/prompt-input';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from '@/components/ai-elements/tool';
+import { AI_CHAT_MAX_AGE_DAYS, AI_CHATS_PER_USER, chatSignature, deleteChat, loadChat, saveChat } from '@/lib/client/aiChats';
 import { Icon } from '../ui/Icon';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
+import { useSession } from './Shell';
 
 const WIDTH_KEY = 'et_ai_panel_width';
 /** Panel width in px: default and smallest; the widest leaves AI_PANEL_PAGE_ROOM for the page. */
@@ -92,9 +94,11 @@ function ChatMessage({ message, streaming }: { message: UIMessage; streaming: bo
 /**
  * The "Ask AI" side panel on the issue page. It knows the issue and the event
  * on screen (the server loads them; `eventId` follows the selection), can open
- * the issue's other events itself, and keeps the chat only while the page is open.
+ * the issue's other events itself. The chat is saved in this browser's
+ * IndexedDB (lib/client/aiChats.ts) and restored when the panel opens again.
  */
 export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; eventId: string | null; open: boolean; onClose: () => void }) {
+  const { user } = useSession();
   // Read when a question is sent, so each question goes with the event selected at that moment.
   const eventRef = useRef(eventId);
   useEffect(() => { eventRef.current = eventId; }, [eventId]);
@@ -111,6 +115,34 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
     return () => { document.documentElement.style.removeProperty('--ai-panel-w'); };
   }, [panel.width]);
   const busy = status === 'submitted' || status === 'streaming';
+
+  // Restore the saved chat once; a question asked before it loads wins over it.
+  const [restored, setRestored] = useState(false);
+  /** Signature of what is stored, so unchanged chats (just restored) aren't saved again. */
+  const savedSignature = useRef<string | null>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  useEffect(() => {
+    let cancelled = false;
+    void loadChat(user.id, issueId).then((saved) => {
+      if (cancelled) return;
+      if (saved && saved.length > 0 && messagesRef.current.length === 0) {
+        savedSignature.current = chatSignature(saved);
+        setMessages(saved);
+      }
+      setRestored(true);
+    });
+    return () => { cancelled = true; };
+  }, [user.id, issueId, setMessages]);
+
+  // Save after each finished (or stopped / failed) answer, never mid-stream.
+  useEffect(() => {
+    if (!restored || busy || messages.length === 0) return;
+    const signature = chatSignature(messages);
+    if (signature === savedSignature.current) return;
+    savedSignature.current = signature;
+    void saveChat(user.id, issueId, messages);
+  }, [restored, busy, messages, user.id, issueId]);
 
   useEffect(() => {
     if (!open) return;
@@ -130,6 +162,8 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
     void stop();
     clearError();
     setMessages([]);
+    savedSignature.current = null;
+    void deleteChat(user.id, issueId);
   };
 
   return (
@@ -154,7 +188,7 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
               className="ai-empty"
               icon={<Icon name="ghost" />}
               title="Ask about this issue"
-              description="The assistant sees this issue, the event on screen and the issue's other events. Chats aren't saved."
+              description={`The assistant sees this issue, the event on screen and the issue's other events. Chats are saved in this browser only (your ${AI_CHATS_PER_USER} most recent, for ${AI_CHAT_MAX_AGE_DAYS} days).`}
             />
           ) : (
             messages.map((m, i) => <ChatMessage key={m.id} message={m} streaming={status === 'streaming' && i === messages.length - 1} />)
