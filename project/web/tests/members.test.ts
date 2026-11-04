@@ -56,6 +56,7 @@ describe('project members and chat (integration)', { skip: enabled ? false : 'MO
   let dana: Awaited<ReturnType<typeof signup>>;
   let projectId: string;
   let issueId: string;
+  let apiKey: string;
   const membersUrl = () => `/api/projects/members?projectId=${projectId}`;
 
   before(async () => {
@@ -66,6 +67,7 @@ describe('project members and chat (integration)', { skip: enabled ? false : 'MO
     dana = await signup('Dana Manager', 'dana@example.com');
     const created = await (await projects.POST(owner.as('/api/projects', { method: 'POST', body: { name: 'Shared app' } }))).json();
     projectId = created.project.id;
+    apiKey = created.apiKey;
     const res = await events.POST(request('/api/v1/events', { method: 'POST', headers: { 'X-API-Key': created.apiKey, 'x-forwarded-for': freshIp() }, body: { events: [sampleEvent()] } }));
     assert.equal(res.status, 202);
     issueId = (await (await issues.GET(owner.as(`/api/issues?projectId=${projectId}`))).json()).issues[0].id;
@@ -248,6 +250,32 @@ describe('project members and chat (integration)', { skip: enabled ? false : 'MO
       const shown = (await list(owner)).messages;
       assert.equal(shown.find((m: { id: string }) => m.id === mine).deleted, true);
       assert.equal(shown.find((m: { id: string }) => m.id === mine).text, '');
+    });
+
+    it('attaches issues of this project; issues of other projects are dropped; an empty message needs an issue', async () => {
+      const newIssue = async (key: string, message: string) => {
+        const res = await events.POST(request('/api/v1/events', { method: 'POST', headers: { 'X-API-Key': key, 'x-forwarded-for': freshIp() }, body: { events: [sampleEvent({ error: { message, type: 'TypeError', handled: false } })] } }));
+        assert.equal(res.status, 202);
+      };
+      await newIssue(apiKey, 'chat attachment issue');
+      const mine = (await (await issues.GET(owner.as(`/api/issues?projectId=${projectId}&status=all&q=chat+attachment`))).json()).issues[0];
+      const other = await (await projects.POST(stranger.as('/api/projects', { method: 'POST', body: { name: 'Other app' } }))).json();
+      await newIssue(other.apiKey, 'an issue in another project');
+      const theirs = (await (await issues.GET(stranger.as(`/api/issues?projectId=${other.project.id}`))).json()).issues[0];
+
+      const res = await post(owner, '  ', { issues: [mine.id, theirs.id, 'junk', mine.id] });
+      assert.equal(res.status, 201);
+      const { message } = await res.json();
+      assert.equal(message.text, '');
+      assert.deepEqual(message.issues.map((i: { id: string }) => i.id), [mine.id]);
+      assert.equal(message.issues[0].errorType, 'TypeError');
+      assert.equal(message.issues[0].status, 'open');
+      assert.equal((await post(owner, '   ', { issues: [theirs.id] })).status, 400); // nothing left to send
+      assert.equal((await post(owner, 'see this', { issues: [theirs.id] })).status, 201); // text only, the foreign issue is dropped
+      // The card follows the issue: once it is gone, the message shows without it.
+      await issue.DELETE(owner.as(`/api/issue?id=${mine.id}`, { method: 'DELETE' }));
+      const shown = (await list(owner)).messages.find((m: { id: string }) => m.id === message.id);
+      assert.deepEqual(shown.issues, []);
     });
 
     it('limits how fast one user can post', async () => {

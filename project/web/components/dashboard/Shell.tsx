@@ -169,6 +169,8 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
 
   const logout = action(async () => {
     await api('/api/auth?action=logout', { method: 'POST', endsSession: true }).catch(() => {});
+    // The development login bypass (LoginForm) is a plain cookie the server can't clear; without this the dev "admin" stays logged in.
+    document.cookie = 'et_dev=; path=/; max-age=0; SameSite=Lax';
     clearCache();
     router.replace('/login');
     router.refresh();
@@ -263,10 +265,18 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
             </div>
 
             <div className="side-foot">
-              <Link href="/account" className={`user-card${isUnder(pathname, '/account') ? ' active' : ''}`} title="Account settings">
-                <Avatar name={user.name} size="sm" />
-                <span className="user-text"><b>{user.name}</b><small>{user.email}</small></span>
-              </Link>
+              <Menu className="w-full" placement="top-stretch" trigger={({ open, toggle }) => (
+                <button type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Account menu"
+                  className={`user-card w-full cursor-pointer rounded-2xl text-left shadow-none${open || isUnder(pathname, '/account') ? ' active' : ''}`}>
+                  <Avatar name={user.name} size="sm" />
+                  <span className="user-text min-w-0 flex-1"><b>{user.name}</b><small>{user.email}</small></span>
+                  <Icon name="chevron" className="size-3.5 shrink-0 rotate-180 text-muted" />
+                </button>
+              )}>
+                <Link className="menu-item" role="menuitem" href="/account"><Icon name="user" />Account</Link>
+                <div className="menu-row" onClick={(e) => e.stopPropagation()}><span>Theme</span><ThemeToggle /></div>
+                <button type="button" className="menu-item danger" role="menuitem" onClick={logout}><Icon name="logout" />Log out</button>
+              </Menu>
               {/* The rail (with the account menu) is hidden on phones, so theme and log out live here too. */}
               <div className="side-phone">
                 <ThemeToggle />

@@ -1,9 +1,19 @@
 import { ObjectId, type Db, type Filter } from 'mongodb';
-import { CHAT_PAGE_SIZE, MAX_CHAT_MENTIONS, MAX_CHAT_MESSAGE_LENGTH, MAX_UNREAD_COUNT } from './constants.ts';
+import { CHAT_PAGE_SIZE, MAX_CHAT_ISSUES, MAX_CHAT_MENTIONS, MAX_CHAT_MESSAGE_LENGTH, MAX_UNREAD_COUNT } from './constants.ts';
 import { collections } from './db.ts';
 import type { ChatMessageDoc } from './models.ts';
 
 /** Project chat (docs/MEMBERS_AND_CHAT.md): one channel per project, plain-text messages. */
+
+/** An issue attached to a message, as it is now (its status and count change). */
+export interface ChatIssueView {
+  id: string;
+  eventType: string;
+  errorType: string;
+  message: string;
+  status: string;
+  count: number;
+}
 
 export interface ChatMessageView {
   id: string;
@@ -14,16 +24,18 @@ export interface ChatMessageView {
   /** Empty for a deleted message. */
   text: string;
   mentions: string[];
+  /** Attached issues that still exist (deleted ones are left out). */
+  issues: ChatIssueView[];
   createdAt: Date;
   deleted: boolean;
 }
 
-/** The text of a new message: trimmed, control characters (except new lines and tabs) removed, or null when empty or too long. */
-export function cleanMessageText(value: unknown): string | null {
+/** The text of a new message: trimmed, control characters (except new lines and tabs) removed, or null when it isn't text, is too long, or is empty (unless `allowEmpty`: a message that is only attached issues). */
+export function cleanMessageText(value: unknown, allowEmpty = false): string | null {
   if (typeof value !== 'string') return null;
   // eslint-disable-next-line no-control-regex
   const text = value.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim();
-  return text.length === 0 || text.length > MAX_CHAT_MESSAGE_LENGTH ? null : text;
+  return (text.length === 0 && !allowEmpty) || text.length > MAX_CHAT_MESSAGE_LENGTH ? null : text;
 }
 
 /** Mentioned user ids that really are people of the project (unknown or repeated ids dropped). */
@@ -33,10 +45,23 @@ export function cleanMentions(value: unknown, people: ObjectId[]): ObjectId[] {
   return [...new Set(value.filter((v): v is string => typeof v === 'string' && known.has(v)))].slice(0, MAX_CHAT_MENTIONS).map((id) => new ObjectId(id));
 }
 
-/** Messages as the browser sees them, with author names. */
+/** Attached issue ids that really are issues of this project (junk, repeats and other projects' issues dropped). */
+export async function cleanIssueRefs(db: Db, value: unknown, projectId: ObjectId): Promise<ObjectId[]> {
+  if (!Array.isArray(value)) return [];
+  const ids = [...new Set(value.filter((v): v is string => typeof v === 'string' && ObjectId.isValid(v) && v.length === 24))].slice(0, MAX_CHAT_ISSUES).map((id) => new ObjectId(id));
+  if (ids.length === 0) return [];
+  const found = await collections(db).issues.find({ _id: { $in: ids }, projectId }, { projection: { _id: 1 } }).toArray();
+  return ids.filter((id) => found.some((f) => f._id.equals(id)));
+}
+
+/** Messages as the browser sees them, with author names and the attached issues as they are now. */
 export async function messageViews(db: Db, messages: ChatMessageDoc[]): Promise<ChatMessageView[]> {
   const ids = [...new Set(messages.map((m) => String(m.userId)))].map((id) => new ObjectId(id));
-  const users = await collections(db).users.find({ _id: { $in: ids } }, { projection: { name: 1 } }).toArray();
+  const issueIds = [...new Set(messages.flatMap((m) => (m.deletedAt ? [] : (m.issueIds ?? []).map(String))))].map((id) => new ObjectId(id));
+  const [users, issues] = await Promise.all([
+    collections(db).users.find({ _id: { $in: ids } }, { projection: { name: 1 } }).toArray(),
+    issueIds.length === 0 ? [] : collections(db).issues.find({ _id: { $in: issueIds } }, { projection: { eventType: 1, errorType: 1, message: 1, status: 1, count: 1 } }).toArray(),
+  ]);
   return messages.map((m) => ({
     id: String(m._id),
     projectId: String(m.projectId),
@@ -44,6 +69,10 @@ export async function messageViews(db: Db, messages: ChatMessageDoc[]): Promise<
     userName: users.find((u) => u._id.equals(m.userId))?.name ?? null,
     text: m.deletedAt ? '' : m.text,
     mentions: m.deletedAt ? [] : m.mentions.map(String),
+    issues: m.deletedAt ? [] : (m.issueIds ?? []).flatMap((id) => {
+      const i = issues.find((x) => x._id.equals(id));
+      return i ? [{ id: String(i._id), eventType: i.eventType, errorType: i.errorType, message: i.message, status: i.status, count: i.count }] : [];
+    }),
     createdAt: m.createdAt,
     deleted: Boolean(m.deletedAt),
   }));
@@ -66,8 +95,8 @@ export async function listMessages(db: Db, projectId: ObjectId, options: { befor
 }
 
 /** Saves a new message. */
-export async function postMessage(db: Db, projectId: ObjectId, userId: ObjectId, text: string, mentions: ObjectId[], now = new Date()): Promise<ChatMessageDoc> {
-  const message: ChatMessageDoc = { _id: new ObjectId(), projectId, userId, text, mentions, createdAt: now };
+export async function postMessage(db: Db, projectId: ObjectId, userId: ObjectId, text: string, mentions: ObjectId[], issueIds: ObjectId[] = [], now = new Date()): Promise<ChatMessageDoc> {
+  const message: ChatMessageDoc = { _id: new ObjectId(), projectId, userId, text, mentions, issueIds, createdAt: now };
   await collections(db).chatMessages.insertOne(message);
   return message;
 }

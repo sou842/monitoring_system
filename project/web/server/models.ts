@@ -161,6 +161,8 @@ export interface ChatMessageDoc {
   userId: ObjectId;
   text: string;
   mentions: ObjectId[];
+  /** Issues of the same project attached to the message (shown as cards). */
+  issueIds?: ObjectId[];
   createdAt: Date;
   deletedAt?: Date;
 }

@@ -71,6 +71,15 @@ export interface MembersResponse {
   limit: number;
 }
 
+export interface ChatIssueView {
+  id: string;
+  eventType: string;
+  errorType: string;
+  message: string;
+  status: string;
+  count: number;
+}
+
 export interface ChatMessageView {
   id: string;
   projectId: string;
@@ -78,6 +87,8 @@ export interface ChatMessageView {
   userName: string | null;
   text: string;
   mentions: string[];
+  /** Issues attached to the message (only ones that still exist). */
+  issues: ChatIssueView[];
   createdAt: string;
   deleted: boolean;
 }

@@ -228,3 +228,5 @@ export const CHAT_RATE_WINDOW_MS = 60 * 1000;
 export const MAX_UNREAD_COUNT = 99;
 /** Mentions stored per message. */
 export const MAX_CHAT_MENTIONS = 20;
+/** Issues one message can attach. */
+export const MAX_CHAT_ISSUES = 5;

@@ -25,7 +25,7 @@ export interface ChatState {
   hasMore: boolean;
   /** Messages arrive live through Pusher (otherwise the page polls). */
   live: boolean;
-  send: (text: string, mentions: string[]) => Promise<void>;
+  send: (text: string, mentions: string[], issues: string[]) => Promise<void>;
   remove: (id: string) => Promise<void>;
   loadOlder: () => Promise<void>;
 }
@@ -115,9 +115,9 @@ export function useChat(projectId: string | null): ChatState {
     return () => { stopped = true; clearTimeout(timer); };
   }, [live, loading, projectId, error, catchUp]);
 
-  const send = useCallback(async (text: string, mentions: string[]) => {
+  const send = useCallback(async (text: string, mentions: string[], issues: string[]) => {
     if (!projectId) return;
-    const res = await api<{ message: ChatMessageView }>('/api/chat', { method: 'POST', body: { projectId, text, mentions } });
+    const res = await api<{ message: ChatMessageView }>('/api/chat', { method: 'POST', body: { projectId, text, mentions, issues } });
     setMessages((list) => merge(list, [res.message]));
   }, [projectId]);
 

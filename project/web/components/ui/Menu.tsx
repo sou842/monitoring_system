@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 export function Menu({ trigger, children, placement = 'bottom-start', className = '' }: {
   trigger: (state: { open: boolean; toggle: () => void }) => ReactNode;
   children: ReactNode;
-  placement?: 'bottom-start' | 'right-end';
+  placement?: 'bottom-start' | 'right-end' | 'top-stretch';
   className?: string;
 }) {
   const [open, setOpen] = useState(false);

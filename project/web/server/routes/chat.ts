@@ -1,6 +1,6 @@
 import { projectAccess, forbidden } from '../access.ts';
 import { requireUser } from '../auth.ts';
-import { cleanMentions, cleanMessageText, listMessages, markRead, messageViews, postMessage } from '../chat.ts';
+import { cleanIssueRefs, cleanMentions, cleanMessageText, listMessages, markRead, messageViews, postMessage } from '../chat.ts';
 import { CHAT_MESSAGES_PER_MINUTE, CHAT_RATE_WINDOW_MS, MAX_CHAT_MESSAGE_LENGTH } from '../constants.ts';
 import { collections } from '../db.ts';
 import { bodyObject, errorResponse, handle, json, parseObjectId, readJson } from '../http.ts';
@@ -34,7 +34,7 @@ export const GET = handle(async (request) => {
   return json({ messages: await messageViews(db, messages), hasMore, realtime: pusherConfigured() });
 });
 
-/** POST /api/chat `{ projectId, text, mentions? }` — writes a message (`chat.post`) and tells everyone in the project's channel to fetch it. */
+/** POST /api/chat `{ projectId, text, mentions?, issues? }` (`issues`: ids of issues of this project to attach; `text` may be empty then) — writes a message (`chat.post`) and tells everyone in the project's channel to fetch it. */
 export const POST = handle(async (request) => {
   const auth = await requireUser(request);
   if (auth.response) return auth.response;
@@ -47,14 +47,15 @@ export const POST = handle(async (request) => {
   const access = await projectAccess(db, user, projectId);
   if (access === null) return errorResponse(404, 'not_found', 'Project not found');
   if (!access.can('chat.post')) return forbidden('chat.post');
-  const text = cleanMessageText(input.text);
+  const issueIds = await cleanIssueRefs(db, input.issues, projectId);
+  const text = cleanMessageText(input.text, issueIds.length > 0);
   if (text === null) return errorResponse(400, 'invalid_text', `A message is 1 to ${MAX_CHAT_MESSAGE_LENGTH} characters`);
 
   const budget = await consume(db, `chat:${user._id}`, 1, CHAT_MESSAGES_PER_MINUTE, CHAT_RATE_WINDOW_MS);
   if (!budget.allowed) return errorResponse(429, 'rate_limited', 'You are sending messages too fast', { 'Retry-After': String(budget.retryAfterSeconds) });
 
   const mentions = cleanMentions(input.mentions, await projectUserIds(db, access.project));
-  const message = await postMessage(db, projectId, user._id, text, mentions);
+  const message = await postMessage(db, projectId, user._id, text, mentions, issueIds);
   const [view] = await messageViews(db, [message]);
   await markRead(db, projectId, user._id);
   // Only the id goes over Pusher: browsers then fetch the text through the API, which checks access, so a removed member whose page is still open learns nothing.
