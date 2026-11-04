@@ -387,37 +387,23 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
     const menuOpen = openMenu === m.id;
     const reactOpen = openReact === m.id;
     const time = (
-      <span className={cn('float-right mt-1.5 ml-3 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none select-none', own ? 'text-(--bubble-own-fg-dim)' : 'text-muted')}>
-        {showTools ? (
-          <span className={cn('relative -my-1 mr-0.5 hidden items-center group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex')}>
-            <button type="button" title="More" aria-label="More options" onClick={(e) => { e.stopPropagation(); setOpenReact(null); setOpenMenu(menuOpen ? null : m.id); }}
-              className={cn('grid size-5 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 shadow-none hover:bg-(--hover)', own ? 'text-(--bubble-own-fg-dim) hover:text-(--bubble-own-fg)' : 'text-muted hover:text-fg')}>
-              <Icon name="chevron" className="size-3.5" />
+      <span className={cn('float-right mt-1.5 ml-3 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none select-none', own ? 'text-(--bubble-own-fg-dim)' : 'text-muted')} title={new Date(m.createdAt).toLocaleString()}>
+        {clock(m.createdAt)}
+        {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-danger' : 'text-(--bubble-own-fg-dim)')} /> : null}
+      </span>
+    );
+    // Sits outside the bubble (never inside its overflow-hidden box, so the dropdown below it isn't clipped), lined up
+    // with the bottom corner nearest the edge of the screen, so it never shifts the bubble's own layout.
+    const tools = showTools ? (
+      <div className={cn('absolute bottom-0 z-20 hidden items-center gap-0.5 group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex', own ? 'right-full mr-1.5' : 'left-full ml-1.5')}>
+        {!own ? (
+          <div className="relative">
+            <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }}
+              className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-panel p-0 text-muted shadow-(--menu-shadow) hover:text-fg">
+              <Icon name="smile" className="size-4" />
             </button>
-            {!own ? (
-              <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }}
-                className={cn('grid size-5 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 shadow-none hover:bg-(--hover)', own ? 'text-(--bubble-own-fg-dim) hover:text-(--bubble-own-fg)' : 'text-muted hover:text-fg')}>
-                <Icon name="smile" className="size-3.5" />
-              </button>
-            ) : null}
-
-            {menuOpen ? (
-              <div role="menu" className={cn('absolute top-full z-30 mt-1 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)', own ? 'right-0' : 'left-0')}>
-                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); startReply(m); }}
-                  className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="reply" className="size-4 text-muted" />Reply</button>
-                {m.text ? (
-                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); copyText(m); }}
-                    className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="copy" className="size-4 text-muted" />Copy</button>
-                ) : null}
-                {canDelete ? (
-                  <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); removeMessage(m)(); }}
-                    className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-danger shadow-none hover:bg-(--hover)"><Icon name="trash" className="size-4" />Delete</button>
-                ) : null}
-              </div>
-            ) : null}
-
             {reactOpen ? (
-              <div role="menu" aria-label="React" className={cn('absolute top-full z-30 mt-1 flex items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)', own ? 'right-0' : 'left-0')}>
+              <div role="menu" aria-label="React" className="absolute bottom-full left-1/2 z-30 mb-1.5 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)">
                 {CHAT_REACTIONS.map((e) => (
                   <button key={e} type="button" title={e} aria-label={`React with ${e}`} onClick={(ev) => { ev.stopPropagation(); chat.react(m.id, e); setOpenReact(null); }}
                     className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg">
@@ -426,19 +412,36 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                 ))}
               </div>
             ) : null}
-          </span>
+          </div>
         ) : null}
-        <span title={new Date(m.createdAt).toLocaleString()} className="inline-flex items-center gap-1">
-          {clock(m.createdAt)}
-          {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-danger' : 'text-(--bubble-own-fg-dim)')} /> : null}
-        </span>
-      </span>
-    );
+        <div className="relative">
+          <button type="button" title="More" aria-label="More options" onClick={(e) => { e.stopPropagation(); setOpenReact(null); setOpenMenu(menuOpen ? null : m.id); }}
+            className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-panel p-0 text-muted shadow-(--menu-shadow) hover:text-fg">
+            <Icon name="chevron" className="size-4" />
+          </button>
+          {menuOpen ? (
+            <div role="menu" className={cn('absolute bottom-full z-30 mb-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)', own ? 'right-0' : 'left-0')}>
+              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); startReply(m); }}
+                className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="reply" className="size-4 text-muted" />Reply</button>
+              {m.text ? (
+                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); copyText(m); }}
+                  className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="copy" className="size-4 text-muted" />Copy</button>
+              ) : null}
+              {canDelete ? (
+                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); removeMessage(m)(); }}
+                  className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-danger shadow-none hover:bg-(--hover)"><Icon name="trash" className="size-4" />Delete</button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
     items.push(
       <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-2 rounded-xl data-[flash]:bg-amber-400/25 data-[flash]:transition-colors', own ? 'justify-end' : 'justify-start', continued ? 'mt-0.5' : 'mt-2.5')}>
         {!own ? <div className="w-8 shrink-0 pt-0.5">{continued ? null : <Avatar name={author} size="sm" />}</div> : null}
         <div className={cn('relative min-w-0 max-w-[84%] sm:max-w-[70%]', own ? 'items-end' : 'items-start')}>
           <div className="relative">
+            {tools}
             <div
               className={cn(
                 'overflow-hidden rounded-2xl px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,.12)]',
