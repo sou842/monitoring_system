@@ -1,6 +1,6 @@
 import { APICallError, convertToModelMessages, safeValidateUIMessages, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
 import { isProduction } from '../env.ts';
-import { ownedIssue } from '../access.ts';
+import { forbidden, issueAccess } from '../access.ts';
 import { issueContext, loadIssueContext } from '../ai/context.ts';
 import { aiConfigured, chatModel } from '../ai/nvidia.ts';
 import { SYSTEM_PROMPT } from '../ai/prompt.ts';
@@ -69,8 +69,8 @@ function friendlyError(error: unknown): string {
 
 /**
  * POST /api/ai/chat `{ issueId, eventId?, messages }` — the issue assistant.
- * Streams the answer (AI SDK UI message stream, reasoning included). Only the
- * issue's owner can ask; the chat isn't stored, the browser sends it each time.
+ * Streams the answer (AI SDK UI message stream, reasoning included). The project
+ * owner and members with `ai.use` can ask; the chat isn't stored, the browser sends it each time.
  */
 export const POST = handle(async (request) => {
   const auth = await requireUser(request);
@@ -82,8 +82,10 @@ export const POST = handle(async (request) => {
   const input = bodyObject(body.value);
   const issueId = parseObjectId(input.issueId);
   if (issueId === null) return errorResponse(400, 'invalid_id', 'Missing or invalid issue id');
-  const issue = await ownedIssue(auth.db, auth.user, issueId);
-  if (issue === null) return errorResponse(404, 'not_found', 'Issue not found');
+  const found = await issueAccess(auth.db, auth.user, issueId);
+  if (found === null) return errorResponse(404, 'not_found', 'Issue not found');
+  if (!found.access.can('ai.use')) return forbidden('ai.use');
+  const { issue } = found;
 
   const validated = await safeValidateUIMessages<UIMessage>({ messages: input.messages });
   if (!validated.success) return errorResponse(400, 'invalid_messages', 'Invalid chat messages');

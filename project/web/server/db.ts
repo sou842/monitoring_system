@@ -1,7 +1,7 @@
 import { MongoClient, type Db } from 'mongodb';
 import { EVENT_RETENTION_DAYS, ISSUE_RETENTION_DAYS, ROLLUP_RETENTION_DAYS, SECONDS_PER_DAY, TRANSACTION_RETENTION_DAYS } from './constants.ts';
 import { requireEnv } from './env.ts';
-import type { EventDoc, IssueDoc, ProjectDoc, RateLimitDoc, RollupDoc, TransactionDoc, UserDoc } from './models.ts';
+import type { ChatMessageDoc, ChatReadDoc, EventDoc, IssueDoc, ProjectDoc, ProjectMemberDoc, RateLimitDoc, RollupDoc, TransactionDoc, UserDoc } from './models.ts';
 
 interface DbState {
   client: MongoClient | null;
@@ -57,6 +57,9 @@ export const collections = (db: Db) => ({
   transactions: db.collection<TransactionDoc>('transactions'),
   rollups: db.collection<RollupDoc>('perf_rollups'),
   rateLimits: db.collection<RateLimitDoc>('rate_limits'),
+  members: db.collection<ProjectMemberDoc>('project_members'),
+  chatMessages: db.collection<ChatMessageDoc>('chat_messages'),
+  chatReads: db.collection<ChatReadDoc>('chat_reads'),
 });
 
 /**
@@ -68,6 +71,13 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.collection('projects').createIndex({ apiKeyHash: 1 }, { unique: true }),
     db.collection('projects').createIndex({ ownerId: 1, createdAt: -1 }),
     db.collection('users').createIndex({ email: 1 }, { unique: true }),
+
+    // Project members: one row per (project, user); "my shared projects" by user.
+    db.collection('project_members').createIndex({ projectId: 1, userId: 1 }, { unique: true }),
+    db.collection('project_members').createIndex({ userId: 1 }),
+    // Project chat: newest messages of a channel; one read marker per (project, user).
+    db.collection('chat_messages').createIndex({ projectId: 1, _id: -1 }),
+    db.collection('chat_reads').createIndex({ projectId: 1, userId: 1 }, { unique: true }),
 
     // One issue per (project, fingerprint): this is what groups repeated errors.
     db.collection('issues').createIndex({ projectId: 1, fingerprint: 1 }, { unique: true }),

@@ -1,6 +1,6 @@
 import type { Filter, ObjectId, Sort } from 'mongodb';
 import { ISSUE_EVENT_TYPES, ISSUE_STATUSES, type IssueStatus } from '../../lib/schema.ts';
-import { ownedProject } from '../access.ts';
+import { forbidden, projectAccess } from '../access.ts';
 import { requireUser } from '../auth.ts';
 import { ISSUES_PAGE_SIZE, MAX_REQUEST_ID_LENGTH } from '../constants.ts';
 import { collections } from '../db.ts';
@@ -35,7 +35,7 @@ export const GET = handle(async (request) => {
   if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
   const { db } = auth;
   const c = collections(db);
-  if ((await ownedProject(db, auth.user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
+  if ((await projectAccess(db, auth.user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
 
   const status = params.get('status') || 'open';
   const filter: Filter<IssueDoc> = { projectId };
@@ -99,7 +99,9 @@ export const DELETE = handle(async (request) => {
   const params = new URL(request.url).searchParams;
   const projectId = parseObjectId(params.get('projectId'));
   if (projectId === null) return errorResponse(400, 'invalid_project', 'Missing or invalid projectId');
-  if ((await ownedProject(db, auth.user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
+  const access = await projectAccess(db, auth.user, projectId);
+  if (access === null) return errorResponse(404, 'not_found', 'Project not found');
+  if (!access.can('issues.delete')) return forbidden('issues.delete');
 
   const text = await request.text();
   if (text.length > 0) {

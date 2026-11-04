@@ -210,3 +210,21 @@ export const AI_BREAKDOWN_TOP = 8;
 export const AI_LIST_EVENTS_MAX = 50;
 /** Time limit for a whole answer (reasoning, tool steps, text); below the route's maxDuration (300 s). The model can think for 2 minutes on hard questions. */
 export const AI_REQUEST_TIMEOUT_MS = 280 * 1000;
+
+// ---------- Project members and chat (docs/MEMBERS_AND_CHAT.md) ----------
+/** Non-owner members one project can have. */
+export const MAX_MEMBERS_PER_PROJECT = 100;
+/** Member adds per user per hour: adding by email tells whether an account exists, so it is limited. */
+export const MEMBER_ADDS_PER_HOUR = 30;
+export const MEMBER_ADD_WINDOW_MS = 60 * 60 * 1000;
+/** Longest chat message, in characters. */
+export const MAX_CHAT_MESSAGE_LENGTH = 4000;
+/** Messages per page of chat history. */
+export const CHAT_PAGE_SIZE = 50;
+/** Chat messages one user may post per minute (all projects together). */
+export const CHAT_MESSAGES_PER_MINUTE = 30;
+export const CHAT_RATE_WINDOW_MS = 60 * 1000;
+/** Unread counts stop at this number ("99+"). */
+export const MAX_UNREAD_COUNT = 99;
+/** Mentions stored per message. */
+export const MAX_CHAT_MENTIONS = 20;

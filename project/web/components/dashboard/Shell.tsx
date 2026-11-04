@@ -54,12 +54,12 @@ interface NavEntry {
 }
 
 const MAIN_NAV: NavEntry[] = [
-  { label: 'Assistant', icon: 'sparkle' },
+  { label: 'Assistant', icon: 'ghost' },
   { href: '/dashboard', label: 'Dashboard', icon: 'grid', match: ['/dashboard'] },
   // href is replaced by the active project's issues page in the sidebar.
   { href: '/projects', label: 'Issues', icon: 'inbox', match: ['/issues'] },
   { href: '/performance', label: 'Performance', icon: 'performance', match: ['/performance'] },
-  { label: 'Chats', icon: 'chat' },
+  { href: '/chats', label: 'Chats', icon: 'chat', match: ['/chats'] },
 ];
 const ADMIN_NAV: NavEntry[] = [{ href: '/admin', label: 'Admin', icon: 'shield', match: ['/admin'] }];
 
@@ -75,11 +75,12 @@ const SIDEBAR_PROJECTS = 8;
 const isUnder = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 
 /** One sidebar row: a link, or a "Soon" row for a planned feature. */
-function NavItem({ entry, pathname, collapsed }: { entry: NavEntry; pathname: string; collapsed: boolean }) {
+function NavItem({ entry, pathname, collapsed, badge = 0 }: { entry: NavEntry; pathname: string; collapsed: boolean; badge?: number }) {
   const content = (
     <>
       <Icon name={entry.icon} />
       <span className="nav-text">{entry.label}</span>
+      {badge > 0 ? <span className="nav-count">{badge > 99 ? '99+' : badge}</span> : null}
       {entry.href ? null : <span className="pill-soon">Soon</span>}
     </>
   );
@@ -175,6 +176,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
 
   const projects = projectList ? projectList.projects : [];
   const shown = projects.slice(0, SIDEBAR_PROJECTS);
+  const unreadTotal = projects.reduce((sum, p) => sum + p.unreadMessages, 0);
 
   return (
     <SessionContext.Provider value={{ user, setUser, collapseForPanel: setPanelCollapse, rightSlot, openDrawer: () => setDrawer(true), projects: projectItems, projectId, setProjectId }}>
@@ -234,7 +236,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
                   const e = entry.label === 'Issues' && projectId
                     ? { ...entry, href: `/projects/${projectId}`, match: ['/issues', `/projects/${projectId}`] }
                     : entry;
-                  return <NavItem key={entry.label} entry={e} pathname={pathname} collapsed={collapsed} />;
+                  return <NavItem key={entry.label} entry={e} pathname={pathname} collapsed={collapsed} badge={entry.label === 'Chats' ? unreadTotal : 0} />;
                 })}
               </nav>
 

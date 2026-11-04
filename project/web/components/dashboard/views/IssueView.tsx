@@ -103,6 +103,8 @@ export function IssueView({ issueId }: { issueId: string }) {
 
   if (issueState.error) return <Page crumbs={crumbs}><ErrorNotice error={issueState.error} /></Page>;
   if (!data) return <Page crumbs={crumbs}><Loading /></Page>;
+  // What this account may do in the issue's project (the server checks again).
+  const can = { ai: data.access.permissions.includes('ai.use'), update: data.access.permissions.includes('issues.update'), remove: data.access.permissions.includes('issues.delete') };
   const { issue } = data;
   const projectHref = data.project ? `/projects/${data.project.id}` : '/projects';
 
@@ -144,13 +146,15 @@ export function IssueView({ issueId }: { issueId: string }) {
             {issue.culprit ? <div className="culprit mono small">{issue.culprit}</div> : null}
           </div>
           <div className="row">
-            <button type="button" className={`ai-toggle${aiOpen ? ' active' : ''} rounded-full`} aria-expanded={aiOpen} onClick={() => { setAiUsed(true); setAiOpen((o) => !o); }}>
-              <Icon name="ghost" />Ask AI
-            </button>
-            {issue.status !== 'resolved' ? <Button className="primary rounded-full" busy={busyStatus === 'resolved'} onClick={setStatus('resolved')}>Resolve</Button> : null}
-            {issue.status !== 'ignored' ? <Button className="rounded-full" busy={busyStatus === 'ignored'} onClick={setStatus('ignored')}>Ignore</Button> : null}
-            {issue.status !== 'open' ? <Button className="rounded-full" busy={busyStatus === 'open'} onClick={setStatus('open')}>Reopen</Button> : null}
-            <button type="button" className="danger rounded-full" onClick={remove}>Delete</button>
+            {can.ai ? (
+              <button type="button" className={`ai-toggle${aiOpen ? ' active' : ''} rounded-full`} aria-expanded={aiOpen} onClick={() => { setAiUsed(true); setAiOpen((o) => !o); }}>
+                <Icon name="ghost" />Ask AI
+              </button>
+            ) : null}
+            {can.update && issue.status !== 'resolved' ? <Button className="primary rounded-full" busy={busyStatus === 'resolved'} onClick={setStatus('resolved')}>Resolve</Button> : null}
+            {can.update && issue.status !== 'ignored' ? <Button className="rounded-full" busy={busyStatus === 'ignored'} onClick={setStatus('ignored')}>Ignore</Button> : null}
+            {can.update && issue.status !== 'open' ? <Button className="rounded-full" busy={busyStatus === 'open'} onClick={setStatus('open')}>Reopen</Button> : null}
+            {can.remove ? <button type="button" className="danger rounded-full" onClick={remove}>Delete</button> : null}
           </div>
         </div>
         <div className="meta">

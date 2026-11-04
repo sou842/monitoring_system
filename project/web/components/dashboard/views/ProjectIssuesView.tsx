@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, prefetch, useApi } from '@/lib/client/api';
 import { formatDate, queryString, setupSnippet, timeAgo } from '@/lib/format';
+import type { Permission } from '@/lib/permissions';
 import { ISSUE_EVENT_TYPES, ISSUE_STATUSES } from '@/lib/schema';
 import type { IssuesResponse, IssueListItem, ProjectsResponse } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -14,13 +15,14 @@ import { KeyBox, useOrigin } from '../../ui/KeyBox';
 import { CARD, PageTitle, Pill, PillButton, TabBar, type Tone } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
+import { MembersPanel } from '../MembersPanel';
 import { InsightsPanel, OriginsPanel } from '../ProjectSettings';
 import { useSession } from '../Shell';
 
 const STATUSES = [...ISSUE_STATUSES, 'all'] as const;
 type StatusFilter = (typeof STATUSES)[number];
 const SORT_OPTIONS: Array<[string, string]> = [['lastSeen', 'Last seen'], ['count', 'Most events'], ['firstSeen', 'Newest']];
-const TABS = [{ id: 'issues', label: 'Issues' }, { id: 'settings', label: 'Settings' }] as const;
+type ProjectTab = 'issues' | 'members' | 'settings';
 
 const FIELD = 'h-9 rounded-full border border-line-strong bg-panel px-4 text-[13px] text-fg placeholder:text-faint';
 const EVENT_TONE: Record<string, Tone> = { crash: 'dark', error: 'red', performance: 'amber', message: 'neutral' };
@@ -36,7 +38,7 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
   const origin = useOrigin();
   const { setProjectId } = useSession();
 
-  const tab: 'issues' | 'settings' = query.get('tab') === 'settings' ? 'settings' : 'issues';
+  const requestedTab = query.get('tab');
   const filters = {
     status: (STATUSES as readonly string[]).includes(query.get('status') ?? '') ? (query.get('status') as StatusFilter) : 'open',
     type: query.get('type') || '',
@@ -71,8 +73,8 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
     const next = { ...filters, page: '1', ...changes };
     router.push(`/projects/${projectId}${queryString({ ...next, status: next.status === 'open' ? '' : next.status, page: next.page === '1' ? '' : next.page })}`, { scroll: false });
   };
-  const setTab = (id: 'issues' | 'settings') =>
-    router.push(id === 'settings' ? `/projects/${projectId}?tab=settings` : `/projects/${projectId}`, { scroll: false });
+  const setTab = (id: ProjectTab) =>
+    router.push(id === 'issues' ? `/projects/${projectId}` : `/projects/${projectId}?tab=${id}`, { scroll: false });
 
   const crumbs = [{ label: 'Projects', href: '/projects' }, ...(project ? [{ label: project.name }] : [])];
   const error = projectsState.error || issuesState.error;
@@ -87,6 +89,17 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
       </Page>
     );
   }
+
+  // What this account may do here (the server checks every request again).
+  const can = (permission: Permission) => project.permissions.includes(permission);
+  const isOwner = project.role === 'owner';
+  const showSettings = can('settings.manage') || can('key.manage') || isOwner;
+  const tabs: Array<{ id: ProjectTab; label: string }> = [
+    { id: 'issues', label: 'Issues' },
+    { id: 'members', label: 'Members' },
+    ...(showSettings ? [{ id: 'settings' as const, label: 'Settings' }] : []),
+  ];
+  const tab: ProjectTab = tabs.some((t) => t.id === requestedTab) ? (requestedTab as ProjectTab) : 'issues';
 
   const allCount = data.counts.open + data.counts.resolved + data.counts.ignored;
   const clearLabel = filters.status === 'all' ? 'all' : filters.status;
@@ -163,27 +176,33 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
         lead={<Avatar name={project.name} size="lg" shape="square" />}
         title={project.name}
         sub={`${data.total.toLocaleString()} issue(s) · ${project.events24h.toLocaleString()} events in the last 24 h`}
-        actions={project.allowedOrigins.length === 0 ? (
+        actions={project.allowedOrigins.length === 0 && can('settings.manage') ? (
           <button type="button" onClick={() => setTab('settings')} className="cursor-pointer rounded-full border-0 bg-amber-500/15 shadow-none px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
             Any origin can send events · set allowed origins
           </button>
         ) : null}
       />
 
-      <TabBar label="Project" tabs={[...TABS]} value={tab} onChange={setTab} />
+      <TabBar label="Project" tabs={tabs} value={tab} onChange={setTab} />
 
-      {tab === 'settings' ? (
+      {tab === 'members' ? (
+        <MembersPanel projectId={projectId} projectName={project.name} />
+      ) : tab === 'settings' ? (
         <div className="grid gap-4 [&>.section]:mt-0">
-          <SettingsCard title="API key" description={`Apps send events with this key. Current key: ${project.apiKeyHint}`}>
-            <p className="m-0 text-[13px] text-muted">The full key is shown only when it is created. Rotating gives you a new one and the current key stops working at once.</p>
-            <div><PillButton onClick={rotate}>Rotate API key</PillButton></div>
-          </SettingsCard>
-          <OriginsPanel project={project} />
-          <InsightsPanel project={project} onSaved={() => {}} />
-          <SettingsCard title="Danger zone" description="This can't be undone.">
-            <p className="m-0 text-[13px] text-muted">Deleting the project removes every issue and event in it, and its API key.</p>
-            <div><PillButton variant="danger" onClick={deleteProject}>Delete project</PillButton></div>
-          </SettingsCard>
+          {can('key.manage') ? (
+            <SettingsCard title="API key" description={`Apps send events with this key. Current key: ${project.apiKeyHint}`}>
+              <p className="m-0 text-[13px] text-muted">The full key is shown only when it is created. Rotating gives you a new one and the current key stops working at once.</p>
+              <div><PillButton onClick={rotate}>Rotate API key</PillButton></div>
+            </SettingsCard>
+          ) : null}
+          {can('settings.manage') ? <OriginsPanel project={project} /> : null}
+          {can('settings.manage') ? <InsightsPanel project={project} onSaved={() => {}} /> : null}
+          {isOwner ? (
+            <SettingsCard title="Danger zone" description="This can't be undone.">
+              <p className="m-0 text-[13px] text-muted">Deleting the project removes every issue, event, member and chat message in it, and its API key.</p>
+              <div><PillButton variant="danger" onClick={deleteProject}>Delete project</PillButton></div>
+            </SettingsCard>
+          ) : null}
         </div>
       ) : (
         <>
@@ -229,7 +248,7 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
             </select>
           </div>
 
-          {data.issues.length > 0 ? (
+          {data.issues.length > 0 && can('issues.delete') ? (
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <PillButton variant="danger" className="h-8" disabled={selected.size === 0} onClick={deleteSelected}>
                 {selected.size > 0 ? `Delete selected (${selected.size})` : 'Delete selected'}

@@ -3,6 +3,7 @@
  * them (server/views.ts and friends); the dashboard reads them. Dates are ISO
  * strings once they reach the browser, hence `Serialized<…>` on the client.
  */
+import type { Permission } from './permissions.ts';
 import type { EventPayload, IssueStatus, Serialized } from './schema.ts';
 
 export type Role = 'user' | 'admin';
@@ -40,6 +41,52 @@ export interface ProjectView {
 export interface ProjectListItem extends ProjectView {
   openIssues: number;
   events24h: number;
+  /** Your relationship to the project: you created it ("owner") or were added ("member"). */
+  role: 'owner' | 'member';
+  /** What you may do here (the owner has every permission). */
+  permissions: Permission[];
+  ownerName: string | null;
+  /** Chat messages from others you haven't read (capped at 100). */
+  unreadMessages: number;
+}
+
+export interface PersonView {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface MemberView extends PersonView {
+  memberId: string;
+  permissions: Permission[];
+  addedAt: string;
+}
+
+export interface MembersResponse {
+  owner: PersonView | null;
+  members: MemberView[];
+  isOwner: boolean;
+  permissions: Permission[];
+  canManage: boolean;
+  limit: number;
+}
+
+export interface ChatMessageView {
+  id: string;
+  projectId: string;
+  userId: string;
+  userName: string | null;
+  text: string;
+  mentions: string[];
+  createdAt: string;
+  deleted: boolean;
+}
+
+export interface ChatResponse {
+  messages: ChatMessageView[];
+  hasMore: boolean;
+  /** Whether Pusher is set up on the server (otherwise the page polls). */
+  realtime: boolean;
 }
 
 export interface IssueView {
@@ -149,6 +196,8 @@ export interface IssueResponse {
   project: { id: string; name: string; insights: InsightSettingsView } | null;
   events: EventSummaryView[];
   latestEvent: EventView | null;
+  /** What you may do in the issue's project. */
+  access: { isOwner: boolean; permissions: Permission[] };
 }
 
 export interface EventResponse {

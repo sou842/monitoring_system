@@ -1,5 +1,5 @@
 import type { ObjectId } from 'mongodb';
-import { ownedProject, ownedProjectIds } from '../access.ts';
+import { accessibleProjectIds, projectAccess } from '../access.ts';
 import { requireUser } from '../auth.ts';
 import { DEFAULT_STATS_RANGE, MAX_STRING_LENGTH, STATS_RANGES, type StatsRange } from '../constants.ts';
 import { errorResponse, handle, json, parseObjectId } from '../http.ts';
@@ -28,10 +28,10 @@ export const GET = handle(async (request) => {
   if (params.get('projectId')) {
     const projectId = parseObjectId(params.get('projectId'));
     if (projectId === null) return errorResponse(400, 'invalid_project', 'Invalid projectId');
-    if ((await ownedProject(db, user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
+    if ((await projectAccess(db, user, projectId)) === null) return errorResponse(404, 'not_found', 'Project not found');
     projectIds = [projectId];
   } else {
-    projectIds = await ownedProjectIds(db, user);
+    projectIds = await accessibleProjectIds(db, user);
   }
 
   const view = params.get('view');

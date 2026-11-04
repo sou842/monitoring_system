@@ -1,5 +1,5 @@
 import {
-  Activity, Bell, Check, ChevronDown, Folder, Ghost, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
+  Activity, ArrowUp, Bell, Check, ChevronDown, Folder, Ghost, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
   Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Sun, User, Users, X, LayoutDashboard,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,6 +31,7 @@ export const ICONS = {
   chevron: ChevronDown,
   menu: Menu,
   sun: Sun,
+  send: ArrowUp,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

@@ -14,9 +14,15 @@ import { SESSION_COOKIE } from './server/constants.ts';
  *   to report.
  */
 
-const DASHBOARD_PATHS = ['/dashboard', '/performance', '/projects', '/issues', '/account', '/admin'];
+const DASHBOARD_PATHS = ['/dashboard', '/performance', '/projects', '/issues', '/chats', '/account', '/admin'];
 
 const isUnder = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
+
+/** Pusher's websocket and fallback hosts for the project chat (only when a cluster is configured). */
+function pusherOrigins(): string {
+  const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER;
+  return cluster && /^[a-z0-9-]+$/.test(cluster) ? ` wss://ws-${cluster}.pusher.com https://sockjs-${cluster}.pusher.com` : '';
+}
 
 /** The SDK's ingestion URL may point at another server (e.g. local dev sending to production). */
 function sdkEndpointOrigin(): string {
@@ -36,7 +42,7 @@ function contentSecurityPolicy(nonce: string): string {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
-    `connect-src 'self'${sdkEndpointOrigin()}`,
+    `connect-src 'self'${sdkEndpointOrigin()}${pusherOrigins()}`,
     "font-src 'self'",
     "object-src 'none'",
     "base-uri 'none'",

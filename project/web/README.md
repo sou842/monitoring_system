@@ -126,3 +126,7 @@ Every dashboard endpoint only returns or changes data in projects you own; anyth
 - **Retention:** TTL indexes delete events after 30 days, issues unseen for 90 days, page views after 7 days, rollups after 90.
 - **Security:** scrypt password hashes; signed session cookie re-checked against the user on every request; cross-site writes refused; API keys stored as SHA-256 hashes; per-project allowed origins; strict CSP with a per-request nonce (`middleware.ts`) plus HSTS, `X-Frame-Options: DENY`, `nosniff` and a restrictive `Permissions-Policy` (`next.config.ts`). Event data is rendered as text by React, never as HTML.
 - **Dashboard data:** `useApi()` shows cached data at once, refreshes it in the background after 10 s, shares in-flight requests, and refreshes what is on screen after any change.
+
+## Project chat (Pusher)
+
+The project chat is live through Pusher Channels. Set `PUSHER_APP_ID`, `PUSHER_SECRET`, `NEXT_PUBLIC_PUSHER_KEY` and `NEXT_PUBLIC_PUSHER_CLUSTER` (locally in `.env.local`, in production in Vercel). Without them the chat still works by polling every few seconds. See [docs/MEMBERS_AND_CHAT.md](../../docs/MEMBERS_AND_CHAT.md).

@@ -91,7 +91,15 @@ export function ProjectsView() {
                       <span className="text-xs text-muted">events (24h)</span>
                     </div>
                   </div>
-                  <div className="mt-4 truncate font-mono text-xs text-muted">Key: {p.apiKeyHint} · {p.allowedOrigins.length === 0 ? 'any origin' : `${p.allowedOrigins.length} origin(s)`}</div>
+                  {p.role === 'member' ? (
+                    <div className="mt-4 flex items-center gap-2 text-xs text-muted">
+                      <Pill tone="muted">Shared</Pill>
+                      <span className="truncate">by {p.ownerName ?? 'the owner'}</span>
+                      {p.unreadMessages > 0 ? <Pill tone="dark" className="ml-auto">{p.unreadMessages > 99 ? '99+' : p.unreadMessages} new</Pill> : null}
+                    </div>
+                  ) : (
+                    <div className="mt-4 truncate font-mono text-xs text-muted">Key: {p.apiKeyHint} · {p.allowedOrigins.length === 0 ? 'any origin' : `${p.allowedOrigins.length} origin(s)`}</div>
+                  )}
                 </Link>
               ))}
             </div>

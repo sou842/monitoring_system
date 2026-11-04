@@ -32,7 +32,7 @@ export async function deleteIssues(db: Db, filter: Filter<IssueDoc>): Promise<De
   return { issues, events };
 }
 
-/** Deletes a project with all its issues and events. Returns null if it doesn't exist. */
+/** Deletes a project with all its issues, events, members and chat. Returns null if it doesn't exist. */
 export async function deleteProject(db: Db, projectId: ObjectId): Promise<DeletedCounts | null> {
   const c = collections(db);
   const project = await c.projects.findOne({ _id: projectId }, { projection: { _id: 1 } });
@@ -43,6 +43,10 @@ export async function deleteProject(db: Db, projectId: ObjectId): Promise<Delete
   // Performance data has no issues; it goes with the project.
   await c.transactions.deleteMany({ projectId });
   await c.rollups.deleteMany({ projectId });
+  // Members and the project chat go with the project.
+  await c.members.deleteMany({ projectId });
+  await c.chatMessages.deleteMany({ projectId });
+  await c.chatReads.deleteMany({ projectId });
   await c.projects.deleteOne({ _id: projectId });
   // The deleted key must stop working right away in this instance.
   clearProjectCache();
@@ -61,6 +65,9 @@ export async function deleteUser(db: Db, userId: ObjectId): Promise<{ projects: 
     removed.issues += counts.issues;
     removed.events += counts.events;
   }
+  // Their memberships in other projects and read markers end; messages stay (shown as a deleted user).
+  await c.members.deleteMany({ userId });
+  await c.chatReads.deleteMany({ userId });
   await c.users.deleteOne({ _id: userId });
   return removed;
 }

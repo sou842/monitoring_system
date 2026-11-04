@@ -1,5 +1,6 @@
 import type { ObjectId } from 'mongodb';
 import type { EventPayload, IssueStatus, Level, Span, TransactionKind, Vitals } from '../lib/schema.ts';
+import type { Permission } from '../lib/permissions.ts';
 import type { UserRole, UserStatus } from './constants.ts';
 
 /**
@@ -140,4 +141,34 @@ export interface RateLimitDoc {
   _id: string;
   count: number;
   expiresAt: Date;
+}
+
+/** A non-owner member of a project (the owner is `projects.ownerId`). */
+export interface ProjectMemberDoc {
+  _id: ObjectId;
+  projectId: ObjectId;
+  userId: ObjectId;
+  permissions: Permission[];
+  addedBy: ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** One message in a project's chat channel. Deleted messages keep their row (text emptied). */
+export interface ChatMessageDoc {
+  _id: ObjectId;
+  projectId: ObjectId;
+  userId: ObjectId;
+  text: string;
+  mentions: ObjectId[];
+  createdAt: Date;
+  deletedAt?: Date;
+}
+
+/** When a user last read a project's chat (for unread counts). */
+export interface ChatReadDoc {
+  _id: ObjectId;
+  projectId: ObjectId;
+  userId: ObjectId;
+  lastReadAt: Date;
 }

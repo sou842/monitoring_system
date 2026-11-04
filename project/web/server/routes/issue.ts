@@ -1,6 +1,7 @@
 import type { Db } from 'mongodb';
 import { ISSUE_STATUSES, type IssueStatus } from '../../lib/schema.ts';
-import { ownedIssue } from '../access.ts';
+import type { Permission } from '../../lib/permissions.ts';
+import { forbidden, issueAccess, type ProjectAccess } from '../access.ts';
 import { requireUser } from '../auth.ts';
 import { ISSUE_RECENT_EVENTS } from '../constants.ts';
 import { collections } from '../db.ts';
@@ -13,15 +14,16 @@ import { eventSummaryView, eventView, issueView } from '../views.ts';
 
 const MAX_BODY_BYTES = 1024;
 
-/** Logged-in user plus the issue from `?id=`, when it is in one of their projects. */
-async function loadIssue(request: Request): Promise<{ response: Response } | { response?: undefined; db: Db; issue: IssueDoc }> {
+/** Logged-in user plus the issue from `?id=`, when it is in a project they can see; with `permission`, they must also have it. */
+async function loadIssue(request: Request, permission?: Permission): Promise<{ response: Response } | { response?: undefined; db: Db; issue: IssueDoc; access: ProjectAccess }> {
   const auth = await requireUser(request);
   if (auth.response) return auth;
   const id = parseObjectId(new URL(request.url).searchParams.get('id'));
   if (id === null) return { response: errorResponse(400, 'invalid_id', 'Missing or invalid issue id') };
-  const issue = await ownedIssue(auth.db, auth.user, id);
-  if (issue === null) return { response: errorResponse(404, 'not_found', 'Issue not found') };
-  return { db: auth.db, issue };
+  const found = await issueAccess(auth.db, auth.user, id);
+  if (found === null) return { response: errorResponse(404, 'not_found', 'Issue not found') };
+  if (permission && !found.access.can(permission)) return { response: forbidden(permission) };
+  return { db: auth.db, issue: found.issue, access: found.access };
 }
 
 /**
@@ -32,7 +34,7 @@ async function loadIssue(request: Request): Promise<{ response: Response } | { r
 export const GET = handle(async (request) => {
   const loaded = await loadIssue(request);
   if (loaded.response) return loaded.response;
-  const { db, issue } = loaded;
+  const { db, issue, access } = loaded;
   const c = collections(db);
   const [events, project, impact] = await Promise.all([
     c.events.find({ issueId: issue._id }).sort({ receivedAt: -1 }).limit(ISSUE_RECENT_EVENTS).toArray(),
@@ -46,12 +48,13 @@ export const GET = handle(async (request) => {
     project: project ? { id: String(project._id), name: project.name, insights: insightSettingsView(project.insights) } : null,
     events: events.map(eventSummaryView),
     latestEvent: events.length > 0 ? eventView(events[0]) : null,
+    access: { isOwner: access.isOwner, permissions: access.permissions },
   });
 });
 
 /** PATCH /api/issue?id=… `{ status: "open" | "resolved" | "ignored" }` */
 export const PATCH = handle(async (request) => {
-  const loaded = await loadIssue(request);
+  const loaded = await loadIssue(request, 'issues.update');
   if (loaded.response) return loaded.response;
   const body = await readJson(request, MAX_BODY_BYTES);
   if (!body.ok) return body.response;
@@ -69,7 +72,7 @@ export const PATCH = handle(async (request) => {
 
 /** DELETE /api/issue?id=… — removes the issue and all of its events. */
 export const DELETE = handle(async (request) => {
-  const loaded = await loadIssue(request);
+  const loaded = await loadIssue(request, 'issues.delete');
   if (loaded.response) return loaded.response;
   const removed = await deleteIssues(loaded.db, { _id: loaded.issue._id, projectId: loaded.issue.projectId });
   if (removed.issues === 0) return errorResponse(404, 'not_found', 'Issue not found');
