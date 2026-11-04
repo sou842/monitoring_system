@@ -36,15 +36,17 @@ interface Props {
   onSearchSubmit: () => void;
 }
 
-/** Tailwind needs the full class names, so the column counts are spelled out here. */
-const COLUMNS: Record<number, string> = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4' };
+/** A filter's small heading. */
+function FieldLabel({ children }: { children: ReactNode }) {
+  return <div className="mb-1.5 text-[11px] font-medium text-muted">{children}</div>;
+}
 
-/** One filter: a small heading and a grid of equal-width options (single choice). */
-function OptionGrid({ label, options, value, onPick, columns }: { label: string; options: Option[]; value: string; onPick: (value: string) => void; columns: 2 | 3 | 4 }) {
+/** Few, short options as one segmented control: the chosen one is a raised white pill on a grey track. */
+function Segmented({ label, options, value, onPick }: { label: string; options: Option[]; value: string; onPick: (value: string) => void }) {
   return (
-    <section aria-label={label}>
-      <h4 className="m-0 mb-2 text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</h4>
-      <div className={cn('grid gap-1.5', COLUMNS[columns])} role="group" aria-label={label}>
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="flex gap-0.5 rounded-full bg-(--chip) p-0.5" role="group" aria-label={label}>
         {options.map((o) => {
           const on = value === o.value;
           return (
@@ -52,20 +54,47 @@ function OptionGrid({ label, options, value, onPick, columns }: { label: string;
               key={o.value}
               type="button"
               aria-pressed={on}
-              title={o.label}
               onClick={() => onPick(o.value)}
               className={cn(
-                'flex h-10 min-w-0 cursor-pointer flex-col items-center justify-center rounded-xl border px-2 text-[13px] leading-tight font-medium shadow-none transition-colors',
-                on ? 'border-transparent bg-invert-bg text-invert-fg' : 'border-line bg-panel-2 text-fg hover:border-line-strong hover:bg-(--hover)',
+                'flex h-7 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1 rounded-full border-0 px-2 text-xs font-medium whitespace-nowrap transition-colors',
+                on ? 'bg-panel text-fg shadow-[0_1px_2px_rgba(0,0,0,.12)]' : 'bg-transparent text-muted shadow-none hover:text-fg',
               )}
             >
-              <span className="max-w-full truncate">{o.label}</span>
-              {o.count !== undefined ? <span className={cn('text-[11px] font-normal tabular-nums', on ? 'opacity-70' : 'text-muted')}>{o.count.toLocaleString()}</span> : null}
+              <span className="truncate">{o.label}</span>
+              {o.count !== undefined ? <span className={cn('text-[11px] font-normal tabular-nums', on ? 'text-muted' : 'opacity-70')}>{o.count.toLocaleString()}</span> : null}
             </button>
           );
         })}
       </div>
-    </section>
+    </div>
+  );
+}
+
+/** Options of any number and length as small wrapping chips (event types, environments). */
+function Chips({ label, options, value, onPick }: { label: string; options: Option[]; value: string; onPick: (value: string) => void }) {
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={label}>
+        {options.map((o) => {
+          const on = value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onPick(o.value)}
+              className={cn(
+                'inline-flex h-7 max-w-full cursor-pointer items-center rounded-full border px-3 text-xs font-medium shadow-none transition-colors',
+                on ? 'border-fg bg-fg/5 text-fg' : 'border-line bg-transparent text-fg-2 hover:border-line-strong hover:bg-(--hover)',
+              )}
+            >
+              <span className="truncate">{o.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -79,6 +108,18 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const active = activeFilterCount(values);
+  // Choices are held here until "Apply", so the list doesn't reload on every click.
+  const [draft, setDraft] = useState<IssueFilterValues>(values);
+  const draftActive = activeFilterCount(draft);
+  const changed = (Object.keys(draft) as Array<keyof IssueFilterValues>).some((k) => draft[k] !== values[k]);
+  const toggle = () => {
+    if (!open) setDraft(values);
+    setOpen((was) => !was);
+  };
+  const apply = () => {
+    onChange(draft);
+    setOpen(false);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -92,7 +133,6 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
     };
   }, [open]);
 
-  const reset = () => onChange({ ...DEFAULT_ISSUE_FILTERS });
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') onSearchSubmit(); };
 
   return (
@@ -115,7 +155,7 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
           type="button"
           aria-haspopup="dialog"
           aria-expanded={open}
-          onClick={() => setOpen((was) => !was)}
+          onClick={toggle}
           className={pillButton('secondary', cn('gap-2', (open || active > 0) && 'border-fg'))}
         >
           <Icon name="sliders" className="size-4" />
@@ -124,21 +164,22 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
         </button>
 
         {open ? (
-          <div role="dialog" aria-label="Filter issues" className="absolute left-0 z-30 mt-2 w-[min(400px,calc(100vw-48px))] overflow-hidden rounded-2xl border border-line bg-panel shadow-(--menu-shadow)">
-            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+          <div role="dialog" aria-label="Filter issues" className="absolute left-0 z-30 mt-2 w-[min(340px,calc(100vw-48px))] overflow-hidden rounded-2xl border border-line bg-panel shadow-(--menu-shadow)">
+            <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
               <h3 className="m-0 text-sm font-semibold">Filters</h3>
-              <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-muted shadow-none enabled:hover:text-fg disabled:cursor-default disabled:opacity-40" disabled={active === 0} onClick={reset}>Reset all</button>
+              <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-muted shadow-none enabled:hover:text-fg disabled:cursor-default disabled:opacity-40" disabled={draftActive === 0} onClick={() => setDraft({ ...DEFAULT_ISSUE_FILTERS })}>Reset</button>
             </div>
-            <div className="grid max-h-[min(70vh,520px)] gap-5 overflow-y-auto px-4 py-4">
-              <OptionGrid label="Status" columns={4} options={statuses} value={values.status} onPick={(status) => onChange({ status })} />
-              <OptionGrid label="Event type" columns={3} options={[{ value: '', label: 'All' }, ...types]} value={values.type} onPick={(type) => onChange({ type })} />
+            <div className="grid max-h-[min(60vh,440px)] gap-3.5 overflow-y-auto px-4 py-3">
+              <Segmented label="Status" options={statuses} value={draft.status} onPick={(status) => setDraft({ ...draft, status })} />
+              <Chips label="Event type" options={[{ value: '', label: 'All' }, ...types]} value={draft.type} onPick={(type) => setDraft({ ...draft, type })} />
               {environments.length > 0 ? (
-                <OptionGrid label="Environment" columns={3} options={[{ value: '', label: 'All' }, ...environments]} value={values.env} onPick={(env) => onChange({ env })} />
+                <Chips label="Environment" options={[{ value: '', label: 'All' }, ...environments]} value={draft.env} onPick={(env) => setDraft({ ...draft, env })} />
               ) : null}
-              <OptionGrid label="Sort by" columns={3} options={sorts} value={values.sort} onPick={(sort) => onChange({ sort })} />
+              <Segmented label="Sort by" options={sorts} value={draft.sort} onPick={(sort) => setDraft({ ...draft, sort })} />
             </div>
-            <div className="flex justify-end border-t border-line bg-panel-2 px-4 py-3">
-              <button type="button" className={pillButton('primary', 'h-9 px-5')} onClick={() => setOpen(false)}>Show results</button>
+            <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">
+              <button type="button" className={pillButton('ghost', 'h-8 px-3 text-xs')} onClick={() => setOpen(false)}>Cancel</button>
+              <button type="button" className={pillButton('primary', 'h-8 px-4 text-xs')} disabled={!changed} onClick={apply}>Apply</button>
             </div>
           </div>
         ) : null}

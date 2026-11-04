@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { Badge, CopyButton } from '../ui/bits';
 import { columnHelper, DataTable, type DataColumnMeta } from '../ui/DataTable';
 import { Icon } from '../ui/Icon';
-import { CARD, Pill, TabBar } from '../ui/kit';
+import { CARD, Pill, pillButton, TabBar } from '../ui/kit';
 
 type Payload = Serialized<EventPayload>;
 type Frame = ClassifiedFrame<StackFrame>;
@@ -187,6 +187,11 @@ function QuickFacts({ payload, receivedAt }: { payload: Payload; receivedAt: str
   );
 }
 
+/** "file:line:col" of a frame, for copying. */
+function locationOf(frame: StackFrame): string {
+  return `${frame.filename || '?'}${frame.lineno !== null ? ':' + frame.lineno : ''}${frame.colno !== null ? ':' + frame.colno : ''}`;
+}
+
 /** Path of a page URL (the host is the same for every event of an app). */
 function shortUrl(value: string): string {
   try {
@@ -221,29 +226,42 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
     <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
       {look ? (
         <section aria-label="Where to look">
-          <GroupTitle aside={p_hasStack(payload) ? <button type="button" onClick={showStack} className="cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-muted underline shadow-none hover:text-fg">Open stack trace</button> : null}>Where to look</GroupTitle>
-          <div {...jumpProps(`stacktrace.${payload.stacktrace.indexOf(look.frame)}`, jump, 'flex items-start gap-3 rounded-2xl border border-line bg-panel-2 p-4 shadow-[inset_3px_0_0_var(--accent)] hover:border-line-strong')}>
-            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-panel text-muted"><Icon name="search" className="size-4" /></span>
-            <div className="min-w-0 flex-1">
-              <code className="block text-sm font-semibold break-all">{frameLabel(look.frame)}</code>
-              {look.frame.filename ? <div className="mt-0.5 font-mono text-xs break-all text-muted">{look.frame.filename}{look.frame.lineno !== null ? `:${look.frame.lineno}` : ''}{look.frame.colno !== null ? `:${look.frame.colno}` : ''}</div> : null}
+          <GroupTitle>Where to look</GroupTitle>
+          <div className="overflow-hidden rounded-2xl border border-line bg-panel shadow-[inset_3px_0_0_var(--accent)]">
+            <div {...jumpProps(`stacktrace.${payload.stacktrace.indexOf(look.frame)}`, jump, 'flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 hover:bg-(--hover)')}>
+              <div className="min-w-0 flex-1 basis-64">
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="text-sm font-semibold break-all">{frameLabel(look.frame)}</code>
+                  <Pill tone="neutral">your code</Pill>
+                </div>
+                {look.frame.filename ? (
+                  <div className="mt-1.5 flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
+                    <span className="truncate" title={locationOf(look.frame)}>{look.frame.filename}</span>
+                    {look.frame.lineno !== null ? <span className="shrink-0 rounded bg-(--chip) px-1.5 py-0.5 text-fg-2">line {look.frame.lineno}{look.frame.colno !== null ? `:${look.frame.colno}` : ''}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                <CopyButton text={locationOf(look.frame)} />
+                {payload.stacktrace.length > 0 ? <button type="button" onClick={showStack} className={pillButton('secondary', 'h-8 px-3 text-xs')}>Stack trace</button> : null}
+              </div>
             </div>
-            <Pill tone="neutral">your code</Pill>
           </div>
         </section>
       ) : null}
 
       {hints.length > 0 ? (
-        <section aria-label="Hints" className="grid gap-2.5">
-          {hints.map((h, i) => (
-            <div key={i} className="flex gap-3 rounded-2xl border border-amber/40 bg-amber/10 p-4">
-              <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-amber" />
-              <div className="min-w-0">
-                <div className={LABEL}>{h.source === 'project' ? 'Team hint' : 'Hint'}</div>
-                <p className="m-0 mt-1 text-[13px]">{h.text}</p>
-              </div>
-            </div>
-          ))}
+        <section aria-label="Hints">
+          <GroupTitle>{hints.length === 1 ? 'Hint' : 'Hints'}</GroupTitle>
+          <ul className="m-0 grid list-none gap-2 p-0">
+            {hints.map((h, i) => (
+              <li key={i} className="flex items-start gap-3 rounded-xl border border-amber/30 bg-amber/8 px-3.5 py-3">
+                <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-amber" />
+                <p className="m-0 min-w-0 flex-1 text-[13px] leading-relaxed">{h.text}</p>
+                {h.source === 'project' ? <Pill tone="amber" className="shrink-0">Team</Pill> : null}
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -251,16 +269,19 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
 
       {facts.length > 0 || insight === null ? (
         <section aria-label="What the analysis found">
-          <GroupTitle>What we found</GroupTitle>
+          <GroupTitle aside={facts.length > 0 ? <span className="text-xs text-muted">{facts.length} finding{facts.length === 1 ? '' : 's'}</span> : null}>What we found</GroupTitle>
           {facts.length > 0 ? (
-            <div className="grid gap-2.5 sm:grid-cols-2">
+            <dl className="m-0 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel">
               {facts.map((f, i) => (
-                <div key={`${f.label}-${i}`} className={cn('rounded-xl border-l-[3px] bg-panel-2 px-3.5 py-3', f.tone === 'bad' ? 'border-danger' : f.tone === 'warn' ? 'border-amber' : 'border-line-strong', f.text.length > WIDE_FACT_CHARS && 'sm:col-span-2')}>
-                  <div className={LABEL}>{f.label}</div>
-                  <div className={cn('mt-1 text-[13px] break-words', f.tone && TONE_TEXT[f.tone])}>{f.text}</div>
+                <div key={`${f.label}-${i}`} className="grid grid-cols-[116px_minmax(0,1fr)] gap-x-4 gap-y-0.5 px-4 py-2.5 max-sm:grid-cols-1">
+                  <dt className="flex items-start gap-2 text-xs font-medium text-muted">
+                    <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', f.tone === 'bad' ? 'bg-danger' : f.tone === 'warn' ? 'bg-amber' : 'bg-line-strong')} aria-hidden="true" />
+                    {f.label}
+                  </dt>
+                  <dd className={cn('m-0 text-[13px] leading-relaxed break-words', f.tone && TONE_TEXT[f.tone])}>{f.text}</dd>
                 </div>
               ))}
-            </div>
+            </dl>
           ) : <p className="m-0 text-[13px] text-muted">Not enough data in this event for a summary.</p>}
         </section>
       ) : null}
@@ -281,8 +302,6 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
     </div>
   );
 }
-
-const p_hasStack = (payload: Payload): boolean => payload.stacktrace.length > 0;
 
 function FrameRow({ c, focus, payload, jump }: { c: Frame; focus: boolean; payload: Payload; jump: Jump }) {
   const f = c.frame;
