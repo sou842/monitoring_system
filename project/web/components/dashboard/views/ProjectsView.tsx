@@ -8,7 +8,7 @@ import type { ProjectKeyResponse, ProjectsResponse } from '@/lib/types';
 import { Avatar, Button, EmptyState, ErrorNotice, Loading } from '../../ui/bits';
 import { Field } from '../../ui/fields';
 import { KeyBox } from '../../ui/KeyBox';
-import { Page } from '../Page';
+import { Page, scrollPageToTop } from '../Page';
 
 /** Your projects, each with its API key hint; create a new one (its key is shown once). */
 export function ProjectsView() {
@@ -46,7 +46,7 @@ export function ProjectsView() {
           </p>
 
           {newKey ? (
-            <KeyBox title={newKey.title} apiKey={newKey.apiKey} onDone={() => { setNewKey(null); window.scrollTo(0, 0); }} />
+            <KeyBox title={newKey.title} apiKey={newKey.apiKey} onDone={() => { setNewKey(null); scrollPageToTop(); }} />
           ) : creating ? (
             <CreateProjectForm
               onCancel={() => {
@@ -66,7 +66,7 @@ export function ProjectsView() {
               {projects.map((p) => (
                 <div key={p.id} className="card project">
                   <Link className="project-card" href={`/projects/${p.id}`}>
-                    <div className="project-top"><Avatar name={p.name} /><h2>{p.name}</h2></div>
+                    <div className="project-top"><Avatar name={p.name} shape="square" /><h2>{p.name}</h2></div>
                     <div className="stats">
                       <div className={`stat${p.openIssues > 0 ? ' alert' : ''}`}><b>{p.openIssues.toLocaleString()}</b><span className="muted small">open issues</span></div>
                       <div className="stat"><b>{p.events24h.toLocaleString()}</b><span className="muted small">events (24h)</span></div>

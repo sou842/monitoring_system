@@ -142,7 +142,7 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
   return (
     <Page crumbs={crumbs}>
       <div className="page-head">
-        <Avatar name={project.name} size="lg" />
+        <Avatar name={project.name} size="lg" shape="square" />
         <h1>{project.name}</h1>
         <span className="spacer" />
         <button type="button" className={`ghost${project.allowedOrigins.length === 0 ? ' warn' : ''}`} aria-expanded={panel === 'origins'}

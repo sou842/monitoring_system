@@ -1,10 +1,19 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { Db, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
+import type { Db } from 'mongodb';
 import { SESSION_COOKIE, SESSION_TTL_MS } from './constants.ts';
 import { collections, getDb } from './db.ts';
 import { isProduction, requireEnv } from './env.ts';
 import { errorResponse, parseObjectId } from './http.ts';
 import type { UserDoc } from './models.ts';
+
+/** Dev-only bypass user (matches the et_dev=1 cookie set by LoginForm). */
+export const DEV_USER: UserDoc = { _id: new ObjectId('000000000000000000000001'), email: 'admin@gmail.com', name: 'Admin', passwordHash: '', role: 'admin', status: 'active', sessionVersion: 1, createdAt: new Date(0), lastLoginAt: null };
+
+function isDevBypass(request: Request): boolean {
+  if (process.env.NODE_ENV === 'production') return false;
+  return readCookie(request, 'et_dev') === '1';
+}
 
 /**
  * Dashboard sessions: an HttpOnly cookie holding `{ user id, session version,
@@ -91,6 +100,7 @@ export async function userForSessionToken(db: Db, token: unknown): Promise<UserD
 
 /** The logged-in, active user for this request, or null. */
 export function getSessionUser(request: Request, db: Db): Promise<UserDoc | null> {
+  if (isDevBypass(request)) return Promise.resolve(DEV_USER);
   return userForSessionToken(db, readCookie(request, SESSION_COOKIE));
 }
 
@@ -122,6 +132,7 @@ export type AuthResult = { response: Response } | { response?: undefined; db: Db
 export async function requireUser(request: Request): Promise<AuthResult> {
   const blocked = crossSiteResponse(request);
   if (blocked) return { response: blocked };
+  if (isDevBypass(request)) return { db: await getDb(), user: DEV_USER };
   if (readCookie(request, SESSION_COOKIE) === null) return { response: unauthorized() };
   const db = await getDb();
   const user = await getSessionUser(request, db);

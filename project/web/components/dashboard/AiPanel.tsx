@@ -3,6 +3,7 @@
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from 'ai';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Conversation, ConversationContent, ConversationEmptyState, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { PromptInput, PromptInputBody, PromptInputFooter, PromptInputSubmit, PromptInputTextarea, PromptInputTools, type PromptInputMessage } from '@/components/ai-elements/prompt-input';
@@ -98,7 +99,7 @@ function ChatMessage({ message, streaming }: { message: UIMessage; streaming: bo
  * IndexedDB (lib/client/aiChats.ts) and restored when the panel opens again.
  */
 export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; eventId: string | null; open: boolean; onClose: () => void }) {
-  const { user } = useSession();
+  const { user, rightSlot } = useSession();
   // Read when a question is sent, so each question goes with the event selected at that moment.
   const eventRef = useRef(eventId);
   useEffect(() => { eventRef.current = eventId; }, [eventId]);
@@ -166,7 +167,9 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
     void deleteChat(user.id, issueId);
   };
 
-  return (
+  // The panel docks into the frame's right slot (next to the page), not over it.
+  if (rightSlot === null) return null;
+  return createPortal(
     <aside className="ai-panel" data-open={open ? '' : undefined} hidden={!open} aria-label="AI assistant">
       <ResizeHandle panel={panel} edge="left" label="Resize AI panel" />
       <div className="ai-panel-head">
@@ -217,6 +220,7 @@ export function AiPanel({ issueId, eventId, open, onClose }: { issueId: string; 
           </PromptInputFooter>
         </PromptInput>
       </div>
-    </aside>
+    </aside>,
+    rightSlot,
   );
 }

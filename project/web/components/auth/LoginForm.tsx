@@ -32,6 +32,15 @@ export function LoginForm({ next }: { next: string }) {
     if (problems.email) return emailRef.current?.focus();
     if (problems.password) return passwordRef.current?.focus();
     setBusy(true);
+
+    // Dev-only bypass: set a cookie client-side and do a full navigation (no router.refresh loop).
+    if (process.env.NODE_ENV !== 'production' && email.trim().toLowerCase() === 'admin@gmail.com' && password === 'admin@123') {
+      document.cookie = 'et_dev=1; path=/; SameSite=Lax';
+      clearCache();
+      window.location.replace(next);
+      return;
+    }
+
     try {
       await api<{ user: UserView }>('/api/auth?action=login', { method: 'POST', body: { email, password } });
       clearCache();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react';
 import { useDelayed } from '@/lib/client/api';
 import { IconTile, type IconName } from './Icon';
 
@@ -18,10 +18,17 @@ export function Badge({ text, kind = text }: { text: string; kind?: string }) {
   return <span className={`badge ${kind}`}>{text}</span>;
 }
 
-/** Square tile with the first letter of a name. */
-export function Avatar({ name, size }: { name: string; size?: 'sm' | 'lg' }) {
+/** Deterministic hue (0-359) from a name, so the same person or project always gets the same colour. */
+function hueOf(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return h;
+}
+
+/** Soft coloured tile with the first letter of a name: round for people, `square` (rounded) for projects and teams. */
+export function Avatar({ name, size, shape }: { name: string; size?: 'sm' | 'lg'; shape?: 'square' }) {
   return (
-    <div className={`avatar${size ? ` ${size}` : ''}`} aria-hidden="true">
+    <div className={`avatar${size ? ` ${size}` : ''}${shape ? ` ${shape}` : ''}`} style={{ '--h': hueOf(name) } as CSSProperties} aria-hidden="true">
       {(name.trim()[0] || '?').toUpperCase()}
     </div>
   );
