@@ -306,7 +306,6 @@
   a.hbar-row:hover .top span:first-child { text-decoration: underline; text-underline-offset: 3px; }
   
   /* ---------- Projects ---------- */
-  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
   .card.project { transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
   .card.project:hover { border-color: var(--fg); }
   .project-card { display: block; color: var(--fg); padding: 20px; }

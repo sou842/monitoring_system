@@ -56,7 +56,8 @@ interface NavEntry {
 const MAIN_NAV: NavEntry[] = [
   { label: 'Assistant', icon: 'sparkle' },
   { href: '/dashboard', label: 'Dashboard', icon: 'grid', match: ['/dashboard'] },
-  { href: '/projects', label: 'Projects', icon: 'folder', match: ['/projects', '/issues'], exact: true },
+  // href is replaced by the active project's issues page in the sidebar.
+  { href: '/projects', label: 'Issues', icon: 'inbox', match: ['/issues'] },
   { href: '/performance', label: 'Performance', icon: 'performance', match: ['/performance'] },
   { label: 'Chats', icon: 'chat' },
 ];
@@ -228,7 +229,13 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
 
             <div className="side-scroll">
               <nav className="side-items" aria-label="Main">
-                {MAIN_NAV.map((entry) => <NavItem key={entry.label} entry={entry} pathname={pathname} collapsed={collapsed} />)}
+                {MAIN_NAV.map((entry) => {
+                  // "Issues" goes straight to the active project's issues.
+                  const e = entry.label === 'Issues' && projectId
+                    ? { ...entry, href: `/projects/${projectId}`, match: ['/issues', `/projects/${projectId}`] }
+                    : entry;
+                  return <NavItem key={entry.label} entry={e} pathname={pathname} collapsed={collapsed} />;
+                })}
               </nav>
 
               <NavGroup label="Projects">

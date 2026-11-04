@@ -6,26 +6,37 @@ import { useEffect, useState } from 'react';
 import { api, prefetch, useApi } from '@/lib/client/api';
 import { formatDate, queryString, setupSnippet, timeAgo } from '@/lib/format';
 import { ISSUE_EVENT_TYPES, ISSUE_STATUSES } from '@/lib/schema';
-import type { IssuesResponse, ProjectsResponse } from '@/lib/types';
-import { Avatar, Badge, EmptyState, ErrorNotice, Loading } from '../../ui/bits';
+import type { IssuesResponse, IssueListItem, ProjectsResponse } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { Avatar, EmptyState, ErrorNotice, Loading, SettingsCard } from '../../ui/bits';
 import { useDialog } from '../../ui/Dialog';
 import { KeyBox, useOrigin } from '../../ui/KeyBox';
+import { CARD, PageTitle, Pill, PillButton, TabBar, type Tone } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
-import { InsightsPanel, insightsLabel, OriginsPanel, originsLabel } from '../ProjectSettings';
+import { InsightsPanel, OriginsPanel } from '../ProjectSettings';
+import { useSession } from '../Shell';
 
 const STATUSES = [...ISSUE_STATUSES, 'all'] as const;
 type StatusFilter = (typeof STATUSES)[number];
 const SORT_OPTIONS: Array<[string, string]> = [['lastSeen', 'Last seen'], ['count', 'Most events'], ['firstSeen', 'Newest']];
+const TABS = [{ id: 'issues', label: 'Issues' }, { id: 'settings', label: 'Settings' }] as const;
 
-/** One project's issues, with filters in the URL (`?status=&type=&env=&q=&sort=&page=`), and the project's settings. */
+const FIELD = 'h-9 rounded-full border border-line-strong bg-panel px-4 text-[13px] text-fg placeholder:text-faint';
+const EVENT_TONE: Record<string, Tone> = { crash: 'dark', error: 'red', performance: 'amber', message: 'neutral' };
+const SEVERITY_DOT: Record<string, string> = { crash: 'bg-fg', error: 'bg-red-500', performance: 'bg-amber-500' };
+const LIST_COLUMNS = 'grid grid-cols-[24px_minmax(0,1fr)] gap-x-4 sm:grid-cols-[24px_minmax(0,1fr)_80px_110px]';
+
+/** One project: its issues (filters in the URL: `?status=&type=&env=&q=&sort=&page=`) and, under "Settings", its keys, origins and insights. */
 export function ProjectIssuesView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const query = useSearchParams();
   const openDialog = useDialog();
   const { toast, action } = useToast();
   const origin = useOrigin();
+  const { setProjectId } = useSession();
 
+  const tab: 'issues' | 'settings' = query.get('tab') === 'settings' ? 'settings' : 'issues';
   const filters = {
     status: (STATUSES as readonly string[]).includes(query.get('status') ?? '') ? (query.get('status') as StatusFilter) : 'open',
     type: query.get('type') || '',
@@ -41,8 +52,13 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
 
   const [search, setSearch] = useState(filters.q);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [panel, setPanel] = useState<'origins' | 'insights' | null>(null);
   const [rotatedKey, setRotatedKey] = useState<string | null>(null);
+
+  // Opening a project's page (from a link, a bookmark or the project list) makes it the active project.
+  const known = Boolean(project);
+  useEffect(() => {
+    if (known) setProjectId(projectId);
+  }, [known, projectId, setProjectId]);
 
   useEffect(() => setSearch(filters.q), [filters.q]);
   // A new page of results starts with nothing selected; ids no longer listed are dropped.
@@ -55,6 +71,8 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
     const next = { ...filters, page: '1', ...changes };
     router.push(`/projects/${projectId}${queryString({ ...next, status: next.status === 'open' ? '' : next.status, page: next.page === '1' ? '' : next.page })}`, { scroll: false });
   };
+  const setTab = (id: 'issues' | 'settings') =>
+    router.push(id === 'settings' ? `/projects/${projectId}?tab=settings` : `/projects/${projectId}`, { scroll: false });
 
   const crumbs = [{ label: 'Projects', href: '/projects' }, ...(project ? [{ label: project.name }] : [])];
   const error = projectsState.error || issuesState.error;
@@ -141,113 +159,150 @@ export function ProjectIssuesView({ projectId }: { projectId: string }) {
 
   return (
     <Page crumbs={crumbs}>
-      <div className="page-head">
-        <Avatar name={project.name} size="lg" shape="square" />
-        <h1>{project.name}</h1>
-        <span className="spacer" />
-        <button type="button" className={`ghost${project.allowedOrigins.length === 0 ? ' warn' : ''}`} aria-expanded={panel === 'origins'}
-          onClick={() => setPanel(panel === 'origins' ? null : 'origins')}>
-          {originsLabel(project.allowedOrigins)}
-        </button>
-        <button type="button" className="ghost" aria-expanded={panel === 'insights'} onClick={() => setPanel(panel === 'insights' ? null : 'insights')}>
-          {insightsLabel(project.insights)}
-        </button>
-        <button type="button" className="ghost" onClick={rotate}>Rotate API key</button>
-        <button type="button" className="ghost danger" onClick={deleteProject}>Delete project</button>
-      </div>
-      <p className="page-sub">{data.total} issue(s)</p>
-
-      {panel === 'origins' ? <OriginsPanel project={project} /> : null}
-      {panel === 'insights' ? <InsightsPanel project={project} onSaved={() => {}} /> : null}
-
-      <div className="tabs" role="tablist">
-        {STATUSES.map((s) => (
-          <button key={s} type="button" role="tab" aria-selected={filters.status === s} className={filters.status === s ? 'active' : ''} onClick={() => setFilter({ status: s })}>
-            {`${s[0].toUpperCase()}${s.slice(1)} (${s === 'all' ? allCount : data.counts[s]})`}
+      <PageTitle
+        lead={<Avatar name={project.name} size="lg" shape="square" />}
+        title={project.name}
+        sub={`${data.total.toLocaleString()} issue(s) · ${project.events24h.toLocaleString()} events in the last 24 h`}
+        actions={project.allowedOrigins.length === 0 ? (
+          <button type="button" onClick={() => setTab('settings')} className="cursor-pointer rounded-full border-0 bg-amber-500/15 shadow-none px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+            Any origin can send events · set allowed origins
           </button>
-        ))}
-      </div>
-      <div className="filters">
-        <input
-          type="search"
-          placeholder="Search message, type, location or API call id…"
-          aria-label="Search issues"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') setFilter({ q: search.trim() }); }}
-        />
-        <select aria-label="Event type" value={filters.type} onChange={(e) => setFilter({ type: e.target.value })}>
-          <option value="">All types</option>
-          {ISSUE_EVENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select aria-label="Environment" value={filters.env} onChange={(e) => setFilter({ env: e.target.value })}>
-          <option value="">All environments</option>
-          {data.environments.map((e) => <option key={e} value={e}>{e}</option>)}
-        </select>
-        <select aria-label="Sort" value={filters.sort} onChange={(e) => setFilter({ sort: e.target.value })}>
-          {SORT_OPTIONS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-        </select>
-      </div>
+        ) : null}
+      />
 
-      {data.issues.length > 0 ? (
-        <div className="row bulk">
-          <button type="button" className="danger" disabled={selected.size === 0} onClick={deleteSelected}>
-            {selected.size > 0 ? `Delete selected (${selected.size})` : 'Delete selected'}
-          </button>
-          <span className="spacer" />
-          <button type="button" className="danger" disabled={clearCount === 0} onClick={clearAll}>
-            {filters.status === 'all' ? `Delete everything (${clearCount})` : `Delete all ${clearLabel} (${clearCount})`}
-          </button>
+      <TabBar label="Project" tabs={[...TABS]} value={tab} onChange={setTab} />
+
+      {tab === 'settings' ? (
+        <div className="grid gap-4 [&>.section]:mt-0">
+          <SettingsCard title="API key" description={`Apps send events with this key. Current key: ${project.apiKeyHint}`}>
+            <p className="m-0 text-[13px] text-muted">The full key is shown only when it is created. Rotating gives you a new one and the current key stops working at once.</p>
+            <div><PillButton onClick={rotate}>Rotate API key</PillButton></div>
+          </SettingsCard>
+          <OriginsPanel project={project} />
+          <InsightsPanel project={project} onSaved={() => {}} />
+          <SettingsCard title="Danger zone" description="This can't be undone.">
+            <p className="m-0 text-[13px] text-muted">Deleting the project removes every issue and event in it, and its API key.</p>
+            <div><PillButton variant="danger" onClick={deleteProject}>Delete project</PillButton></div>
+          </SettingsCard>
         </div>
-      ) : null}
-
-      {data.issues.length === 0 ? (
-        allCount === 0 ? (
-          <EmptyState icon="inbox" title="No issues yet" text={`Errors appear here as soon as an app using this project's key (${project.apiKeyHint}) sends them. Setup:`}>
-            <div className="key-box mt-4 max-w-full text-left"><pre>{setupSnippet('<your API key>', origin)}</pre></div>
-          </EmptyState>
-        ) : (
-          <EmptyState icon="search" title="No issues match these filters" text="Try a different status, type or search term." />
-        )
       ) : (
-        <div className="card issue-list">
-          <div className="list-head">
-            <input type="checkbox" aria-label="Select all issues on this page" checked={allSelected}
-              onChange={(e) => setSelected(e.target.checked ? new Set(data.issues.map((i) => i.id)) : new Set())} />
-            <span>Issue</span><span>Events</span><span>Last seen</span>
+        <>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Status">
+              {STATUSES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={filters.status === s}
+                  onClick={() => setFilter({ status: s })}
+                  className={cn(
+                    'h-8 cursor-pointer rounded-full border-0 px-3.5 shadow-none text-[13px] font-medium transition-colors',
+                    filters.status === s ? 'bg-invert-bg text-invert-fg' : 'bg-transparent text-muted hover:bg-(--hover) hover:text-fg',
+                  )}
+                >
+                  {`${s[0].toUpperCase()}${s.slice(1)} · ${s === 'all' ? allCount : data.counts[s]}`}
+                </button>
+              ))}
+            </div>
           </div>
-          {data.issues.map((issue) => {
-            // Found by an API call's _id: open the event that recorded that call.
-            const href = issue.matchedEventId ? `/issues/${issue.id}?event=${issue.matchedEventId}` : `/issues/${issue.id}`;
-            const warm = () => prefetch(`/api/issue?id=${issue.id}`);
-            return (
-              <Link key={issue.id} className={`issue-row sev-${issue.eventType}`} href={href} onMouseEnter={warm} onFocus={warm}>
-                <input type="checkbox" aria-label="Select issue" checked={selected.has(issue.id)}
-                  onClick={(e) => e.stopPropagation()} onChange={(e) => toggle(issue.id, e.target.checked)} />
-                <div className="min-w-0">
-                  <div className="issue-title">
-                    <Badge text={issue.eventType} />{issue.errorType}
-                    {issue.status !== 'open' ? <Badge text={issue.status} /> : null}
-                    {issue.regressedAt && issue.status === 'open' ? <Badge text="regressed" kind="error" /> : null}
-                  </div>
-                  <div className="issue-msg">{issue.message || '(no message)'}</div>
-                  <div className="issue-meta">{[issue.culprit, issue.environments.join(', ')].filter(Boolean).join(' · ')}</div>
-                </div>
-                <div className="issue-count">{issue.count.toLocaleString()}</div>
-                <div className="issue-when" title={formatDate(issue.lastSeen)}>{timeAgo(issue.lastSeen)}</div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
 
-      {pages > 1 ? (
-        <div className="pager">
-          <button type="button" disabled={filters.page <= 1} onClick={() => setFilter({ page: String(filters.page - 1) })}>Previous</button>
-          <span className="muted">Page {filters.page} of {pages}</span>
-          <button type="button" disabled={filters.page >= pages} onClick={() => setFilter({ page: String(filters.page + 1) })}>Next</button>
-        </div>
-      ) : null}
+          <div className="mb-4 flex flex-wrap gap-2">
+            <input
+              type="search"
+              placeholder="Search message, type, location or API call id…"
+              aria-label="Search issues"
+              className={cn(FIELD, 'min-w-56 flex-1')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') setFilter({ q: search.trim() }); }}
+            />
+            <select aria-label="Event type" className={FIELD} value={filters.type} onChange={(e) => setFilter({ type: e.target.value })}>
+              <option value="">All types</option>
+              {ISSUE_EVENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select aria-label="Environment" className={FIELD} value={filters.env} onChange={(e) => setFilter({ env: e.target.value })}>
+              <option value="">All environments</option>
+              {data.environments.map((e) => <option key={e} value={e}>{e}</option>)}
+            </select>
+            <select aria-label="Sort" className={FIELD} value={filters.sort} onChange={(e) => setFilter({ sort: e.target.value })}>
+              {SORT_OPTIONS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+            </select>
+          </div>
+
+          {data.issues.length > 0 ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <PillButton variant="danger" className="h-8" disabled={selected.size === 0} onClick={deleteSelected}>
+                {selected.size > 0 ? `Delete selected (${selected.size})` : 'Delete selected'}
+              </PillButton>
+              <span className="flex-1" />
+              <PillButton variant="ghost" className="h-8 hover:text-danger" disabled={clearCount === 0} onClick={clearAll}>
+                {filters.status === 'all' ? `Delete everything (${clearCount})` : `Delete all ${clearLabel} (${clearCount})`}
+              </PillButton>
+            </div>
+          ) : null}
+
+          {data.issues.length === 0 ? (
+            allCount === 0 ? (
+              <EmptyState icon="inbox" title="No issues yet" text={`Errors appear here as soon as an app using this project's key (${project.apiKeyHint}) sends them. Setup:`}>
+                <div className="key-box mt-4 max-w-full text-left"><pre>{setupSnippet('<your API key>', origin)}</pre></div>
+              </EmptyState>
+            ) : (
+              <EmptyState icon="search" title="No issues match these filters" text="Try a different status, type or search term." />
+            )
+          ) : (
+            <div className={cn(CARD, 'overflow-hidden')}>
+              <div className={cn(LIST_COLUMNS, 'items-center border-b border-line bg-panel-2 px-5 py-2.5 text-xs font-medium text-muted')}>
+                <input type="checkbox" aria-label="Select all issues on this page" checked={allSelected}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(data.issues.map((i) => i.id)) : new Set())} />
+                <span>Issue</span>
+                <span className="hidden text-right sm:block">Events</span>
+                <span className="hidden text-right sm:block">Last seen</span>
+              </div>
+              {data.issues.map((issue) => <IssueRow key={issue.id} issue={issue} selected={selected.has(issue.id)} onToggle={(on) => toggle(issue.id, on)} />)}
+            </div>
+          )}
+
+          {pages > 1 ? (
+            <div className="mt-4 flex items-center justify-end gap-3 text-[13px] text-muted">
+              <PillButton disabled={filters.page <= 1} onClick={() => setFilter({ page: String(filters.page - 1) })}>Previous</PillButton>
+              <span>Page {filters.page} of {pages}</span>
+              <PillButton disabled={filters.page >= pages} onClick={() => setFilter({ page: String(filters.page + 1) })}>Next</PillButton>
+            </div>
+          ) : null}
+        </>
+      )}
     </Page>
+  );
+}
+
+/** One issue in the list: a link to the issue (or to the event that matched an API call id). */
+function IssueRow({ issue, selected, onToggle }: { issue: IssueListItem; selected: boolean; onToggle: (on: boolean) => void }) {
+  // Found by an API call's _id: open the event that recorded that call.
+  const href = issue.matchedEventId ? `/issues/${issue.id}?event=${issue.matchedEventId}` : `/issues/${issue.id}`;
+  const warm = () => prefetch(`/api/issue?id=${issue.id}`);
+  const meta = [issue.culprit, issue.environments.join(', ')].filter(Boolean).join(' · ');
+  return (
+    <Link
+      href={href}
+      onMouseEnter={warm}
+      onFocus={warm}
+      className={cn(LIST_COLUMNS, 'items-start border-t border-line/70 px-5 py-3.5 text-fg no-underline first:border-t-0 hover:bg-(--hover) hover:no-underline')}
+    >
+      <input type="checkbox" aria-label="Select issue" className="mt-1" checked={selected} onClick={(e) => e.stopPropagation()} onChange={(e) => onToggle(e.target.checked)} />
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          <span className={cn('size-2 shrink-0 rounded-full', SEVERITY_DOT[issue.eventType] ?? 'bg-muted')} aria-hidden="true" />
+          {issue.errorType}
+          <Pill tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Pill>
+          {issue.status !== 'open' ? <Pill tone="muted">{issue.status}</Pill> : null}
+          {issue.regressedAt && issue.status === 'open' ? <Pill tone="red">regressed</Pill> : null}
+        </div>
+        <div className="mt-1 truncate text-[13px] text-fg-2">{issue.message || '(no message)'}</div>
+        {meta ? <div className="mt-1 truncate text-xs text-muted">{meta}</div> : null}
+        <div className="mt-1 text-xs text-muted sm:hidden">{issue.count.toLocaleString()} events · {timeAgo(issue.lastSeen)}</div>
+      </div>
+      <div className="hidden text-right text-sm tabular-nums sm:block">{issue.count.toLocaleString()}</div>
+      <div className="hidden text-right text-xs text-muted sm:block" title={formatDate(issue.lastSeen)}>{timeAgo(issue.lastSeen)}</div>
+    </Link>
   );
 }

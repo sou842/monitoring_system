@@ -2,7 +2,9 @@
 
 import { useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react';
 import { useDelayed } from '@/lib/client/api';
+import { cn } from '@/lib/utils';
 import { IconTile, type IconName } from './Icon';
+import { CARD } from './kit';
 
 /** A button that shows a spinner and is disabled while `busy`. */
 export function Button({ busy = false, className = '', disabled, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { busy?: boolean }) {
@@ -115,12 +117,12 @@ export function CopyButton({ text, label = 'Copy', className }: { text: string; 
 /** Settings section: title and description on the left, content on the right. */
 export function SettingsCard({ title, description, className = '', children }: { title: string; description?: string | null; className?: string; children: ReactNode }) {
   return (
-    <section className={`card settings-card ${className}`.trim()}>
-      <div className="settings-head">
-        <h3>{title}</h3>
-        {description ? <p className="muted">{description}</p> : null}
+    <section className={cn(CARD, 'grid gap-4 p-5 md:grid-cols-[260px_minmax(0,1fr)] md:gap-8 md:p-6', className)}>
+      <div>
+        <h3 className="m-0 text-sm font-semibold">{title}</h3>
+        {description ? <p className="mt-1 text-[13px] text-muted">{description}</p> : null}
       </div>
-      <div className="settings-body">{children}</div>
+      <div className="grid min-w-0 content-start gap-3">{children}</div>
     </section>
   );
 }
