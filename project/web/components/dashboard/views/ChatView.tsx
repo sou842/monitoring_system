@@ -392,10 +392,10 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-danger' : 'text-(--bubble-own-fg-dim)')} /> : null}
       </span>
     );
-    // Sits over the bubble's bottom-right corner, right where the time/tick is (not inside the bubble's
-    // overflow-hidden box, so the dropdown below it isn't clipped, and it never shifts the bubble's own layout).
+    // Sits outside the bubble (never inside its overflow-hidden box, so the dropdown below it isn't clipped), lined up
+    // with the bottom corner nearest the edge of the screen, so it never shifts the bubble's own layout.
     const tools = showTools ? (
-      <div className={cn('absolute right-1.5 bottom-1 z-20 hidden items-center gap-1 group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex')}>
+      <div className={cn('absolute bottom-0 z-20 hidden items-center gap-0.5 group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex', own ? 'right-full mr-1.5' : 'left-full ml-1.5')}>
         {!own ? (
           <div className="relative">
             <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }}
@@ -420,7 +420,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             <Icon name="chevron" className="size-4" />
           </button>
           {menuOpen ? (
-            <div role="menu" className="absolute right-0 bottom-full z-30 mb-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)">
+            <div role="menu" className={cn('absolute bottom-full z-30 mb-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)', own ? 'right-0' : 'left-0')}>
               <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); startReply(m); }}
                 className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="reply" className="size-4 text-muted" />Reply</button>
               {m.text ? (
@@ -436,9 +436,19 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         </div>
       </div>
     ) : null;
+    // One header (avatar + name) above a whole run of consecutive messages from the same person, Slack-style,
+    // instead of repeating the name inside every bubble.
+    if (!own && !continued) {
+      items.push(
+        <div key={`h-${row.key}`} className="mt-3 flex items-center gap-2 pl-0.5">
+          <Avatar name={author} size="sm" />
+          <span className="truncate text-[13px] font-semibold dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</span>
+        </div>,
+      );
+    }
     items.push(
-      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-2 rounded-xl data-[flash]:bg-amber-400/25 data-[flash]:transition-colors', own ? 'justify-end' : 'justify-start', continued ? 'mt-0.5' : 'mt-2.5')}>
-        {!own ? <div className="w-8 shrink-0 pt-0.5">{continued ? null : <Avatar name={author} size="sm" />}</div> : null}
+      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-2 rounded-xl data-[flash]:bg-amber-400/25 data-[flash]:transition-colors', own ? 'justify-end' : 'justify-start', own && !continued ? 'mt-2.5' : 'mt-0.5')}>
+        {!own ? <div className="w-8 shrink-0" /> : null}
         <div className={cn('relative min-w-0 max-w-[84%] sm:max-w-[70%]', own ? 'items-end' : 'items-start')}>
           <div className="relative">
             {tools}
@@ -449,7 +459,6 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                 row.status === 'sending' && 'opacity-75',
               )}
             >
-              {!own && !continued ? <div className="mb-0.5 truncate text-[13px] font-semibold dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</div> : null}
               {m.replyTo ? (
                 <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }}
                   className="mb-1 mt-0.5 block w-full cursor-pointer rounded-lg border-0 border-l-4 bg-black/[.045] px-2.5 py-1.5 text-left shadow-none dark:bg-white/[.07]"
