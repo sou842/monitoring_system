@@ -392,10 +392,10 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-danger' : 'text-(--bubble-own-fg-dim)')} /> : null}
       </span>
     );
-    // Sits outside the bubble (never inside its overflow-hidden box, so the dropdown below it isn't clipped), lined up
-    // with the bottom corner nearest the edge of the screen, so it never shifts the bubble's own layout.
+    // Sits over the bubble's bottom-right corner, right where the time/tick is (not inside the bubble's
+    // overflow-hidden box, so the dropdown below it isn't clipped, and it never shifts the bubble's own layout).
     const tools = showTools ? (
-      <div className={cn('absolute bottom-0 z-20 hidden items-center gap-0.5 group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex', own ? 'right-full mr-1.5' : 'left-full ml-1.5')}>
+      <div className={cn('absolute right-1.5 bottom-1 z-20 hidden items-center gap-1 group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex')}>
         {!own ? (
           <div className="relative">
             <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }}
@@ -420,7 +420,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             <Icon name="chevron" className="size-4" />
           </button>
           {menuOpen ? (
-            <div role="menu" className={cn('absolute bottom-full z-30 mb-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)', own ? 'right-0' : 'left-0')}>
+            <div role="menu" className="absolute right-0 bottom-full z-30 mb-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)">
               <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); startReply(m); }}
                 className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="reply" className="size-4 text-muted" />Reply</button>
               {m.text ? (
