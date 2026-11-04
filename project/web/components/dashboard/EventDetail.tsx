@@ -381,7 +381,7 @@ export function EventDetail({ event, insightSettings }: { event: ClientEvent; in
   }));
 
   return (
-    <div className={cn(CARD, 'min-w-0 p-5')}>
+    <div className={cn(CARD, 'min-w-0 p-3 sm:p-5')}>
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2 className="m-0 text-sm font-semibold">Event</h2>
         <span className="text-xs text-muted" title={formatDate(p.timestamp)}>{formatDate(p.timestamp)}</span>

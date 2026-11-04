@@ -61,7 +61,7 @@ export function PageTitle({ title, sub, lead, actions }: { title: ReactNode; sub
 /** Underlined tab row (`Issues` · `Settings`). */
 export function TabBar<T extends string>({ tabs, value, onChange, label }: { tabs: Array<{ id: T; label: string }>; value: T; onChange: (id: T) => void; label: string }) {
   return (
-    <div role="tablist" aria-label={label} className="mb-5 flex gap-1 border-b border-line">
+    <div role="tablist" aria-label={label} className="mb-5 flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]">
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -70,7 +70,7 @@ export function TabBar<T extends string>({ tabs, value, onChange, label }: { tab
           aria-selected={value === tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            '-mb-px cursor-pointer rounded-none shadow-none border-0 border-b-2 bg-transparent px-3 py-2 text-[13px] font-medium transition-colors',
+            '-mb-px shrink-0 cursor-pointer rounded-none shadow-none border-0 border-b-2 bg-transparent px-3 py-2 text-[13px] font-medium whitespace-nowrap transition-colors',
             value === tab.id ? 'border-fg text-fg' : 'border-transparent text-muted hover:text-fg',
           )}
         >

@@ -37,13 +37,12 @@ function shortScreen(value: string): string {
   }
 }
 
-/** A number with a small label, as a tile. */
-function StatTile({ label, value, title, sub }: { label: string; value: string; title?: string; sub?: string }) {
+/** A label over a value, for the slim strip under the title. */
+function Stat({ label, value, title, sub }: { label: string; value: string; title?: string; sub?: string }) {
   return (
-    <div className="min-w-0 rounded-xl bg-panel-2 px-3.5 py-3" title={title}>
-      <div className="text-[10.5px] font-semibold tracking-wider text-muted uppercase">{label}</div>
-      <div className="mt-1 truncate text-[15px] font-semibold tabular-nums">{value}</div>
-      {sub ? <div className="truncate text-[11px] text-muted">{sub}</div> : null}
+    <div className="min-w-0 sm:px-4 sm:first:pl-0 sm:[&:not(:first-child)]:border-l sm:[&:not(:first-child)]:border-line" title={title}>
+      <div className="text-[10px] font-semibold tracking-wider text-muted uppercase">{label}</div>
+      <div className="mt-0.5 truncate text-sm font-semibold tabular-nums">{value}{sub ? <span className="ml-1.5 text-[11px] font-normal text-muted">{sub}</span> : null}</div>
     </div>
   );
 }
@@ -76,27 +75,49 @@ function Distribution({ title, rows, total, show = (v) => v, hint }: { title: st
   );
 }
 
-/** Who and where the issue hits, over its newest stored events (server/impact.ts). */
-function ImpactCard({ impact, total }: { impact: IssueImpact; total: number }) {
+/** The biggest share of a breakdown as one line: "Chrome 156 80%" (+ "+2 more"); null when nothing was recorded. */
+function topShare(rows: ImpactValue[], total: number, show: (v: string) => string): string | null {
+  if (rows.length === 0 || (rows.length === 1 && rows[0].value === '(none)')) return null;
+  const first = rows[0];
+  return `${show(first.value)} ${percent(first.count, total)}${rows.length > 1 ? ` +${rows.length - 1}` : ''}`;
+}
+
+/** Who and where the issue hits, over its newest stored events (server/impact.ts): one summary line, bars on demand. */
+function ImpactPanel({ impact, total }: { impact: IssueImpact; total: number }) {
+  const [open, setOpen] = useState(false);
   if (impact.sampled === 0) return null;
   const n = impact.sampled;
   const scope = n < total ? `the newest ${n.toLocaleString()} stored events` : `all ${n.toLocaleString()} stored events`;
+  const summary: Array<[string, string | null]> = [
+    ['Screen', topShare(impact.screens, n, shortScreen)],
+    ['Browser', topShare(impact.browsers, n, (v) => v)],
+    ['Version', topShare(impact.versions, n, (v) => v)],
+  ];
   return (
-    <section className={cn(CARD, 'p-5')} aria-label={`Impact over ${scope}`}>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="m-0 text-sm font-semibold">Who it affects</h2>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted">Based on {scope}</span>
+    <div className="mt-4 border-t border-line pt-3" aria-label={`Impact over ${scope}`}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">Who it affects</span>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+          {summary.map(([label, text]) => (
+            <span key={label} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-panel-2 px-2.5 py-1 text-xs" title={`${label}, in ${scope}`}>
+              <span className="text-muted">{label}</span><span className="truncate font-medium">{text ?? 'not set'}</span>
+            </span>
+          ))}
           {impact.offline > 0 ? <Pill tone="amber">{percent(impact.offline, impact.withSituation)} offline</Pill> : null}
           {impact.duringPageLoad > 0 ? <Pill tone="amber">{percent(impact.duringPageLoad, impact.withSituation)} while loading</Pill> : null}
         </div>
+        <button type="button" aria-expanded={open} onClick={() => setOpen((was) => !was)} className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs font-medium text-muted shadow-none hover:text-fg">
+          {open ? 'Hide breakdown' : 'Breakdown'}<Icon name="chevron" className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
+        </button>
       </div>
-      <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-        <Distribution title="Top screens" rows={impact.screens} total={n} show={shortScreen} hint={`setScreen() name, else the page URL, in ${scope}`} />
-        <Distribution title="Browsers" rows={impact.browsers} total={n} hint={`In ${scope}`} />
-        <Distribution title="App versions" rows={impact.versions} total={n} hint={`appVersion from init(), in ${scope}`} />
-      </div>
-    </section>
+      {open ? (
+        <div className="mt-4 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          <Distribution title="Top screens" rows={impact.screens} total={n} show={shortScreen} hint={`setScreen() name, else the page URL, in ${scope}`} />
+          <Distribution title="Browsers" rows={impact.browsers} total={n} hint={`In ${scope}`} />
+          <Distribution title="App versions" rows={impact.versions} total={n} hint={`appVersion from init(), in ${scope}`} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -168,19 +189,19 @@ export function IssueView({ issueId }: { issueId: string }) {
 
   return (
     <Page crumbs={crumbs}>
-      <section className={cn(CARD, 'p-5 md:p-6')}>
-        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+      <section className={cn(CARD, 'px-5 py-4')}>
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <div className="min-w-0 flex-1 basis-80">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h1 className="m-0 text-lg font-semibold tracking-tight break-words">{issue.errorType}</h1>
               <Badge text={issue.eventType} />
               <Badge text={issue.status} />
               {issue.regressedAt && issue.status === 'open' ? <Badge text="regressed" kind="error" /> : null}
             </div>
-            <h1 className="m-0 mt-3 text-2xl font-semibold tracking-tight break-words">{issue.errorType}</h1>
-            <p className="m-0 mt-1.5 text-sm break-words text-fg-2">{issue.message || '(no message)'}</p>
-            {issue.culprit ? <div className="mt-3 inline-block max-w-full truncate rounded-lg bg-panel-2 px-2.5 py-1 font-mono text-xs text-muted" title={issue.culprit}>{issue.culprit}</div> : null}
+            <p className="m-0 mt-1 line-clamp-2 text-[13px] break-words text-fg-2" title={issue.message}>{issue.message || '(no message)'}</p>
+            {issue.culprit ? <div className="mt-1.5 truncate font-mono text-xs text-muted" title={issue.culprit}>{issue.culprit}</div> : null}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
             {can.ai ? (
               <button type="button" className={`ai-toggle${aiOpen ? ' active' : ''} rounded-full`} aria-expanded={aiOpen} onClick={() => { setAiUsed(true); setAiOpen((o) => !o); }}>
                 <Icon name="ghost" />Ask AI
@@ -193,17 +214,17 @@ export function IssueView({ issueId }: { issueId: string }) {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2.5 border-t border-line pt-5 sm:grid-cols-3 xl:grid-cols-6">
-          <StatTile label="Events" value={issue.count.toLocaleString()} />
-          <StatTile label="Users" value={users} sub={usersSub} title={impact ? `Distinct user ids (setUser) in the newest ${impact.sampled.toLocaleString()} stored events; ${impact.anonymous.toLocaleString()} event(s) had none.` : undefined} />
-          <StatTile label="First seen" value={timeAgo(issue.firstSeen)} title={formatDate(issue.firstSeen)} />
-          <StatTile label="Last seen" value={timeAgo(issue.lastSeen)} title={formatDate(issue.lastSeen)} />
-          <StatTile label="Environments" value={issue.environments.join(', ') || '–'} />
-          <StatTile label="Platforms" value={issue.platforms.join(', ') || '–'} />
+        <div className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line pt-3.5 min-[480px]:grid-cols-3 sm:flex sm:flex-wrap">
+          <Stat label="Events" value={issue.count.toLocaleString()} />
+          <Stat label="Users" value={users} sub={usersSub} title={impact ? `Distinct user ids (setUser) in the newest ${impact.sampled.toLocaleString()} stored events; ${impact.anonymous.toLocaleString()} event(s) had none.` : undefined} />
+          <Stat label="First seen" value={timeAgo(issue.firstSeen)} title={formatDate(issue.firstSeen)} />
+          <Stat label="Last seen" value={timeAgo(issue.lastSeen)} title={formatDate(issue.lastSeen)} />
+          <Stat label="Environments" value={issue.environments.join(', ') || '–'} />
+          <Stat label="Platforms" value={issue.platforms.join(', ') || '–'} />
         </div>
-      </section>
 
-      {impact ? <div className="mt-4"><ImpactCard impact={impact} total={issue.count} /></div> : null}
+        {impact ? <ImpactPanel impact={impact} total={issue.count} /> : null}
+      </section>
 
       <div className="issue-split mt-4">
         <aside className="min-w-0">

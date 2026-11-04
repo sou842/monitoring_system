@@ -683,7 +683,7 @@
   button:where(:not([data-slot])).busy:disabled { opacity: 0.85; cursor: progress; }
   
   /* ---------- Dialog ---------- */
-  .modal { width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); background: var(--panel); color: var(--fg); box-shadow: var(--modal-shadow); }
+  .modal { margin: auto; width: min(460px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); background: var(--panel); color: var(--fg); box-shadow: var(--modal-shadow); }
   .modal::backdrop { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px); }
   .modal[open] { animation: modal-in 0.16s ease-out; }
   .modal-danger { border-top: 3px solid var(--danger); }
