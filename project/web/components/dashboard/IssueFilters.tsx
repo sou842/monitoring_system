@@ -137,7 +137,7 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
 
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-      <div className="relative min-w-52 max-w-md flex-1">
+      <div className="relative min-w-0 max-w-md flex-1 sm:min-w-52">
         <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
         <input
           type="search"
@@ -164,7 +164,7 @@ export function IssueFilters({ values, onChange, statuses, types, environments, 
         </button>
 
         {open ? (
-          <div role="dialog" aria-label="Filter issues" className="absolute left-0 z-30 mt-2 w-[min(340px,calc(100vw-48px))] overflow-hidden rounded-2xl border border-line bg-panel shadow-(--menu-shadow)">
+          <div role="dialog" aria-label="Filter issues" className="absolute right-0 z-30 mt-2 w-[min(340px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-line bg-panel shadow-(--menu-shadow)">
             <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
               <h3 className="m-0 text-sm font-semibold">Filters</h3>
               <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-muted shadow-none enabled:hover:text-fg disabled:cursor-default disabled:opacity-40" disabled={draftActive === 0} onClick={() => setDraft({ ...DEFAULT_ISSUE_FILTERS })}>Reset</button>

@@ -883,4 +883,12 @@
 @layer utilities {
   :is(.ai-panel, .ai-page) :is([class~='bg-muted'], [class~='bg-muted/80']),
   :is(.ai-panel, .ai-page) :is([class~='hover:bg-muted'], [class~='hover:bg-muted/40']):hover { background-color: var(--panel-2); }
+
+  /* Streamdown renders links as <button data-streamdown="link"> when linkSafety is enabled, which picks up the
+     global button border/background. Reset those so they look like plain hyperlinks. */
+  :is(.ai-panel, .ai-page) button[data-streamdown="link"] {
+    border: none; background: none; padding: 0; color: var(--accent); text-decoration: underline;
+    text-underline-offset: 2px; border-radius: 0; box-shadow: none;
+  }
+  :is(.ai-panel, .ai-page) button[data-streamdown="link"]:hover { background: none; border-color: transparent; }
 }

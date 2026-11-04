@@ -10,7 +10,7 @@ import type { ChatIssueView, ChatMessageView, IssuesResponse, MembersResponse, P
 import { cn } from '@/lib/utils';
 import { Avatar, Loading } from '../../ui/bits';
 import { useDialog } from '../../ui/Dialog';
-import { Icon } from '../../ui/Icon';
+import { Icon, type IconName } from '../../ui/Icon';
 import { Badge, pillButton, type Tone } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
@@ -32,6 +32,8 @@ const FLASH_MS = 1400;
 
 const EMOJI = ['😀', '😂', '😊', '😍', '🙏', '👏', '🎉', '🔥', '👀', '✅', '❌', '⚠️', '🐛', '🚀', '💡', '🤔', '😅', '😢', '👍', '💪'];
 const EVENT_TONE: Record<string, Tone> = { crash: 'dark', error: 'red', performance: 'amber', message: 'neutral' };
+/** Maps each reaction emoji to its Lucide icon name, for the reaction picker toolbar. */
+const REACTION_ICON_MAP: Record<string, IconName> = { '👍': 'thumbsUp', '❤️': 'heart', '😂': 'smile', '🎉': 'party', '👀': 'eye', '✅': 'checkDouble' };
 const STATUS_TONE: Record<string, Tone> = { open: 'neutral', resolved: 'green', ignored: 'muted' };
 
 const dayLabel = (iso: string) => {
@@ -61,7 +63,7 @@ const snippetOf = (m: { text: string; issues?: unknown[]; hasIssues?: boolean; d
   m.deleted ? 'Message deleted' : m.text || (m.hasIssues || (m.issues && m.issues.length > 0) ? 'Issue' : '');
 
 /** An attached issue: a compact card that opens the issue (or, in the composer, can be removed). */
-function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; onRemove?: () => void; tone?: 'panel' | 'bubble' }) {
+function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; onRemove?: () => void; tone?: 'panel' | 'bubble' | 'own' }) {
   const dot = issue.eventType === 'crash' ? 'bg-fg' : issue.eventType === 'performance' ? 'bg-amber-500' : issue.eventType === 'message' ? 'bg-muted' : 'bg-red-500';
   const body = (
     <>
@@ -72,12 +74,17 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
           <Badge tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Badge>
           {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue.status] ?? 'muted'}>{issue.status}</Badge> : null}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-fg-2">{issue.message || '(no message)'}</span>
-        <span className="mt-0.5 block text-xs text-muted">{issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
+        <span className={cn('mt-0.5 block truncate text-xs', tone === 'own' ? 'text-white/80' : 'text-fg-2')}>{issue.message || '(no message)'}</span>
+        <span className={cn('mt-0.5 block text-xs', tone === 'own' ? 'text-white/60' : 'text-muted')}>{issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
       </span>
     </>
   );
-  const frame = cn('flex items-start gap-2.5 rounded-xl px-3 py-2 text-fg no-underline', tone === 'bubble' ? 'bg-black/[.045] dark:bg-white/[.07]' : 'border border-line bg-panel');
+  const frame = cn(
+    'flex items-start gap-2.5 rounded-xl px-3 py-2 no-underline',
+    tone === 'bubble' ? 'bg-black/[.045] dark:bg-white/[.07] text-fg' :
+    tone === 'own' ? 'border border-white/25 bg-white/15' :
+    'border border-line bg-panel text-fg',
+  );
   return onRemove ? (
     <span className={cn(frame, 'relative pr-9')}>
       {body}
@@ -87,7 +94,7 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
       </button>
     </span>
   ) : (
-    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:bg-black/[.08] hover:no-underline dark:hover:bg-white/[.12]')}>{body}</Link>
+    <Link href={`/issues/${issue.id}`} className={cn(frame, tone === 'own' ? 'hover:bg-white/25 hover:no-underline' : 'transition-colors hover:bg-black/[.08] hover:no-underline dark:hover:bg-white/[.12]')}>{body}</Link>
   );
 }
 
@@ -378,9 +385,9 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
     const canDelete = row.status === 'sent' && !m.deleted && (own || isOwner);
     const showTools = row.status === 'sent' && !m.deleted && canPost;
     const time = (
-      <span className="float-right mt-1.5 ml-3 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none text-muted select-none" title={new Date(m.createdAt).toLocaleString()}>
+      <span className={cn('float-right mt-1.5 ml-3 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none select-none', own ? 'text-white/60' : 'text-muted')} title={new Date(m.createdAt).toLocaleString()}>
         {clock(m.createdAt)}
-        {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'check'} className={cn('size-3.5', row.status === 'failed' && 'text-danger')} /> : null}
+        {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-red-200' : 'text-white/60')} /> : null}
       </span>
     );
     items.push(
@@ -389,11 +396,13 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         <div className={cn('relative min-w-0 max-w-[84%] sm:max-w-[70%]', own ? 'items-end' : 'items-start')}>
           {showTools ? (
             <div className={cn('absolute -top-9 z-20 hidden items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow) group-hover/row:flex', activeId === m.id && 'flex', own ? 'right-0' : 'left-0')}>
-              {CHAT_REACTIONS.map((e) => (
-                <button key={e} type="button" title={`React ${e}`} aria-label={`React ${e}`} onClick={() => { chat.react(m.id, e); setActiveId(null); }}
-                  className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-[15px] shadow-none hover:bg-(--hover)">{e}</button>
+              {!own && CHAT_REACTIONS.map((e) => (
+                <button key={e} type="button" title={e} aria-label={`React with ${e}`} onClick={() => { chat.react(m.id, e); setActiveId(null); }}
+                  className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg">
+                  <Icon name={REACTION_ICON_MAP[e] ?? 'smile'} className="size-4" />
+                </button>
               ))}
-              <span className="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />
+              {!own && <span className="mx-0.5 h-4 w-px bg-line" aria-hidden="true" />}
               <button type="button" title="Reply" aria-label="Reply" onClick={() => startReply(m)} className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="reply" className="size-4" /></button>
               {m.text ? <button type="button" title="Copy" aria-label="Copy text" onClick={() => copyText(m)} className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="copy" className="size-4" /></button> : null}
               {canDelete ? <button type="button" title="Delete" aria-label="Delete message" onClick={removeMessage(m)} className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-danger"><Icon name="trash" className="size-4" /></button> : null}
@@ -403,34 +412,34 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           <div
             onClick={() => { if (showTools) setActiveId((id) => (id === m.id ? null : m.id)); }}
             className={cn(
-              'overflow-hidden px-3 py-1.5 text-sm shadow-[0_1px_1px_rgba(0,0,0,.08)]',
-              own ? 'bg-secondary' : 'bg-panel',
+              'overflow-hidden px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,.12)]',
+              own ? 'bg-blue-500 text-white dark:bg-blue-600' : 'bg-panel text-fg',
               continued ? 'rounded-2xl' : own ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm',
-              row.status === 'sending' && 'opacity-80',
+              row.status === 'sending' && 'opacity-75',
             )}
           >
             {!own && !continued ? <div className="mb-0.5 truncate text-[13px] font-semibold dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</div> : null}
             {m.replyTo ? (
               <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }}
-                className="mb-1 mt-0.5 block w-full cursor-pointer rounded-lg border-0 border-l-4 bg-black/[.045] px-2.5 py-1.5 text-left shadow-none dark:bg-white/[.07]"
-                style={{ borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
-                <span className="block truncate text-xs font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
-                <span className={cn('block truncate text-xs text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
+                className={cn('mb-1 mt-0.5 block w-full cursor-pointer rounded-lg border-0 border-l-4 px-2.5 py-1.5 text-left shadow-none', own ? 'bg-white/20' : 'bg-black/[.045] dark:bg-white/[.07]')}
+                style={own ? { borderLeftColor: 'rgba(255,255,255,0.5)' } : { borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
+                <span className={cn('block truncate text-xs font-semibold', own ? 'text-white/90' : '')} style={own ? undefined : { color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
+                <span className={cn('block truncate text-xs', own ? 'text-white/70' : 'text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
               </button>
             ) : null}
             {m.deleted ? (
-              <p className="m-0 text-[13px] text-muted italic">This message was deleted{time}</p>
+              <p className={cn('m-0 text-[13px] italic', own ? 'text-white/70' : 'text-muted')}>This message was deleted{time}</p>
             ) : (
               <>
                 {m.text ? (
                   <p className="m-0 leading-relaxed break-words whitespace-pre-wrap">
-                    {withMentions(m.text, names, (part, i) => <span key={i} className="rounded bg-(--mention)/12 text-(--mention)">{part}</span>)}
+                    {withMentions(m.text, names, (part, i) => <span key={i} className={cn('rounded', own ? 'bg-white/20 font-medium' : 'bg-(--mention)/12 text-(--mention)')}>{part}</span>)}
                     {time}
                   </p>
                 ) : null}
                 {m.issues.length > 0 ? (
                   <div className={cn('grid gap-1.5', m.text ? 'mt-1.5' : 'mt-0.5')}>
-                    {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} tone="bubble" />)}
+                    {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} tone={own ? 'own' : 'bubble'} />)}
                     {!m.text ? <div className="text-right">{time}</div> : null}
                   </div>
                 ) : null}
@@ -442,8 +451,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           {m.reactions.length > 0 ? (
             <div className={cn('relative z-10 -mt-1.5 flex flex-wrap gap-1 px-2', own ? 'justify-end' : 'justify-start')}>
               {m.reactions.map((r) => (
-                <button key={r.emoji} type="button" title={r.names.join(', ')} onClick={(e) => { e.stopPropagation(); if (canPost) chat.react(m.id, r.emoji); }}
-                  className={cn('inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-1.5 text-xs shadow-sm', r.mine ? 'border-(--mention)/40 bg-(--mention)/12' : 'border-line bg-panel')}>
+                <button key={r.emoji} type="button" title={r.names.join(', ')} onClick={(e) => { e.stopPropagation(); if (canPost && !own) chat.react(m.id, r.emoji); }}
+                  className={cn('inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs shadow-sm', own ? 'cursor-default' : 'cursor-pointer', r.mine ? 'border-(--mention)/40 bg-(--mention)/12' : 'border-line bg-panel')}>
                   <span>{r.emoji}</span>{r.count > 1 ? <span className="font-medium tabular-nums">{r.count}</span> : null}
                 </button>
               ))}
@@ -468,11 +477,11 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   return (
     <Page crumbs={crumbs} fill>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-bg">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-panel-2">
         <div className="relative min-h-0 flex-1">
           <div
             ref={scroller}
-            className="h-full overflow-y-auto [background-image:radial-gradient(circle_at_1px_1px,rgba(110,120,140,.16)_1px,transparent_0)] [background-size:22px_22px]"
+            className="h-full overflow-y-auto bg-panel-2"
             onScroll={(e) => {
               const el = e.currentTarget;
               const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;

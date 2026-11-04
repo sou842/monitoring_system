@@ -284,10 +284,10 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
                 <button type="button" className="menu-item danger" role="menuitem" onClick={logout}><Icon name="logout" />Log out</button>
               </Menu>
               {/* The rail (with the account menu) is hidden on phones, so theme and log out live here too. */}
-              <div className="side-phone">
+              {/* <div className="side-phone">
                 <ThemeToggle />
                 <button type="button" className="icon-btn" onClick={logout}><Icon name="logout" /><span>Log out</span></button>
-              </div>
+              </div> */}
             </div>
           </aside>
 
