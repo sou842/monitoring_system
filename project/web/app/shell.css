@@ -134,7 +134,7 @@
 
 /* ---------- Issue page: events list beside the event ---------- */
 .issue-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-.issue-events-scroll { max-height: 240px; scrollbar-width: thin; }
+.issue-events-scroll { max-height: 240px; scrollbar-width: none; }
 @media (min-width: 1024px) {
   .issue-split { grid-template-columns: 264px minmax(0, 1fr); }
   .issue-split > aside { position: sticky; top: 0; }
