@@ -404,7 +404,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             onClick={() => { if (showTools) setActiveId((id) => (id === m.id ? null : m.id)); }}
             className={cn(
               'overflow-hidden px-3 py-1.5 text-sm shadow-[0_1px_1px_rgba(0,0,0,.08)]',
-              own ? 'bg-[#d9fdd3] dark:bg-[#f6f6f7]' : 'bg-panel',
+              own ? 'bg-[#f6f6f7] dark:bg-[#f6f6f7]' : 'bg-panel',
               continued ? 'rounded-2xl' : own ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm',
               row.status === 'sending' && 'opacity-80',
             )}
