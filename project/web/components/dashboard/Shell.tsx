@@ -66,8 +66,8 @@ const ADMIN_NAV: NavEntry[] = [{ href: '/admin', label: 'Admin', icon: 'shield',
 const COLLAPSED_KEY = 'et_sidebar_collapsed';
 const WIDTH_KEY = 'et_sidebar_width';
 /** Sidebar width in px: default, and the range the drag handle allows. */
-const SIDEBAR_WIDTH = 244;
-const SIDEBAR_MIN_WIDTH = 210;
+const SIDEBAR_WIDTH = 220;
+const SIDEBAR_MIN_WIDTH = 190;
 const SIDEBAR_MAX_WIDTH = 420;
 /** Projects listed in the sidebar before "All projects". */
 const SIDEBAR_PROJECTS = 8;

@@ -520,7 +520,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : null}
         </div>
 
-        <footer className="relative shrink-0 border-t border-line bg-panel px-3 py-2.5 md:px-4 flex justify-center">
+        <footer className="relative shrink-0 border-t border-line bg-panel px-3 py-2.5 md:px-4 flex flex-col justify-center align-center">
           {canPost ? (
             <>
               {picker && (options.length > 0 || (picker.kind === 'issue' && !searching)) ? (
@@ -562,7 +562,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               ) : null}
 
               {replyTo ? (
-                <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 bg-panel-2 py-1.5 pr-1.5 pl-3" style={{ borderLeftColor: nameColor(replyTo.userName ?? 'Deleted user') }}>
+                <div className="w-full max-w-4xl mb-2 flex items-start gap-2 rounded-xl border-l-4 bg-panel-2 py-1.5 pr-1.5 pl-3" style={{ borderLeftColor: nameColor(replyTo.userName ?? 'Deleted user') }}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-semibold" style={{ color: nameColor(replyTo.userName ?? 'Deleted user') }}>Replying to {replyTo.userId === me.id ? 'yourself' : (replyTo.userName ?? 'Deleted user')}</div>
                     <div className="truncate text-xs text-fg-2">{snippetOf(replyTo)}</div>
@@ -578,8 +578,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               ) : null}
 
               <div className="flex items-end gap-1.5 max-w-4xl w-full">
-                <button type="button" title="Emoji" aria-label="Emoji" aria-expanded={emojiOpen} onClick={() => { setEmojiOpen((o) => !o); setPicker(null); }}
-                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="smile" className="size-5" /></button>
+                {/* <button type="button" title="Emoji" aria-label="Emoji" aria-expanded={emojiOpen} onClick={() => { setEmojiOpen((o) => !o); setPicker(null); }}
+                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="smile" className="size-5" /></button> */}
                 {/* <button type="button" title="Mention someone" aria-label="Mention someone" onClick={() => insertAtCaret('@', 'mention')}
                   className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-base font-semibold text-muted shadow-none hover:bg-(--hover) hover:text-fg max-sm:hidden">@</button>
                 <button type="button" title="Attach an issue" aria-label="Attach an issue" disabled={attached.length >= MAX_ISSUES} onClick={() => insertAtCaret('/', 'issue')}

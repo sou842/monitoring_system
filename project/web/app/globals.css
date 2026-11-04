@@ -210,7 +210,7 @@
   .crumbs { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--muted); }
   .crumbs a { color: var(--muted); }
   .crumbs a:hover { color: var(--fg); }
-  .crumbs > :last-child { color: var(--fg); font-size: 18px; font-weight: 650; letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; }
+  .crumbs > :last-child { color: var(--fg); font-size: 14px; font-weight: 400; letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; }
   .crumbs > span:not(:last-child) { color: var(--faint); }
   .theme-toggle { display: flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
   .theme-toggle button { width: 30px; height: 28px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 3px; background: none; color: var(--muted); box-shadow: none; }
@@ -440,7 +440,7 @@
   .ai-panel-head { display: flex; align-items: center; gap: 8px; height: 64px; flex: none; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
   .ai-panel-head .icon-btn { height: 32px; padding: 0 10px; }
   .ai-panel-chat { flex: 1; min-height: 0; }
-  .ai-panel-input { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+  .ai-panel-input { flex: none; padding: 10px 12px 12px; }
   .ai-empty svg { width: 22px; height: 22px; }
   .ai-error { padding: 10px 12px; border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); font-size: 12.5px; }
   /* Markdown in answers: undo the dashboard's heading look (small uppercase labels). */

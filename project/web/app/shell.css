@@ -7,16 +7,16 @@
  */
 
 /* ---------- Page background and frame ---------- */
-.app-bg { display: flex; min-height: 100vh; min-height: 100dvh; padding: 20px; background: var(--page-bg); background-attachment: fixed; }
+.app-bg { display: flex; min-height: 100vh; min-height: 100dvh; padding: 10px; background: var(--page-bg); background-attachment: fixed; }
 .app-frame {
   position: relative; display: flex; flex: 1; min-width: 0; overflow: hidden;
   height: 100dvh; min-height: 520px;
   background: var(--frame); border: 1px solid var(--frame-line); box-shadow: var(--frame-shadow);
 }
 .app-frame .content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.page-bar { flex: none; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 28px; }
+.page-bar { flex: none; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 24px; }
 .page-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
-.app-frame .app-main { max-width: 1280px; margin: 0 auto; padding: 4px 28px 56px; }
+.app-frame .app-main { max-width: 1280px; margin: 0 auto; padding: 4px 24px 48px; }
 .bar-menu { display: none; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 999px; background: transparent; box-shadow: none; color: var(--fg); }
 .bar-menu svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
@@ -39,7 +39,7 @@
 
 /* ---------- Sidebar ---------- */
 .side {
-  position: relative; flex: none; width: var(--sidebar-w, 244px); min-height: 0; display: flex; flex-direction: column;
+  position: relative; flex: none; width: var(--sidebar-w, 220px); min-height: 0; display: flex; flex-direction: column;
   padding: 14px 10px 12px; border-right: 1px solid var(--line); transition: width 0.15s ease, padding 0.15s ease;
 }
 .resizing .side { transition: none; }
@@ -149,16 +149,31 @@
 
 /* ---------- Collapsed sidebar (wide screens): icons only ---------- */
 @media (min-width: 861px) {
-  .app-frame.collapsed .side { width: 68px; padding-left: 8px; padding-right: 8px; }
-  .app-frame.collapsed .side-head { flex-direction: column; }
+  .app-frame.collapsed .side { width: 56px; padding: 14px 0 12px; align-items: center; }
+  .app-frame.collapsed .side-head { justify-content: center; padding: 0 0 10px; width: 100%; }
+  .app-frame.collapsed .side-scroll { width: 100%; padding: 2px 0; justify-items: center; gap: 8px; overflow-x: hidden; }
+  .app-frame.collapsed .side-items { gap: 4px; justify-items: center; width: 100%; }
   .app-frame.collapsed .team-menu,
   .app-frame.collapsed .nav-text,
-  .app-frame.collapsed .nav-count,
   .app-frame.collapsed .pill-soon,
   .app-frame.collapsed .side-label,
-  .app-frame.collapsed .user-text { display: none; }
-  .app-frame.collapsed .nav-item { justify-content: center; padding: 8px 0; }
-  .app-frame.collapsed .user-card { justify-content: center; padding: 6px 0; border-color: transparent; background: none; }
+  .app-frame.collapsed .user-text,
+  .app-frame.collapsed .user-card > svg { display: none; }
+  /* Groups have no label any more: a thin divider keeps them apart. */
+  .app-frame.collapsed .side-group { padding-top: 8px; border-top: 1px solid var(--line); width: 36px; }
+  /* Every row is the same 40 px square tile, icon centred. */
+  .app-frame.collapsed .nav-item { position: relative; justify-content: center; gap: 0; width: 36px; min-height: 36px; height: 36px; padding: 0; border-radius: 10px; }
+  .app-frame.collapsed .side-group .side-items { justify-items: center; }
+  .app-frame.collapsed .nav-item svg { width: 18px; height: 18px; }
+  .app-frame.collapsed .nav-item .avatar { margin: 0; }
+  /* The unread / open count becomes a small badge on the tile's corner. */
+  .app-frame.collapsed .nav-count { position: absolute; top: 2px; right: 0; margin: 0; min-width: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; background: var(--invert-bg); color: var(--invert-fg); box-shadow: 0 0 0 2px var(--frame); }
+  .app-frame.collapsed .side-foot { width: 100%; justify-items: center; }
+  .app-frame.collapsed .side-foot .menu-wrap { width: auto; }
+  .app-frame.collapsed .user-card { justify-content: center; width: 40px; height: 40px; padding: 0; border-radius: 12px; }
+  /* The menus can't be as wide as the 68 px sidebar: open them beside it. */
+  .app-frame.collapsed .menu-top-stretch { left: calc(100% + 10px); right: auto; bottom: 0; min-width: 224px; }
+  .app-frame.collapsed .menu-bottom-start { left: calc(100% + 10px); top: 0; }
 }
 
 /* ---------- Phones and small tablets: no rail, the sidebar is a drawer ---------- */
