@@ -16,8 +16,6 @@ import { useToast } from '../../ui/Toasts';
 import { Page } from '../Page';
 import { useSession } from '../Shell';
 
-/** A message goes under the previous one without a new header when it's by the same person within this many minutes. */
-const GROUP_MINUTES = 5;
 /** Pixels from the bottom within which the list counts as "at the bottom" (and follows new messages). */
 const STICK_PX = 120;
 /** Most issues one message can carry (the server enforces the same). */
@@ -355,11 +353,17 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   // ---- render
   const pickedNames = picked.map((p) => p.name).filter((n) => text.includes(`@${n}`));
+  // Whether row i sits right under row i-1 in the same group (same person, no day/unread break in between) — computed
+  // up front so a bubble also knows whether the *next* row continues it, to flatten the corner that faces that neighbour.
+  const continuedArr = rows.map((row, i) => {
+    const prev = i > 0 ? rows[i - 1] : null;
+    return !!prev && prev.msg.userId === row.msg.userId && dayLabel(prev.msg.createdAt) === dayLabel(row.msg.createdAt) && row.msg.id !== unreadAnchor;
+  });
   const items: ReactNode[] = [];
   let previous: Row | null = null;
   let unreadShown = false;
   const unreadCount = unreadAnchor ? chat.messages.filter((m) => m.userId !== me.id && m.id >= unreadAnchor).length : 0;
-  for (const row of rows) {
+  rows.forEach((row, rowIndex) => {
     const m = row.msg;
     const newDay = !previous || dayLabel(previous.msg.createdAt) !== dayLabel(m.createdAt);
     if (newDay) {
@@ -378,8 +382,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
       );
     }
     const own = m.userId === me.id;
-    const continued = !newDay && previous !== null && !(unreadShown && m.id === unreadAnchor) && previous.msg.userId === m.userId
-      && new Date(m.createdAt).getTime() - new Date(previous.msg.createdAt).getTime() < GROUP_MINUTES * 60000;
+    const continued = !newDay && previous !== null && !(unreadShown && m.id === unreadAnchor) && previous.msg.userId === m.userId;
+    const groupEnd = rowIndex + 1 >= rows.length || !continuedArr[rowIndex + 1];
     const author = m.userName ?? 'Deleted user';
     const names = m.mentions.map((id) => byId.get(id)?.name).filter((n): n is string => Boolean(n));
     const canDelete = row.status === 'sent' && !m.deleted && (own || isOwner);
@@ -457,6 +461,12 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                 'overflow-hidden rounded-2xl px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,.12)]',
                 own ? 'bg-(--bubble-own) text-(--bubble-own-fg)' : 'bg-panel text-fg',
                 row.status === 'sending' && 'opacity-75',
+                // The corner facing the rest of the group (own = right side, others = left side) flattens where
+                // it meets a neighbour bubble, so a run of messages from one person reads as one connected shape.
+                own && continued && 'rounded-tr-[4px]',
+                own && !groupEnd && 'rounded-br-[4px]',
+                !own && continued && 'rounded-tl-[4px]',
+                !own && !groupEnd && 'rounded-bl-[4px]',
               )}
             >
               {m.replyTo ? (
@@ -512,7 +522,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
       </div>,
     );
     previous = row;
-  }
+  });
 
   const sendable = text.trim().length > 0 || attached.length > 0;
 
