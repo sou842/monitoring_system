@@ -11,9 +11,11 @@ import { promisify } from 'node:util';
 import { ObjectId, type Db } from 'mongodb';
 import type { UserView } from '../lib/types.ts';
 import { issueTools } from '../server/ai/tools.ts';
+import { workspaceContext, workspaceScope, workspaceTools } from '../server/ai/workspace.ts';
 import { closeDb, getDb } from '../server/db.ts';
 import * as account from '../server/routes/account.ts';
 import * as ai from '../server/routes/ai.ts';
+import * as assistant from '../server/routes/assistant.ts';
 import * as admin from '../server/routes/admin.ts';
 import * as auth from '../server/routes/auth.ts';
 import * as event from '../server/routes/event.ts';
@@ -28,7 +30,7 @@ import { hasDatabase, request, sampleEvent, samplePageView, useTestDatabase, typ
 const enabled = hasDatabase();
 const PASSWORD = 'correct horse battery';
 // The handlers read their configuration when called, so importing them before before() runs is fine.
-const api = { events, auth, account, admin, ai, projects, issues, issue, event, health, stats };
+const api = { events, auth, account, admin, ai, assistant, projects, issues, issue, event, health, stats };
 let db: Db;
 
 /** A fake client IP per call, so the per-IP sign-up and ingestion limits don't interfere between tests. */
@@ -837,6 +839,46 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.match(String(own.json), /appzillonDashBoard/);
       const foreign = await tools.get_event.execute!({ id: String(other._id) }, options) as { error?: string };
       assert.match(String(foreign.error), /No stored event/);
+    });
+
+    describe('workspace assistant (POST /api/ai/assistant)', () => {
+      const ask = (cookie: string | null, body: unknown) =>
+        api.assistant.POST(request('/api/ai/assistant', { method: 'POST', body, headers: cookie ? { cookie } : {} }));
+      const options = { toolCallId: 't1', messages: [] } as never;
+      const scopeOf = async (email: string) => workspaceScope(db, (await db.collection('users').findOne({ email })) as never);
+
+      it('needs a login and a valid question', async () => {
+        assert.equal((await ask(null, { messages: question('Hi') })).status, 401);
+        assert.equal((await ask(alice.cookie, { messages: 'hello' })).status, 400);
+        assert.equal((await ask(alice.cookie, { messages: [] })).status, 400);
+      });
+
+      it("reaches only the user's own projects, issues and events", async () => {
+        const aliceScope = await scopeOf('alice@example.com');
+        assert.ok(aliceScope.byId.has(projectId));
+        const aliceTools = workspaceTools(db, aliceScope);
+        const found = await aliceTools.search_issues.execute!({ query: 'AiTestError' }, options) as { total: number; issues: Array<{ id: string }> };
+        assert.equal(found.issues[0].id, issueId);
+        const detail = await aliceTools.get_issue.execute!({ issueId }, options) as { newestEvent: { id: string } | null };
+        assert.equal(detail.newestEvent?.id, eventId);
+
+        const erinScope = await scopeOf('erin@example.com');
+        assert.equal(erinScope.ids.length, 0);
+        const erinTools = workspaceTools(db, erinScope);
+        assert.match(String((await erinTools.get_issue.execute!({ issueId }, options) as { error?: string }).error), /No issue/);
+        assert.match(String((await erinTools.get_event.execute!({ eventId }, options) as { error?: string }).error), /No event/);
+        assert.match(String((await erinTools.get_overview.execute!({ projectId }, options) as { error?: string }).error), /Unknown project/);
+        assert.match(String((await erinTools.list_members.execute!({ projectId }, options) as { error?: string }).error), /Unknown project/);
+        const none = await erinTools.search_issues.execute!({}, options) as { total: number };
+        assert.equal(none.total, 0);
+      });
+
+      it('puts only the project list in the prompt', async () => {
+        const scope = await scopeOf('alice@example.com');
+        const text = workspaceContext({ name: 'Alice' }, scope);
+        assert.match(text, new RegExp(`${projectId} · `));
+        assert.ok(!text.includes('AiTestError'), 'no issue data up front');
+      });
     });
   });
 });

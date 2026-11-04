@@ -1,18 +1,16 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, isToolUIPart, type UIMessage } from 'ai';
+import { DefaultChatTransport } from 'ai';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Conversation, ConversationContent, ConversationEmptyState, ConversationScrollButton } from '@/components/ai-elements/conversation';
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { PromptInput, PromptInputBody, PromptInputFooter, PromptInputSubmit, PromptInputTextarea, PromptInputTools, type PromptInputMessage } from '@/components/ai-elements/prompt-input';
-import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from '@/components/ai-elements/tool';
 import { AI_CHAT_MAX_AGE_DAYS, AI_CHATS_PER_USER, chatSignature, deleteChat, loadChat, saveChat } from '@/lib/client/aiChats';
 import { Icon } from '../ui/Icon';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
+import { ChatMessage, errorText } from './AiMessage';
 import { useSession } from './Shell';
 
 const WIDTH_KEY = 'et_ai_panel_width';
@@ -32,65 +30,6 @@ const SUGGESTIONS = [
   'Does it happen on every screen, browser and version?',
   'How would you rate this issue: Low, Medium, or High?'
 ];
-
-/** Labels for the assistant's tool steps. */
-const TOOL_TITLES: Record<string, string> = {
-  list_events: "Listed this issue's events",
-  get_event: 'Opened an event',
-};
-
-/** The text of a failed request: the API's `{ error: { message } }` when there is one. */
-function errorText(error: Error): string {
-  try {
-    const body = JSON.parse(error.message) as { error?: { message?: unknown } };
-    if (body.error && typeof body.error.message === 'string') return body.error.message;
-  } catch {
-    // Not JSON: a stream error, already a readable sentence.
-  }
-  return error.message || 'Something went wrong. Try again.';
-}
-
-/** One message: text as Markdown, reasoning and tool steps folded. */
-function ChatMessage({ message, streaming }: { message: UIMessage; streaming: boolean }) {
-  const lastIndex = message.parts.length - 1;
-  return (
-    <Message from={message.role}>
-      <MessageContent>
-        {message.parts.map((part, i) => {
-          const key = `${message.id}-${i}`;
-          if (part.type === 'text') {
-            return message.role === 'user'
-              ? <p key={key} className="whitespace-pre-wrap">{part.text}</p>
-              : <MessageResponse key={key}>{part.text}</MessageResponse>;
-          }
-          if (part.type === 'reasoning') {
-            return (
-              <Reasoning key={key} className="w-full" isStreaming={streaming && i === lastIndex}>
-                <ReasoningTrigger />
-                <ReasoningContent>{part.text}</ReasoningContent>
-              </Reasoning>
-            );
-          }
-          if (isToolUIPart(part)) {
-            const name = part.type === 'dynamic-tool' ? part.toolName : part.type.slice('tool-'.length);
-            return (
-              <Tool key={key}>
-                {part.type === 'dynamic-tool'
-                  ? <ToolHeader type={part.type} state={part.state} toolName={part.toolName} title={TOOL_TITLES[name] ?? name} />
-                  : <ToolHeader type={part.type} state={part.state} title={TOOL_TITLES[name] ?? name} />}
-                <ToolContent>
-                  <ToolInput input={part.input} />
-                  <ToolOutput output={part.state === 'output-available' ? part.output : undefined} errorText={part.state === 'output-error' ? part.errorText : undefined} />
-                </ToolContent>
-              </Tool>
-            );
-          }
-          return null;
-        })}
-      </MessageContent>
-    </Message>
-  );
-}
 
 /**
  * The "Ask AI" side panel on the issue page. It knows the issue and the event

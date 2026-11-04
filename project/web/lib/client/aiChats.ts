@@ -29,6 +29,8 @@ export interface ChatMeta {
   userId: string;
   /** When the newest message was saved (ms since epoch). */
   updatedAt: number;
+  /** Assistant-page chats: the first question, for the history list. */
+  title?: string;
 }
 
 export interface SavedChat {
@@ -75,6 +77,13 @@ export function chatsToPrune(
 
 function chatKey(userId: string, issueId: string): string {
   return `${userId}:${issueId}`;
+}
+
+const ASSISTANT_PREFIX = 'assistant:';
+
+/** Assistant-page chats are stored like issue chats, under `assistant:<chatId>` instead of an issue id. */
+export function assistantChatKey(chatId: string): string {
+  return `${ASSISTANT_PREFIX}${chatId}`;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -129,7 +138,7 @@ export async function loadChat(userId: string, issueId: string): Promise<UIMessa
 }
 
 /** Saves the chat (its last AI_CHAT_MAX_MESSAGES messages), then prunes old chats. An empty chat deletes it. */
-export async function saveChat(userId: string, issueId: string, messages: readonly UIMessage[]): Promise<void> {
+export async function saveChat(userId: string, issueId: string, messages: readonly UIMessage[], title?: string): Promise<void> {
   if (messages.length === 0) return deleteChat(userId, issueId);
   try {
     const db = await openDb();
@@ -140,12 +149,35 @@ export async function saveChat(userId: string, issueId: string, messages: readon
     const key = chatKey(userId, issueId);
     const chat: SavedChat = { key, userId, issueId, messages: messages.slice(-AI_CHAT_MAX_MESSAGES), updatedAt: now };
     store.put(chat);
-    meta.put({ key, userId, updatedAt: now } satisfies ChatMeta);
+    meta.put({ key, userId, updatedAt: now, ...(title ? { title } : {}) } satisfies ChatMeta);
     const all = await done(meta.getAll()) as ChatMeta[];
     for (const old of chatsToPrune(all, now)) { store.delete(old); meta.delete(old); }
     await finished(tx);
   } catch {
     // Not saved; the chat still works for this page.
+  }
+}
+
+/** One saved assistant-page chat, for the history list. */
+export interface AssistantChatInfo {
+  chatId: string;
+  title: string;
+  updatedAt: number;
+}
+
+/** This user's saved assistant-page chats, newest first (reads only the small meta records). */
+export async function listAssistantChats(userId: string): Promise<AssistantChatInfo[]> {
+  try {
+    const db = await openDb();
+    const prefix = chatKey(userId, ASSISTANT_PREFIX);
+    const all = await done(db.transaction(META, 'readonly').objectStore(META).getAll()) as ChatMeta[];
+    const now = Date.now();
+    return all
+      .filter((m) => m.userId === userId && m.key.startsWith(prefix) && now - m.updatedAt < AI_CHAT_MAX_AGE_MS)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((m) => ({ chatId: m.key.slice(prefix.length), title: m.title || 'Untitled chat', updatedAt: m.updatedAt }));
+  } catch {
+    return [];
   }
 }
 

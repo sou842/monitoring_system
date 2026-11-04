@@ -14,7 +14,7 @@ import { SESSION_COOKIE } from './server/constants.ts';
  *   to report.
  */
 
-const DASHBOARD_PATHS = ['/dashboard', '/performance', '/projects', '/issues', '/chats', '/account', '/admin'];
+const DASHBOARD_PATHS = ['/assistant', '/dashboard', '/performance', '/projects', '/issues', '/chats', '/account', '/admin'];
 
 const isUnder = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 

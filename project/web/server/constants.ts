@@ -211,6 +211,20 @@ export const AI_LIST_EVENTS_MAX = 50;
 /** Time limit for a whole answer (reasoning, tool steps, text); below the route's maxDuration (300 s). The model can think for 2 minutes on hard questions. */
 export const AI_REQUEST_TIMEOUT_MS = 280 * 1000;
 
+// ---------- Workspace assistant (/assistant page, POST /api/ai/assistant) ----------
+/** Model calls per question: workspace questions often chain several lookups (projects → issues → event). */
+export const AI_WORKSPACE_MAX_STEPS = 10;
+/** Projects named in the system prompt; with more, the model calls `list_projects`. */
+export const AI_WORKSPACE_PROMPT_PROJECTS = 30;
+/** Issues returned per `search_issues` call. */
+export const AI_WORKSPACE_ISSUES_MAX = 50;
+/** Rows of the pages / endpoints tables in `get_performance`. */
+export const AI_WORKSPACE_PERF_ROWS = 15;
+/** Slowest samples in `get_performance_detail`. */
+export const AI_WORKSPACE_PERF_SAMPLES = 10;
+/** An event's JSON in `get_event` on the assistant page (smaller than the issue panel: answers span many events). */
+export const AI_WORKSPACE_EVENT_JSON_CHARS = 30000;
+
 // ---------- Project members and chat (docs/MEMBERS_AND_CHAT.md) ----------
 /** Non-owner members one project can have. */
 export const MAX_MEMBERS_PER_PROJECT = 100;

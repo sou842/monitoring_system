@@ -54,7 +54,7 @@ interface NavEntry {
 }
 
 const MAIN_NAV: NavEntry[] = [
-  { label: 'Assistant', icon: 'ghost' },
+  { href: '/assistant', label: 'Assistant', icon: 'ghost', match: ['/assistant'] },
   { href: '/dashboard', label: 'Dashboard', icon: 'grid', match: ['/dashboard'] },
   // href is replaced by the active project's issues page in the sidebar.
   { href: '/performance', label: 'Performance', icon: 'performance', match: ['/performance'] },

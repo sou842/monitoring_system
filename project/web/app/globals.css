@@ -476,11 +476,11 @@
   .ai-error { padding: 10px 12px; border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); font-size: 12.5px; }
   /* Markdown in answers: undo the dashboard's heading look (small uppercase labels). */
   /* Tailwind's bare `border` is currentColor (black): give the chat the dashboard line colour. */
-  .ai-panel :where(*) { border-color: var(--line); }
-  .ai-panel :where(h1, h2, h3, h4) { text-transform: none; letter-spacing: normal; color: var(--fg); margin: 0.9em 0 0.4em; }
-  .ai-panel :where(h1) { font-size: 16px; }
-  .ai-panel :where(h2) { font-size: 14.5px; }
-  .ai-panel :where(h3, h4) { font-size: 13.5px; }
+  :is(.ai-panel, .ai-page) :where(*) { border-color: var(--line); }
+  :is(.ai-panel, .ai-page) :where(h1, h2, h3, h4) { text-transform: none; letter-spacing: normal; color: var(--fg); margin: 0.9em 0 0.4em; }
+  :is(.ai-panel, .ai-page) :where(h1) { font-size: 16px; }
+  :is(.ai-panel, .ai-page) :where(h2) { font-size: 14.5px; }
+  :is(.ai-panel, .ai-page) :where(h3, h4) { font-size: 13.5px; }
   
   
   @media (max-width: 1099px) {
@@ -881,6 +881,6 @@
 /* The Markdown renderer in AI answers (streamdown, in node_modules) uses shadcn's bg-muted, which here would be the
    dashboard's grey text colour. Inside the panel it gets the soft panel background instead (utilities layer, so it wins). */
 @layer utilities {
-  .ai-panel :is([class~='bg-muted'], [class~='bg-muted/80']),
-  .ai-panel :is([class~='hover:bg-muted'], [class~='hover:bg-muted/40']):hover { background-color: var(--panel-2); }
+  :is(.ai-panel, .ai-page) :is([class~='bg-muted'], [class~='bg-muted/80']),
+  :is(.ai-panel, .ai-page) :is([class~='hover:bg-muted'], [class~='hover:bg-muted/40']):hover { background-color: var(--panel-2); }
 }
