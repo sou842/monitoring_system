@@ -1,5 +1,5 @@
 import { MongoClient, type Db } from 'mongodb';
-import { EVENT_RETENTION_DAYS, ISSUE_RETENTION_DAYS, ROLLUP_RETENTION_DAYS, SECONDS_PER_DAY, TRANSACTION_RETENTION_DAYS } from './constants.ts';
+import { CHAT_RETENTION_DAYS, EVENT_RETENTION_DAYS, ISSUE_RETENTION_DAYS, ROLLUP_RETENTION_DAYS, SECONDS_PER_DAY, TRANSACTION_RETENTION_DAYS } from './constants.ts';
 import { requireEnv } from './env.ts';
 import type { ChatMessageDoc, ChatReadDoc, EventDoc, IssueDoc, ProjectDoc, ProjectMemberDoc, RateLimitDoc, RollupDoc, TransactionDoc, UserDoc } from './models.ts';
 
@@ -77,6 +77,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.collection('project_members').createIndex({ userId: 1 }),
     // Project chat: newest messages of a channel; one read marker per (project, user).
     db.collection('chat_messages').createIndex({ projectId: 1, _id: -1 }),
+    // Chat messages older than 30 days are removed automatically.
+    db.collection('chat_messages').createIndex({ createdAt: 1 }, { expireAfterSeconds: CHAT_RETENTION_DAYS * SECONDS_PER_DAY }),
     db.collection('chat_reads').createIndex({ projectId: 1, userId: 1 }, { unique: true }),
 
     // One issue per (project, fingerprint): this is what groups repeated errors.
