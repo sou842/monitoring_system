@@ -74,15 +74,14 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
           <Badge tone={EVENT_TONE[issue.eventType] ?? 'neutral'}>{issue.eventType}</Badge>
           {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue.status] ?? 'muted'}>{issue.status}</Badge> : null}
         </span>
-        <span className={cn('mt-0.5 block truncate text-xs', tone === 'own' ? 'text-white/80' : 'text-fg-2')}>{issue.message || '(no message)'}</span>
-        <span className={cn('mt-0.5 block text-xs', tone === 'own' ? 'text-white/60' : 'text-muted')}>{issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
+        <span className="mt-0.5 block truncate text-xs text-fg-2">{issue.message || '(no message)'}</span>
+        <span className="mt-0.5 block text-xs text-muted">{issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
       </span>
     </>
   );
   const frame = cn(
     'flex items-start gap-2.5 rounded-xl px-3 py-2 no-underline',
-    tone === 'bubble' ? 'bg-black/[.045] dark:bg-white/[.07] text-fg' :
-    tone === 'own' ? 'border border-white/25 bg-white/15' :
+    tone === 'bubble' || tone === 'own' ? 'bg-black/[.045] dark:bg-white/[.07] text-fg' :
     'border border-line bg-panel text-fg',
   );
   return onRemove ? (
@@ -94,7 +93,7 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
       </button>
     </span>
   ) : (
-    <Link href={`/issues/${issue.id}`} className={cn(frame, tone === 'own' ? 'hover:bg-white/25 hover:no-underline' : 'transition-colors hover:bg-black/[.08] hover:no-underline dark:hover:bg-white/[.12]')}>{body}</Link>
+    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:bg-black/[.08] hover:no-underline dark:hover:bg-white/[.12]')}>{body}</Link>
   );
 }
 
@@ -385,9 +384,9 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
     const canDelete = row.status === 'sent' && !m.deleted && (own || isOwner);
     const showTools = row.status === 'sent' && !m.deleted && canPost;
     const time = (
-      <span className={cn('float-right mt-1.5 ml-3 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none select-none', own ? 'text-white/60' : 'text-muted')} title={new Date(m.createdAt).toLocaleString()}>
+      <span className={cn('float-right mt-1.5 ml-3 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none select-none', own ? 'text-(--bubble-own-fg-dim)' : 'text-muted')} title={new Date(m.createdAt).toLocaleString()}>
         {clock(m.createdAt)}
-        {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-red-200' : 'text-white/60')} /> : null}
+        {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-danger' : 'text-(--bubble-own-fg-dim)')} /> : null}
       </span>
     );
     items.push(
@@ -409,43 +408,45 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             </div>
           ) : null}
 
-          <div
-            onClick={() => { if (showTools) setActiveId((id) => (id === m.id ? null : m.id)); }}
-            className={cn(
-              'overflow-hidden px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,.12)]',
-              own ? 'bg-blue-500 text-white dark:bg-blue-600' : 'bg-panel text-fg',
-              continued ? 'rounded-2xl' : own ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm',
-              row.status === 'sending' && 'opacity-75',
-            )}
-          >
-            {!own && !continued ? <div className="mb-0.5 truncate text-[13px] font-semibold dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</div> : null}
-            {m.replyTo ? (
-              <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }}
-                className={cn('mb-1 mt-0.5 block w-full cursor-pointer rounded-lg border-0 border-l-4 px-2.5 py-1.5 text-left shadow-none', own ? 'bg-white/20' : 'bg-black/[.045] dark:bg-white/[.07]')}
-                style={own ? { borderLeftColor: 'rgba(255,255,255,0.5)' } : { borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
-                <span className={cn('block truncate text-xs font-semibold', own ? 'text-white/90' : '')} style={own ? undefined : { color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
-                <span className={cn('block truncate text-xs', own ? 'text-white/70' : 'text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
-              </button>
-            ) : null}
-            {m.deleted ? (
-              <p className={cn('m-0 text-[13px] italic', own ? 'text-white/70' : 'text-muted')}>This message was deleted{time}</p>
-            ) : (
-              <>
-                {m.text ? (
-                  <p className="m-0 leading-relaxed break-words whitespace-pre-wrap">
-                    {withMentions(m.text, names, (part, i) => <span key={i} className={cn('rounded', own ? 'bg-white/20 font-medium' : 'bg-(--mention)/12 text-(--mention)')}>{part}</span>)}
-                    {time}
-                  </p>
-                ) : null}
-                {m.issues.length > 0 ? (
-                  <div className={cn('grid gap-1.5', m.text ? 'mt-1.5' : 'mt-0.5')}>
-                    {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} tone={own ? 'own' : 'bubble'} />)}
-                    {!m.text ? <div className="text-right">{time}</div> : null}
-                  </div>
-                ) : null}
-              </>
-            )}
-            <div className="clear-both" />
+          <div className={cn('relative', !continued && (own ? 'chat-tail-own' : 'chat-tail-other'))}>
+            <div
+              onClick={() => { if (showTools) setActiveId((id) => (id === m.id ? null : m.id)); }}
+              className={cn(
+                'overflow-hidden px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,.12)]',
+                own ? 'bg-(--bubble-own) text-(--bubble-own-fg)' : 'bg-panel text-fg',
+                continued ? 'rounded-2xl' : own ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm',
+                row.status === 'sending' && 'opacity-75',
+              )}
+            >
+              {!own && !continued ? <div className="mb-0.5 truncate text-[13px] font-semibold dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</div> : null}
+              {m.replyTo ? (
+                <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }}
+                  className="mb-1 mt-0.5 block w-full cursor-pointer rounded-lg border-0 border-l-4 bg-black/[.045] px-2.5 py-1.5 text-left shadow-none dark:bg-white/[.07]"
+                  style={{ borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
+                  <span className="block truncate text-xs font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
+                  <span className={cn('block truncate text-xs text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
+                </button>
+              ) : null}
+              {m.deleted ? (
+                <p className={cn('m-0 text-[13px] italic', own ? 'text-(--bubble-own-fg-dim)' : 'text-muted')}>This message was deleted{time}</p>
+              ) : (
+                <>
+                  {m.text ? (
+                    <p className="m-0 leading-relaxed break-words whitespace-pre-wrap">
+                      {withMentions(m.text, names, (part, i) => <span key={i} className="rounded bg-(--mention)/12 text-(--mention)">{part}</span>)}
+                      {time}
+                    </p>
+                  ) : null}
+                  {m.issues.length > 0 ? (
+                    <div className={cn('grid gap-1.5', m.text ? 'mt-1.5' : 'mt-0.5')}>
+                      {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} tone={own ? 'own' : 'bubble'} />)}
+                      {!m.text ? <div className="text-right">{time}</div> : null}
+                    </div>
+                  ) : null}
+                </>
+              )}
+              <div className="clear-both" />
+            </div>
           </div>
 
           {m.reactions.length > 0 ? (
@@ -477,11 +478,11 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   return (
     <Page crumbs={crumbs} fill>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-panel-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-panel-2">
         <div className="relative min-h-0 flex-1">
           <div
             ref={scroller}
-            className="h-full overflow-y-auto bg-panel-2"
+            className="chat-wallpaper h-full overflow-y-auto bg-panel-2"
             onScroll={(e) => {
               const el = e.currentTarget;
               const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;

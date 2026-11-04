@@ -119,6 +119,10 @@
     --card-glass: rgba(255, 255, 255, 0.04);
     --menu-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
     --mention: #6c9bff;
+    --bubble-own: oklch(0.32 0.075 255);
+    --bubble-own-fg: oklch(0.94 0.01 255);
+    --bubble-own-fg-dim: oklch(0.94 0.01 255 / 62%);
+    --chat-wallpaper-dot: rgba(255, 255, 255, 0.035);
     --av-bg-s: 32%;
     --av-bg-l: 30%;
     --av-fg-l: 88%;
@@ -178,6 +182,10 @@
     --card-glass: rgba(255, 255, 255, 0.6);
     --menu-shadow: 0 16px 48px rgba(20, 20, 30, 0.16), 0 2px 8px rgba(20, 20, 30, 0.06);
     --mention: #2f6fed;
+    --bubble-own: oklch(0.9 0.035 255);
+    --bubble-own-fg: oklch(0.27 0.05 260);
+    --bubble-own-fg-dim: oklch(0.27 0.05 260 / 60%);
+    --chat-wallpaper-dot: rgba(0, 0, 0, 0.045);
     --av-bg-s: 75%;
     --av-bg-l: 88%;
     --av-fg-l: 28%;
@@ -874,8 +882,25 @@
     .step { grid-template-columns: 1fr; gap: 10px; }
     .toasts { right: 16px; left: 16px; bottom: 16px; width: auto; }
     .profile-row .usage { text-align: left; }
-    
+
   }
+
+  /* ---------- Chat (WhatsApp-style bubbles, docs/MEMBERS_AND_CHAT.md "Chat v2") ---------- */
+  /* A faint dotted wallpaper behind the message list, instead of a flat panel. */
+  .chat-wallpaper {
+    background-image: radial-gradient(circle at 1px 1px, var(--chat-wallpaper-dot) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+  /* The small flap on the first bubble of a group, pointing toward the sender's side. */
+  .chat-tail-own::after, .chat-tail-other::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 10px;
+    height: 13px;
+  }
+  .chat-tail-own::after { right: -7px; background: var(--bubble-own); clip-path: polygon(0 0, 100% 0, 100% 40%, 0 100%); }
+  .chat-tail-other::after { left: -7px; background: var(--panel); clip-path: polygon(100% 0, 0 0, 0 40%, 100% 100%); }
 }
 
 /* The Markdown renderer in AI answers (streamdown, in node_modules) uses shadcn's bg-muted, which here would be the
