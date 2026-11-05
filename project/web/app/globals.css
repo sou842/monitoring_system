@@ -119,6 +119,12 @@
     --card-glass: rgba(255, 255, 255, 0.04);
     --menu-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
     --mention: #6c9bff;
+    /* Chat: mention text on its tint (AA 4.5:1+), rows that mention you, the unread line. */
+    --mention-fg: #a9c4ff;
+    --mention-bg: rgba(108, 155, 255, 0.16);
+    --mention-me: rgba(234, 179, 8, 0.08);
+    --mention-me-line: #e0b030;
+    --unread: #f87171;
     --bubble-own: oklch(0.32 0.075 255);
     --bubble-own-fg: oklch(0.94 0.01 255);
     --bubble-own-fg-dim: oklch(0.94 0.01 255 / 62%);
@@ -181,6 +187,11 @@
     --card-glass: rgba(255, 255, 255, 0.6);
     --menu-shadow: 0 16px 48px rgba(20, 20, 30, 0.16), 0 2px 8px rgba(20, 20, 30, 0.06);
     --mention: #2f6fed;
+    --mention-fg: #1a4bbd;
+    --mention-bg: rgba(47, 111, 237, 0.11);
+    --mention-me: #fdf7e6;
+    --mention-me-line: #c9930a;
+    --unread: #d92d3a;
     --bubble-own: oklch(0.9 0.035 255);
     --bubble-own-fg: oklch(0.27 0.05 260);
     --bubble-own-fg-dim: oklch(0.27 0.05 260 / 60%);
@@ -205,7 +216,7 @@
 
   /* ---------- Base ---------- */
   * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; scrollbar-width: thin; }
+  html, body { margin: 0; min-height: 100%; scrollbar-width: thin !important; }
   body { background: var(--bg); color: var(--fg); font: 14px/1.55 var(--font); text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; scrollbar-width: none; }
   a { color: var(--fg); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 3px; }
