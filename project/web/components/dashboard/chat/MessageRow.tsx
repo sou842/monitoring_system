@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Icon } from '../../ui/Icon';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { MessageBody } from './MessageBody';
-import { clock, fullDate, IssueCard, peerColor } from './shared';
+import { clock, Emoji, fullDate, IssueCard, peerColor } from './shared';
 
 /** One line of the conversation: a stored message, or one still being sent / that failed. */
 export type Row = { key: string; msg: ChatMessageView; status: 'sent' | 'sending' | 'failed'; clientId?: string; error?: string | null };
@@ -35,6 +35,19 @@ const DRAG_START_PX = 8;
 /** Swipe-to-reply: how far the bubble follows the finger, and the distance that triggers a reply. */
 const SWIPE_MAX_PX = 84;
 const SWIPE_REPLY_PX = 56;
+
+/** A reaction under a message: Noto emoji (animated while hovered or focused) and the count. */
+function ReactionChip({ emoji, count, mine, disabled, label, title, onClick }: {
+  emoji: string; count: number; mine: boolean; disabled: boolean; label: string; title: string; onClick: () => void;
+}) {
+  const [play, setPlay] = useState(false);
+  return (
+    <button type="button" className="tg-reaction" disabled={disabled} aria-pressed={mine} aria-label={label} title={title} onClick={onClick}
+      onPointerEnter={() => setPlay(true)} onPointerLeave={() => setPlay(false)} onFocus={() => setPlay(true)} onBlur={() => setPlay(false)}>
+      <Emoji emoji={emoji} size={20} play={play} /><span className="tabular-nums">{count}</span>
+    </button>
+  );
+}
 
 /** Snippet of a quoted message. */
 export const snippetOf = (m: { text: string; issues?: unknown[]; hasIssues?: boolean; deleted?: boolean }) =>
@@ -222,12 +235,10 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
                   {m.reactions.map((r) => {
                     const who = r.names.length > 0 ? r.names.join(', ') : `${r.count}`;
                     return (
-                      <button key={r.emoji} type="button" className="tg-reaction" disabled={!canPost} aria-pressed={r.mine}
-                        aria-label={`${reactionLabel(r.emoji)}: ${r.count}, ${who}${r.mine ? '. Click to remove yours' : ''}`}
+                      <ReactionChip key={r.emoji} emoji={r.emoji} count={r.count} mine={r.mine} disabled={!canPost}
+                        label={`${reactionLabel(r.emoji)}: ${r.count}, ${who}${r.mine ? '. Click to remove yours' : ''}`}
                         title={`${who} reacted with ${reactionLabel(r.emoji)}`}
-                        onClick={() => actions.react(m.id, r.emoji)}>
-                        <span className="text-[15px] leading-none">{r.emoji}</span><span className="tabular-nums">{r.count}</span>
-                      </button>
+                        onClick={() => actions.react(m.id, r.emoji)} />
                     );
                   })}
                   {spacer}

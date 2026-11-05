@@ -42,6 +42,34 @@ export function ChatAvatar({ id, name, size = 40, className }: { id: string; nam
   );
 }
 
+/**
+ * Emoji drawn with Google Noto Emoji (Apache 2.0) / Noto Animated Emoji (CC BY 4.0), served from
+ * public/chat/emoji/<codepoints>.svg (still) and .webp (animated, reactions only), so every system shows the same art.
+ */
+const NOTO_STILL = new Set(['1f44d', '1f44e', '1f44f', '1f64f', '1f64c', '1f4aa', '1f440', '1f91d', '1f600', '1f602', '1f642', '1f609', '1f914', '1f605', '1f62c', '1f622', '2705', '274c', '26a0_fe0f', '2757', '2753', '1f525', '1f680', '1f389', '1f41b', '1f6e0_fe0f', '1f50d', '1f4cc', '1f4c8', '1f4c9', '23f3', '1f4a1', '2764_fe0f']);
+const NOTO_ANIMATED = new Set(['1f44d', '2764_fe0f', '1f602', '1f389', '1f440', '2705']);
+
+function notoCode(emoji: string): string | null {
+  const full = [...emoji].map((c) => (c.codePointAt(0) ?? 0).toString(16)).join('_');
+  if (NOTO_STILL.has(full)) return full;
+  const bare = full.replace(/_fe0f/g, '');
+  return NOTO_STILL.has(bare) ? bare : null;
+}
+
+const prefersStill = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
+/** One emoji as Noto art (falls back to the system glyph). `play` shows the animated version where one exists. */
+export function Emoji({ emoji, size = 20, play = false, className }: { emoji: string; size?: number; play?: boolean; className?: string }) {
+  const code = notoCode(emoji);
+  if (!code) return <span className={className} style={{ fontSize: size * 0.9, lineHeight: 1 }} aria-hidden="true">{emoji}</span>;
+  const animated = play && NOTO_ANIMATED.has(code) && !prefersStill();
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- tiny local files, no optimisation needed
+    <img src={`/chat/emoji/${code}.${animated ? 'webp' : 'svg'}`} alt="" aria-hidden="true" width={size} height={size} draggable={false}
+      decoding="async" className={cn('inline-block shrink-0 select-none', className)} style={{ width: size, height: size }} />
+  );
+}
+
 /** "smooth", unless the person asked their system for less motion. */
 export function scrollBehavior(): ScrollBehavior {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';

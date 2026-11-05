@@ -16,7 +16,7 @@ import type { ChatIssueView, ChatMessageView, IssuesResponse, PersonView } from 
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
 import { snippetOf } from './MessageRow';
-import { ChatAvatar, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, useDismiss, useFocusFirst } from './shared';
+import { ChatAvatar, Emoji, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, useDismiss, useFocusFirst } from './shared';
 
 /*
  * The message box, Teams-style: it opens as a plain one-line input, but it is a rich editor (Tiptap) inside.
@@ -345,7 +345,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
           {EMOJI.map(([e, name]) => (
             <button key={e} type="button" role="menuitem" aria-label={name} title={name} onMouseDown={(ev) => ev.preventDefault()}
               onClick={() => { insert(e); setEmojiOpen(false); }}
-              className="grid size-9 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-[22px] shadow-none transition-transform hover:scale-115 hover:bg-(--tg-menu-hover) focus-visible:bg-(--tg-menu-hover) focus-visible:outline-none">{e}</button>
+              className="grid size-9 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-[22px] shadow-none transition-transform hover:scale-115 hover:bg-(--tg-menu-hover) focus-visible:bg-(--tg-menu-hover) focus-visible:outline-none"><Emoji emoji={e} size={26} /></button>
           ))}
         </div>
       ) : null}

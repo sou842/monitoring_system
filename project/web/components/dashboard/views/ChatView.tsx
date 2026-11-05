@@ -426,7 +426,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
           >
             {/* Clips the full-width row highlight and unread bar sideways (overflow-x: clip makes no scroll box). */}
             <div className="flex min-h-full w-full flex-col overflow-x-clip">
-            <div ref={content} className={cn(COLUMN, 'flex flex-1 flex-col px-1 pb-2 md:px-3')}>
+            <div ref={content} className={cn(COLUMN, 'flex min-w-0 flex-1 flex-col px-1 pb-2 md:px-3')}>
               {chat.error ? (
                 <div className="grid flex-1 place-items-center px-6 py-10 text-center" role="alert">
                   <div className="tg-pill max-w-sm rounded-2xl px-6 py-5">

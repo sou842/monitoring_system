@@ -149,7 +149,9 @@
     transition: opacity .3s ease;
   }
   .tg-scroll:not(.is-scrolling) .tg-day.is-stuck .tg-pill { opacity: 0; }
-  .tg-unread { margin: 8px -100vmax; padding-inline: 100vmax; padding: 4px 0; text-align: center; font-size: 14px; font-weight: 500; background: var(--tg-pill); color: var(--tg-pill-fg); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .tg-unread { position: relative; isolation: isolate; margin: 8px 0; padding: 4px 0; text-align: center; font-size: 14px; font-weight: 500; color: var(--tg-pill-fg); }
+  /* The band spans the whole chat width; drawn by a pseudo-element so it never widens the column. */
+  .tg-unread::before { content: ""; position: absolute; z-index: -1; inset: 0 -100vmax; background: var(--tg-pill); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 
   /* The row behind a bubble: a highlight after jumping to a message. */
   .tg-row { position: relative; }

@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
-import { onMenuKeyDown, useDismiss } from './shared';
+import { Emoji, onMenuKeyDown, useDismiss } from './shared';
 
 /** One line of the menu. */
 export interface MenuEntry { label: string; icon: IconName; onSelect: () => void; danger?: boolean }
@@ -86,7 +86,7 @@ export function ContextMenu({ x, y, items, reactions, onClose, returnFocus }: {
       {reactions && reactions.length > 0 ? (
         <div ref={bar} className="tg-menu-reactions" style={place?.bar ?? hidden} role="menu" aria-label="React">
           {reactions.map((r) => (
-            <button key={r.emoji} type="button" role="menuitemradio" aria-checked={r.mine} aria-label={r.label} title={r.label} onClick={choose(r.onSelect)}>{r.emoji}</button>
+            <button key={r.emoji} type="button" role="menuitemradio" aria-checked={r.mine} aria-label={r.label} title={r.label} onClick={choose(r.onSelect)}><Emoji emoji={r.emoji} size={30} play /></button>
           ))}
         </div>
       ) : null}
