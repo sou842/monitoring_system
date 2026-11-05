@@ -14,8 +14,6 @@ export interface UserProfile {
   company: string;
   phone: string;
   location: string;
-  /** IANA zone such as `Asia/Kolkata`. */
-  timezone: string;
   bio: string;
   /** Full https URL of the profile page. */
   linkedin: string;

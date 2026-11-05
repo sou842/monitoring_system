@@ -104,7 +104,7 @@ export const MAX_PASSWORD_LENGTH = 128;
 export const MAX_EMAIL_LENGTH = 254;
 export const MAX_USER_NAME_LENGTH = 80;
 /** Longest value of each optional profile field (see `UserProfile`). */
-export const MAX_PROFILE_FIELD_LENGTH = { jobTitle: 80, company: 80, phone: 30, location: 80, timezone: 64, bio: 300, linkedin: 200, github: 200, website: 200 } as const;
+export const MAX_PROFILE_FIELD_LENGTH = { jobTitle: 80, company: 80, phone: 30, location: 80, bio: 300, linkedin: 200, github: 200, website: 200 } as const;
 /** Projects one account may own; `null` = no limit (the user's choice, 2026-10-26). */
 export const MAX_PROJECTS_PER_USER: number | null = null;
 export const USER_ROLES = ['user', 'admin'] as const;

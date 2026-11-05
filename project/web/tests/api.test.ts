@@ -605,11 +605,11 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
     it('saves profile details, normalises links and leaves omitted fields alone', async () => {
       const patch = (body) => api.account.PATCH(as(carol.cookie)('/api/account', { method: 'PATCH', body }));
       const first = await (await patch({
-        name: 'Carol', jobTitle: '  Frontend   dev ', company: 'Acme', phone: '+91 98765 43210', location: 'Pune', timezone: 'Asia/Kolkata',
+        name: 'Carol', jobTitle: '  Frontend   dev ', company: 'Acme', phone: '+91 98765 43210', location: 'Pune',
         bio: 'Line one\n\n\n\nLine two', linkedin: 'linkedin.com/in/carol', github: 'https://github.com/carol', website: 'carol.dev',
       })).json();
       assert.deepEqual(first.user.profile, {
-        jobTitle: 'Frontend dev', company: 'Acme', phone: '+91 98765 43210', location: 'Pune', timezone: 'Asia/Kolkata',
+        jobTitle: 'Frontend dev', company: 'Acme', phone: '+91 98765 43210', location: 'Pune',
         bio: 'Line one\n\nLine two', linkedin: 'https://linkedin.com/in/carol', github: 'https://github.com/carol', website: 'https://carol.dev/',
       });
       const second = await (await patch({ name: 'Carol', company: '' })).json();
@@ -623,7 +623,7 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       const patch = (body) => api.account.PATCH(as(carol.cookie)('/api/account', { method: 'PATCH', body }));
       for (const bad of [
         { github: 'https://evil.example/carol' }, { linkedin: 'javascript:alert(1)' }, { website: 'ftp://x.com' }, { website: 'localhost' },
-        { phone: 'call me' }, { timezone: 'Mars/Base' }, { bio: 'x'.repeat(301) }, { jobTitle: 5 }, { company: 'x'.repeat(81) },
+        { phone: 'call me' }, { bio: 'x'.repeat(301) }, { jobTitle: 5 }, { company: 'x'.repeat(81) },
       ]) {
         const res = await patch({ name: 'Carol', ...bad });
         assert.equal(res.status, 400, JSON.stringify(bad));

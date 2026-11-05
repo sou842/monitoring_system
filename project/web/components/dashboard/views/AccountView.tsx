@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, ApiError, clearCache, useApi } from '@/lib/client/api';
 import type { AccountResponse, UserProfile, UserView } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -33,7 +33,6 @@ function ProfileForm({ user }: { user: UserView }) {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
-  const zones = useMemo(timeZones, []);
   const dirty = name !== user.name || PROFILE_KEYS.some((key) => details[key] !== user.profile[key]);
   const setDetail = (key: keyof UserProfile) => (value: string) => {
     setDetails((d) => ({ ...d, [key]: value }));
@@ -65,21 +64,13 @@ function ProfileForm({ user }: { user: UserView }) {
 
   return (
     <form className="grid gap-4" noValidate onSubmit={submit}>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid items-start gap-4 sm:grid-cols-2">
         <Field ref={nameRef} label="Full name" autoComplete="name" maxLength={80} value={name} onValue={(v) => { setName(v); setError(null); }} error={error} />
         <Field label="Email" type="email" readOnly value={user.email} onValue={() => {}} hint="Your login. It can't be changed." />
         <Field label="Job title" autoComplete="organization-title" maxLength={MAX_PROFILE.jobTitle} placeholder="e.g. Frontend developer" value={details.jobTitle} onValue={setDetail('jobTitle')} />
         <Field label="Company" autoComplete="organization" maxLength={MAX_PROFILE.company} value={details.company} onValue={setDetail('company')} />
         <Field label="Phone" type="tel" autoComplete="tel" maxLength={MAX_PROFILE.phone} placeholder="+91 98765 43210" value={details.phone} onValue={setDetail('phone')} />
         <Field label="Location" autoComplete="address-level2" maxLength={MAX_PROFILE.location} placeholder="City, country" value={details.location} onValue={setDetail('location')} />
-        <div className="field sm:col-span-2">
-          <label className="field-label" htmlFor="profile-timezone">Time zone</label>
-          <select id="profile-timezone" value={details.timezone} onChange={(e) => setDetail('timezone')(e.target.value)}>
-            <option value="">Not set</option>
-            {details.timezone && !zones.includes(details.timezone) ? <option value={details.timezone}>{details.timezone}</option> : null}
-            {zones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
-          </select>
-        </div>
         <div className="field sm:col-span-2">
           <label className="field-label" htmlFor="profile-bio">About you</label>
           <textarea
@@ -108,18 +99,9 @@ function ProfileForm({ user }: { user: UserView }) {
   );
 }
 
-const PROFILE_KEYS = ['jobTitle', 'company', 'phone', 'location', 'timezone', 'bio', 'linkedin', 'github', 'website'] as const;
+const PROFILE_KEYS = ['jobTitle', 'company', 'phone', 'location', 'bio', 'linkedin', 'github', 'website'] as const;
 /** Same limits as the server (`MAX_PROFILE_FIELD_LENGTH`); the server is what enforces them. */
 const MAX_PROFILE = { jobTitle: 80, company: 80, phone: 30, location: 80, bio: 300, linkedin: 200, github: 200, website: 200 };
-
-/** IANA zone names the browser knows, or an empty list on browsers without `Intl.supportedValuesOf`. */
-function timeZones(): string[] {
-  try {
-    return Intl.supportedValuesOf('timeZone');
-  } catch {
-    return [];
-  }
-}
 
 type PasswordFieldName = 'current' | 'next' | 'repeat';
 

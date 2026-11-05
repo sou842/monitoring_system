@@ -28,7 +28,7 @@ export function cleanUserName(value: unknown): string | null {
   return name.length > 0 && name.length <= MAX_USER_NAME_LENGTH ? name : null;
 }
 
-export const PROFILE_FIELDS = ['jobTitle', 'company', 'phone', 'location', 'timezone', 'bio', 'linkedin', 'github', 'website'] as const;
+export const PROFILE_FIELDS = ['jobTitle', 'company', 'phone', 'location', 'bio', 'linkedin', 'github', 'website'] as const;
 /** Link fields and the host each must belong to (`null` = any site). */
 const LINK_HOSTS: Record<string, string | null> = { linkedin: 'linkedin.com', github: 'github.com', website: null };
 
@@ -65,19 +65,9 @@ export function cleanProfile(input: Record<string, unknown>): { profile: Partial
     }
     if (value.length > MAX_PROFILE_FIELD_LENGTH[field]) return { error: `${field} is too long (max ${MAX_PROFILE_FIELD_LENGTH[field]} characters)` };
     if (field === 'phone' && value !== '' && !PHONE_PATTERN.test(value)) return { error: 'Enter a valid phone number' };
-    if (field === 'timezone' && value !== '' && !isTimezone(value)) return { error: 'Choose a valid time zone' };
     profile[field] = value;
   }
   return { profile };
-}
-
-function isTimezone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en', { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Creates an account. Returns the user, or null when the email is already registered. */
@@ -119,7 +109,7 @@ export function userView(user: UserDoc): UserView {
     id: String(user._id),
     email: user.email,
     name: user.name,
-    profile: { jobTitle: '', company: '', phone: '', location: '', timezone: '', bio: '', linkedin: '', github: '', website: '', ...user.profile },
+    profile: { jobTitle: '', company: '', phone: '', location: '', bio: '', linkedin: '', github: '', website: '', ...user.profile },
     role: user.role,
     status: user.status,
     createdAt: user.createdAt,
