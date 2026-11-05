@@ -4,13 +4,13 @@ import { collections } from '../db.ts';
 import { deleteUser } from '../deletion.ts';
 import { bodyObject, errorResponse, handle, json, readJson } from '../http.ts';
 import { hashPassword, passwordProblem, verifyPassword } from '../passwords.ts';
-import { cleanUserName, userView } from '../users.ts';
+import { cleanProfile, cleanUserName, userView } from '../users.ts';
 
 /**
  * The logged-in user's own account:
  *
  *   GET    /api/account                          → { user, usage: { projects, projectLimit } } (projectLimit null = none)
- *   PATCH  /api/account  { name }                → rename
+ *   PATCH  /api/account  { name, jobTitle?, company?, phone?, location?, timezone?, bio? } → update profile (omitted fields unchanged)
  *   PATCH  /api/account  { currentPassword, newPassword } → change password, logs out other sessions
  *   POST   /api/account?action=logout-others     → ends every other session
  *   DELETE /api/account  { password }            → deletes the account and all its projects
@@ -18,7 +18,7 @@ import { cleanUserName, userView } from '../users.ts';
  * A wrong current password answers 400 (not 401), so the dashboard doesn't treat it as a lost session.
  */
 
-const MAX_BODY_BYTES = 2048;
+const MAX_BODY_BYTES = 4096;
 
 export const GET = handle(async (request) => {
   const auth = await requireUser(request);
@@ -54,7 +54,11 @@ export const PATCH = handle(async (request) => {
 
   const name = cleanUserName(input.name);
   if (name === null) return errorResponse(400, 'invalid_name', 'Enter your name (max 80 characters)');
-  const updated = await users.findOneAndUpdate({ _id: user._id }, { $set: { name } }, { returnDocument: 'after' });
+  const cleaned = cleanProfile(input);
+  if ('error' in cleaned) return errorResponse(400, 'invalid_profile', cleaned.error);
+  const set: Record<string, unknown> = { name };
+  for (const [field, value] of Object.entries(cleaned.profile)) set[`profile.${field}`] = value;
+  const updated = await users.findOneAndUpdate({ _id: user._id }, { $set: set }, { returnDocument: 'after' });
   if (updated === null) return errorResponse(404, 'not_found', 'Account not found');
   return json({ user: userView(updated) });
 });

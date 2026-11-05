@@ -8,10 +8,26 @@ import type { EventPayload, IssueStatus, Serialized } from './schema.ts';
 
 export type Role = 'user' | 'admin';
 
+/** Optional details a user can add about themselves; empty string = not set. */
+export interface UserProfile {
+  jobTitle: string;
+  company: string;
+  phone: string;
+  location: string;
+  /** IANA zone such as `Asia/Kolkata`. */
+  timezone: string;
+  bio: string;
+  /** Full https URL of the profile page. */
+  linkedin: string;
+  github: string;
+  website: string;
+}
+
 export interface UserView {
   id: string;
   email: string;
   name: string;
+  profile: UserProfile;
   role: Role;
   status: 'active' | 'disabled';
   createdAt: Date | string;
@@ -357,7 +373,7 @@ export interface PageDetailResponse {
   samples: PageSample[];
 }
 
-export interface AdminUserRow extends UserView {
+export interface AdminUserRow extends Omit<UserView, 'profile'> {
   projects: number;
   events24h: number;
 }

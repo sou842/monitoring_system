@@ -6,7 +6,7 @@ import { deleteUser } from '../deletion.ts';
 import { bodyObject, errorResponse, escapeRegex, handle, json, parseObjectId, readJson } from '../http.ts';
 import type { UserDoc } from '../models.ts';
 import { clearProjectCache } from '../projects.ts';
-import { userView } from '../users.ts';
+import { adminUserView } from '../users.ts';
 
 /**
  * Admin console (admins only). Admins manage accounts; they do not get to
@@ -62,7 +62,7 @@ export const GET = handle(async (request) => {
       events24h,
     },
     users: users.map((u) => ({
-      ...userView(u),
+      ...adminUserView(u),
       projects: projectCount.get(String(u._id)) || 0,
       events24h: eventCount.get(String(u._id)) || 0,
     })),
@@ -113,7 +113,7 @@ export const PATCH = handle(async (request) => {
     return errorResponse(400, 'invalid_body', 'Send { status } or { role }');
   }
   if (updated === null) return errorResponse(404, 'not_found', 'User not found');
-  return json({ user: userView(updated) });
+  return json({ user: adminUserView(updated) });
 });
 
 export const DELETE = handle(async (request) => {

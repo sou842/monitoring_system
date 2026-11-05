@@ -1,6 +1,7 @@
 import type { ObjectId } from 'mongodb';
 import type { EventPayload, IssueStatus, Level, Span, TransactionKind, Vitals } from '../lib/schema.ts';
 import type { Permission } from '../lib/permissions.ts';
+import type { UserProfile } from '../lib/types.ts';
 import type { UserRole, UserStatus } from './constants.ts';
 
 /**
@@ -11,6 +12,8 @@ export interface UserDoc {
   _id: ObjectId;
   email: string;
   name: string;
+  /** Optional details the user chose to share; missing on accounts created before profiles existed. */
+  profile?: Partial<UserProfile>;
   passwordHash: string;
   role: UserRole;
   status: UserStatus;

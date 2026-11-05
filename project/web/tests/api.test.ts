@@ -602,6 +602,37 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       carol = await signup('Carol', 'carol@example.com');
     });
 
+    it('saves profile details, normalises links and leaves omitted fields alone', async () => {
+      const patch = (body) => api.account.PATCH(as(carol.cookie)('/api/account', { method: 'PATCH', body }));
+      const first = await (await patch({
+        name: 'Carol', jobTitle: '  Frontend   dev ', company: 'Acme', phone: '+91 98765 43210', location: 'Pune', timezone: 'Asia/Kolkata',
+        bio: 'Line one\n\n\n\nLine two', linkedin: 'linkedin.com/in/carol', github: 'https://github.com/carol', website: 'carol.dev',
+      })).json();
+      assert.deepEqual(first.user.profile, {
+        jobTitle: 'Frontend dev', company: 'Acme', phone: '+91 98765 43210', location: 'Pune', timezone: 'Asia/Kolkata',
+        bio: 'Line one\n\nLine two', linkedin: 'https://linkedin.com/in/carol', github: 'https://github.com/carol', website: 'https://carol.dev/',
+      });
+      const second = await (await patch({ name: 'Carol', company: '' })).json();
+      assert.equal(second.user.profile.company, '');
+      assert.equal(second.user.profile.jobTitle, 'Frontend dev', 'fields that were not sent stay');
+      const account = await (await api.account.GET(as(carol.cookie)('/api/account'))).json();
+      assert.equal(account.user.profile.github, 'https://github.com/carol');
+    });
+
+    it('rejects bad profile values and changes nothing', async () => {
+      const patch = (body) => api.account.PATCH(as(carol.cookie)('/api/account', { method: 'PATCH', body }));
+      for (const bad of [
+        { github: 'https://evil.example/carol' }, { linkedin: 'javascript:alert(1)' }, { website: 'ftp://x.com' }, { website: 'localhost' },
+        { phone: 'call me' }, { timezone: 'Mars/Base' }, { bio: 'x'.repeat(301) }, { jobTitle: 5 }, { company: 'x'.repeat(81) },
+      ]) {
+        const res = await patch({ name: 'Carol', ...bad });
+        assert.equal(res.status, 400, JSON.stringify(bad));
+        assert.equal((await res.json()).error.code, 'invalid_profile');
+      }
+      const account = await (await api.account.GET(as(carol.cookie)('/api/account'))).json();
+      assert.equal(account.user.profile.github, 'https://github.com/carol');
+    });
+
     it('renames the account', async () => {
       const res = await api.account.PATCH(as(carol.cookie)('/api/account', { method: 'PATCH', body: { name: '  Carol  King ' } }));
       assert.equal((await res.json()).user.name, 'Carol King');
@@ -682,6 +713,7 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       assert.equal(row.projects, 1);
       assert.equal(row.events24h, 2);
       assert.equal(JSON.stringify(data).includes('passwordHash'), false);
+      assert.equal(data.users.some((u) => 'profile' in u), false, 'admins do not see profile details');
       assert.ok(data.totals.users >= 4);
       assert.equal(data.totals.admins, 1);
       const search = await (await api.admin.GET(authed('/api/admin?q=DAVE'))).json();
