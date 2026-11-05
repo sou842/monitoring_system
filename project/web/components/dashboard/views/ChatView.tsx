@@ -109,7 +109,7 @@ function MembersDropdown({ people, ownerId, meId, live, manageHref }: { people: 
   }, [open]);
 
   return (
-    <div ref={wrap} className="absolute top-3 right-3 z-20 md:right-6">
+    <div ref={wrap} className="relative z-20 shrink-0">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="true" aria-expanded={open} title="Members"
         className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border-0 bg-panel/95 px-3 py-1.5 text-xs font-medium text-fg-2 shadow-sm backdrop-blur hover:text-fg">
         <Icon name="users" className="size-3.5" />{people.length > 0 ? people.length : 'Members'}
@@ -480,7 +480,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
       </div>
     ) : null;
     items.push(
-      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-3 rounded-xl px-2 py-1 transition-colors hover:bg-(--hover) data-[flash]:bg-amber-400/25', continued ? 'mt-0' : 'mt-3', row.status === 'sending' && 'opacity-70')}>
+      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-3 rounded-xl px-2 py-1 transition-colors hover:bg-(--hover) data-[flash]:bg-amber-400/25', continued ? 'mt-0' : 'mt-4', row.status === 'sending' && 'opacity-70')}>
         {/* Avatar on the first message of a run; later ones show their time in the same column when hovered. */}
         <div className="w-[34px] shrink-0 pt-0.5">
           {continued ? (
@@ -507,7 +507,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : (
             <>
               {m.text ? (
-                <p className="m-0 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap text-fg">
+                <p className="m-0 mt-0.5 text-[14.5px] leading-[1.6] wrap-break-word whitespace-pre-wrap text-fg">
                   {withMentions(m.text, names, (part, i) => <span key={i} className="rounded bg-(--mention)/12 text-(--mention)">{part}</span>)}
                 </p>
               ) : null}
@@ -549,11 +549,23 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   return (
     <Page crumbs={crumbs} fill hideBar>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-panel-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-3 md:px-6">
+          <button type="button" onClick={openDrawer} aria-label="Open the menu" title="Menu"
+            className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-fg-2 shadow-none hover:bg-(--hover) hover:text-fg md:hidden">
+            <Icon name="menu" className="size-4.5" />
+          </button>
+          <Avatar name={projectName} size="sm" shape="square" />
+          <div className="min-w-0 flex-1">
+            <h1 className="m-0 truncate text-[15px] leading-5 font-semibold text-fg"># {projectName}</h1>
+            <p className="m-0 truncate text-xs leading-4 text-muted">{everyone.length > 0 ? `${everyone.length} ${everyone.length === 1 ? 'member' : 'members'}` : 'Project chat'}{chat.live ? ' · Live' : ''}</p>
+          </div>
+          <MembersDropdown people={everyone} ownerId={people.data?.owner?.id ?? null} meId={me.id} live={chat.live} manageHref={`/projects/${projectId}?tab=members`} />
+        </header>
         <div className="relative min-h-0 flex-1">
           <div
             ref={scroller}
-            className="h-full overflow-y-auto bg-panel-2"
+            className="h-full overflow-y-auto bg-panel"
             onScroll={(e) => {
               const el = e.currentTarget;
               const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
@@ -562,7 +574,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             }}
             onClick={() => { setOpenMenu(null); setOpenReact(null); }}
           >
-            <div ref={content} className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col px-3 pt-12 pb-3 md:px-6">
+            <div ref={content} className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-3 pt-4 pb-4 md:px-6">
               {chat.error ? (
                 <div className="grid flex-1 place-items-center py-10">
                   <div className="inline-flex items-center gap-2 rounded-full bg-panel px-3.5 py-2 text-xs text-muted shadow-sm" role="status">
@@ -575,7 +587,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                   {chat.hasMore ? <div className="pb-2 text-center"><button type="button" className={pillButton('secondary', 'h-8 bg-panel')} onClick={() => void chat.loadOlder()}>Load older messages</button></div> : null}
                   {rows.length === 0 ? (
                     <div className="grid flex-1 place-items-center py-10 text-center">
-                      <div className="max-w-sm rounded-3xl bg-panel/90 px-6 py-6 shadow-sm">
+                      <div className="max-w-sm px-6 py-6">
                         <div className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-(--chip) text-muted"><Icon name="chat" className="size-6" /></div>
                         <h2 className="m-0 mb-1 text-base font-semibold text-fg"># {projectName}</h2>
                         <p className="m-0 text-[13px] text-muted">The chat for everyone with access to this project. Say hello, mention a teammate with <b>@</b>, or share an issue with <b>/</b>.</p>
@@ -587,26 +599,16 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             </div>
           </div>
 
-          <div className="absolute top-3 left-3 z-10 flex items-center gap-2 md:left-6">
-            <button type="button" onClick={openDrawer} aria-label="Open the menu" title="Menu"
-              className="grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-panel/95 p-0 text-fg-2 shadow-sm hover:text-fg md:hidden">
-              <Icon name="menu" className="size-4" />
-            </button>
-            <span className="max-w-[50vw] truncate rounded-full bg-panel/95 px-3 py-1.5 text-xs font-medium text-fg-2 shadow-sm backdrop-blur"># {projectName}</span>
-          </div>
-
-          <MembersDropdown people={everyone} ownerId={people.data?.owner?.id ?? null} meId={me.id} live={chat.live} manageHref={`/projects/${projectId}?tab=members`} />
-
           {showJump ? (
             <button type="button" onClick={jumpToLatest} aria-label="Jump to the latest message" title="Jump to the latest message"
-              className="absolute right-4 bottom-4 z-10 grid size-10 cursor-pointer place-items-center rounded-full border border-line bg-panel p-0 text-fg-2 shadow-(--menu-shadow) hover:text-fg">
+              className="absolute right-6 bottom-4 z-10 grid size-10 cursor-pointer place-items-center rounded-full border border-line bg-panel p-0 text-fg-2 shadow-(--menu-shadow) hover:text-fg">
               <Icon name="arrowDown" className="size-5" />
               {newBelow > 0 ? <Badge className="absolute -top-1.5 -right-1.5 min-w-5 justify-center bg-(--mention) px-1 font-semibold text-white">{newBelow > 99 ? '99+' : newBelow}</Badge> : null}
             </button>
           ) : null}
         </div>
 
-        <footer className="relative mx-auto flex w-full max-w-[1400px] shrink-0 flex-col justify-center items-center bg-panel-2 px-3 pt-1 pb-3 md:px-6">
+        <footer className="relative mx-auto flex w-full max-w-4xl shrink-0 flex-col items-center justify-center bg-panel px-3 pt-1 pb-3 md:px-6">
           {canPost ? (
             <>
               {picker && (options.length > 0 || (picker.kind === 'issue' && !searching)) ? (
@@ -663,7 +665,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                 </div>
               ) : null}
 
-              <div className="w-full rounded-2xl border border-line bg-panel px-4 pt-3 pb-2.5 shadow-sm focus-within:border-(--fg)/30">
+              <div className="w-full rounded-2xl border border-line bg-panel px-4 pt-3 pb-2.5 shadow-[0_2px_14px_rgba(0,0,0,.06)] transition-colors focus-within:border-(--fg)/35">
                 <div className="relative">
                   <div ref={mirror} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden text-sm leading-6 wrap-break-word whitespace-pre-wrap text-fg">
                     {withMentions(text, pickedNames, (part, i) => <span key={i} className="rounded-sm bg-(--mention)/15 text-(--mention)">{part}</span>)}
@@ -700,6 +702,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
                   </button>
                 </div>
               </div>
+              <p className="m-0 mt-1.5 text-center text-[11px] text-muted max-sm:hidden"><kbd className="font-sans font-medium">Enter</kbd> to send · <kbd className="font-sans font-medium">Shift + Enter</kbd> for a new line</p>
             </>
           ) : (
             <p className="m-0 py-1.5 text-center text-[13px] text-muted">You can read this chat but you don&apos;t have permission to write in it. Ask the project owner.</p>
