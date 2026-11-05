@@ -331,14 +331,18 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
 
   const sendable = (length > 0 || attached.length > 0) && length <= MAX_LENGTH;
 
+  // Normal mode is a pill (round buttons); Format mode is a rounded box (square-ish buttons, like the toolbar).
+  const pill = !expanded;
+  const actionButton = cn(ICON_BUTTON, pill && 'rounded-full');
+
   const actions: ReactNode = (
     <div className="flex shrink-0 items-center gap-0.5">
-      <button type="button" className={ICON_BUTTON} title={expanded ? 'Hide formatting' : 'Format'} aria-label={expanded ? 'Hide formatting' : 'Show formatting'} aria-pressed={expanded}
+      <button type="button" className={actionButton} title={expanded ? 'Hide formatting' : 'Format'} aria-label={expanded ? 'Hide formatting' : 'Show formatting'} aria-pressed={expanded}
         onMouseDown={(e) => e.preventDefault()} onClick={() => { setExpanded((x) => !x); editor?.commands.focus(); }}>
         <Icon name="format" className="size-4" />
       </button>
       <div ref={emojiWrap} className="relative">
-        <button ref={emojiButton} type="button" className={ICON_BUTTON} title="Emoji" aria-label="Emoji" aria-haspopup="menu" aria-expanded={emojiOpen}
+        <button ref={emojiButton} type="button" className={actionButton} title="Emoji" aria-label="Emoji" aria-haspopup="menu" aria-expanded={emojiOpen}
           onClick={() => setEmojiOpen((o) => !o)}>
           <Icon name="smile" className="size-4" />
         </button>
@@ -353,7 +357,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
           </div>
         ) : null}
       </div>
-      <button type="button" className={ICON_BUTTON} title={attached.length >= MAX_ISSUES ? `Up to ${MAX_ISSUES} issues per message` : 'Share an issue (/)'} aria-label="Share an issue"
+      <button type="button" className={actionButton} title={attached.length >= MAX_ISSUES ? `Up to ${MAX_ISSUES} issues per message` : 'Share an issue (/)'} aria-label="Share an issue"
         disabled={attached.length >= MAX_ISSUES} onMouseDown={(e) => e.preventDefault()} onClick={() => insert('/', true)}>
         <Icon name="bug" className="size-4" />
       </button>
@@ -363,7 +367,11 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         </span>
       ) : null}
       <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
-        className="ml-0.5 grid size-8 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-invert-bg p-0 text-invert-fg shadow-none transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--mention) disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted">
+        className={cn(
+          'ml-0.5 grid size-8 shrink-0 cursor-pointer place-items-center border-0 bg-invert-bg p-0 text-invert-fg shadow-none transition-opacity hover:opacity-85',
+          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--mention) disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted',
+          pill ? 'rounded-full' : 'rounded-lg',
+        )}>
         <Icon name="send" className="size-4" />
       </button>
     </div>
@@ -404,7 +412,9 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       ) : null}
 
       <div className={cn(
-        'rounded-xl border border-line-strong bg-panel transition-[border-color,box-shadow] focus-within:border-fg/40 focus-within:shadow-[0_0_0_3px_var(--ring)]',
+        'border border-line-strong bg-panel transition-[border-color,box-shadow,border-radius] focus-within:border-fg/40 focus-within:shadow-[0_0_0_3px_var(--ring)]',
+        // Half the one-line height (42 px): fully round ends, which stay round as the text grows.
+        pill ? 'rounded-[21px]' : 'rounded-xl',
       )}>
         {replyTo ? (
           <div className="flex items-center gap-2.5 border-b border-line px-3 py-2">
@@ -444,7 +454,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         ) : null}
 
         {/* Small box: editor and actions on one line. Big box (Format): a taller editor, actions under it. */}
-        <div className={cn('flex gap-1 px-1.5 py-1', expanded ? 'flex-col' : 'items-end')}>
+        <div className={cn('flex gap-1 py-1', expanded ? 'flex-col px-1.5' : 'items-end pr-1 pl-2.5')}>
           <div className={cn('min-w-0 flex-1 cursor-text overflow-y-auto px-1.5 py-1', expanded ? 'max-h-[min(360px,45vh)] min-h-24' : 'max-h-[min(220px,35vh)]')}
             onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); editor?.commands.focus('end'); } }}>
             {editor ? <EditorContent editor={editor} /> : <div className="text-[14px] leading-6 text-muted">{placeholder.current}</div>}

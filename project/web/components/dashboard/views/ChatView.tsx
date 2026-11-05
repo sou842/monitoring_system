@@ -31,7 +31,7 @@ const SKELETON_ROWS = 6;
 function ComposerPlaceholder() {
   return (
     <div className="mx-auto w-full max-w-5xl px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] md:px-6" aria-hidden="true">
-      <div className="flex h-[42px] items-center rounded-xl border border-line-strong bg-panel px-3 text-[14px] text-muted">Type a message</div>
+      <div className="flex h-[42px] items-center rounded-[21px] border border-line-strong bg-panel pl-4 text-[14px] text-muted">Type a message</div>
     </div>
   );
 }
