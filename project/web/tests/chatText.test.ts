@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { applyFormat, GROUP_GAP_MS, insideCodeFence, parseBlocks, parseInline, plainText, startsGroup } from '../lib/chatText.ts';
+import { docToMarkdown, GROUP_GAP_MS, parseBlocks, parseInline, plainText, startsGroup } from '../lib/chatText.ts';
 
 describe('chat blocks', () => {
   it('keeps plain text as one paragraph with its line breaks', () => {
@@ -95,20 +95,60 @@ describe('chat grouping', () => {
   });
 });
 
-describe('composer editing', () => {
-  it('knows when the caret is inside a code block', () => {
-    assert.equal(insideCodeFence('```\nabc', 7), true);
-    assert.equal(insideCodeFence('```\nabc\n```', 11), false);
+
+describe('chat lists', () => {
+  it('groups "- " and "1. " lines into lists with nesting', () => {
+    assert.deepEqual(parseBlocks('steps:\n1. open\n  - cart\n2. pay'), [
+      { kind: 'para', text: 'steps:' },
+      { kind: 'list', items: [
+        { ordered: true, number: 1, level: 0, text: 'open' },
+        { ordered: false, number: 0, level: 1, text: 'cart' },
+        { ordered: true, number: 2, level: 0, text: 'pay' },
+      ] },
+    ]);
   });
 
-  it('wraps and unwraps the selection', () => {
-    assert.deepEqual(applyFormat('make bold', 5, 9, 'bold'), { text: 'make **bold**', start: 7, end: 11 });
-    assert.deepEqual(applyFormat('make **bold**', 7, 11, 'bold'), { text: 'make bold', start: 5, end: 9 });
-    assert.deepEqual(applyFormat('', 0, 0, 'code'), { text: '``', start: 1, end: 1 });
+  it('does not treat a dash inside a sentence as a list', () => {
+    assert.deepEqual(parseBlocks('a - b'), [{ kind: 'para', text: 'a - b' }]);
+  });
+});
+
+describe('composer document to Markdown', () => {
+  const p = (...content: object[]) => ({ type: 'paragraph', content });
+  const t = (text: string, ...marks: string[]) => ({ type: 'text', text, marks: marks.map((type) => ({ type })) });
+
+  it('writes marks with the spaces outside the markers', () => {
+    assert.deepEqual(docToMarkdown({ type: 'doc', content: [p(t('Fix '), t('this ', 'bold'), t('now', 'italic', 'strike'), t(' '), t('a.b', 'code'))] }),
+      { text: 'Fix **this** _~~now~~_ `a.b`', mentions: [] });
   });
 
-  it('puts code blocks and quotes on their own lines', () => {
-    assert.equal(applyFormat('see x', 4, 5, 'codeblock').text, 'see \n```\nx\n```');
-    assert.equal(applyFormat('a\nb', 2, 3, 'quote').text, 'a\n> b');
+  it('writes mentions by name and returns their ids once', () => {
+    const m = (id: string, label: string) => ({ type: 'mention', attrs: { id, label } });
+    assert.deepEqual(docToMarkdown({ type: 'doc', content: [p(t('hi '), m('u1', 'Ann Lee'), t(' and '), m('u1', 'Ann Lee'))] }),
+      { text: 'hi @Ann Lee and @Ann Lee', mentions: ['u1'] });
+  });
+
+  it('writes blocks: lines, quotes, code, lists', () => {
+    const doc = { type: 'doc', content: [
+      p(t('one'), { type: 'hardBreak' }, t('two')),
+      { type: 'blockquote', content: [p(t('quoted'))] },
+      { type: 'codeBlock', attrs: { language: 'js' }, content: [{ type: 'text', text: 'a()\nb()' }] },
+      { type: 'orderedList', attrs: { start: 1 }, content: [
+        { type: 'listItem', content: [p(t('first')), { type: 'bulletList', content: [{ type: 'listItem', content: [p(t('inner'))] }] }] },
+        { type: 'listItem', content: [p(t('second'))] },
+      ] },
+      p(),
+      p(),
+      p(),
+    ] };
+    const { text } = docToMarkdown(doc);
+    assert.equal(text, 'one\ntwo\n> quoted\n```js\na()\nb()\n```\n1. first\n  - inner\n2. second');
+    // And it reads back the same way.
+    assert.deepEqual(parseBlocks(text).map((b) => b.kind), ['para', 'quote', 'code', 'list']);
+  });
+
+  it('keeps a link address visible when its text differs, and ignores other schemes', () => {
+    const link = (text: string, href: string) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] });
+    assert.equal(docToMarkdown({ type: 'doc', content: [p(link('the PR', 'https://x.dev/1'), t(' '), link('bad', 'javascript:alert(1)'))] }).text, 'the PR (https://x.dev/1) bad');
   });
 });

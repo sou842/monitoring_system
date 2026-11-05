@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useApi } from '@/lib/client/api';
 import { useChat, type Draft } from '@/lib/client/chat';
@@ -11,7 +12,7 @@ import { Icon } from '../../ui/Icon';
 import { pillButton } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
 import { ChannelHeader } from '../chat/ChannelHeader';
-import { Composer, type ComposerHandle } from '../chat/Composer';
+import type { ComposerHandle } from '../chat/Composer';
 import { MessageRow, type Row, type RowActions } from '../chat/MessageRow';
 import { dayLabel, scrollBehavior } from '../chat/shared';
 import { Page } from '../Page';
@@ -25,6 +26,18 @@ const LOAD_OLDER_MARGIN_PX = 600;
 const FLASH_MS = 1600;
 /** Placeholder rows while the first page loads. */
 const SKELETON_ROWS = 6;
+
+/** Looks like the closed message box, shown while the editor's code loads (so nothing jumps). */
+function ComposerPlaceholder() {
+  return (
+    <div className="mx-auto w-full max-w-5xl px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] md:px-6" aria-hidden="true">
+      <div className="flex h-[42px] items-center rounded-xl border border-line-strong bg-panel px-3 text-[14px] text-muted">Type a message</div>
+    </div>
+  );
+}
+
+/** The message box is a rich editor (Tiptap): loaded only on this page, in the browser. */
+const Composer = dynamic(() => import('../chat/Composer').then((m) => m.Composer), { ssr: false, loading: ComposerPlaceholder });
 
 /** The project chat: the active project's single channel (docs/MEMBERS_AND_CHAT.md). */
 export function ChatView() {
@@ -391,7 +404,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
 
       <footer className="shrink-0 bg-(--content)">
         {canPost ? (
-          <Composer ref={composer} key={projectId} projectId={projectId} projectName={projectName} people={everyone} me={me}
+          <Composer handle={composer} key={projectId} projectId={projectId} projectName={projectName} people={everyone} me={me}
             replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} offline={!online} />
         ) : (
           <div className="mx-auto w-full max-w-5xl px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] md:px-6">

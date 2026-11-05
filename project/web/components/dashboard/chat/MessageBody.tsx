@@ -67,6 +67,19 @@ export const MessageBody = memo(function MessageBody({ text, names, myName }: { 
     <div className="min-w-0 text-[14px] leading-[22px] text-fg [overflow-wrap:anywhere]">
       {blocks.map((block, i) => {
         if (block.kind === 'code') return <CodeBlock key={i} lang={block.lang} text={block.text} />;
+        if (block.kind === 'list') {
+          // One flat list with indentation per level: simple to read, and screen readers still hear a list of N items.
+          return (
+            <ul key={i} className="my-0.5 list-none p-0" dir="auto">
+              {block.items.map((item, j) => (
+                <li key={j} className="flex gap-2" style={{ paddingInlineStart: `${item.level * 20}px` }}>
+                  <span className="min-w-4 shrink-0 text-right text-fg-2 tabular-nums select-none" aria-hidden="true">{item.ordered ? `${item.number}.` : item.level % 2 === 0 ? '•' : '◦'}</span>
+                  <span className="min-w-0">{renderInline(parseInline(item.text, names), myName)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
         if (block.kind === 'quote') {
           return <blockquote key={i} dir="auto" className="my-1 border-0 border-l-[3px] border-solid border-line-strong py-0.5 pl-3 whitespace-pre-wrap text-fg-2">{renderInline(parseInline(block.text, names), myName)}</blockquote>;
         }

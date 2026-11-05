@@ -1,9 +1,10 @@
 /**
  * Pure helpers for the project chat (no React, no DOM), so they can be unit-tested with `node --test`:
- * the small Markdown subset messages are written in, how messages group, and the composer's text edits.
+ * the small Markdown subset messages are written in, how messages group, and turning the composer's
+ * document (Tiptap JSON) into that Markdown.
  *
  * Supported formatting (deliberately small, Slack-like): ```code blocks```, `inline code`, **bold**,
- * *italic* / _italic_, ~~strike~~, "> " quotes, bare http(s) links and @mentions. There is no
+ * *italic* / _italic_, ~~strike~~, "> " quotes, "- " / "1. " lists, bare http(s) links and @mentions. There is no
  * [text](url) syntax on purpose: the visible text of a link must be the address it opens (phishing).
  */
 
@@ -21,35 +22,47 @@ export type Inline =
   | { kind: 'mention'; text: string; name: string }
   | { kind: 'bold' | 'italic' | 'strike'; children: Inline[] };
 
+/** One line of a bulleted ("- ") or numbered ("1. ") list; `level` = nesting from the indentation (2 spaces each). */
+export interface ListItem { ordered: boolean; number: number; level: number; text: string }
+
 export type Block =
   | { kind: 'para'; text: string }
   | { kind: 'quote'; text: string }
+  | { kind: 'list'; items: ListItem[] }
   | { kind: 'code'; lang: string | null; text: string };
 
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const FENCE = new RegExp(`\`\`\`(?:([\\w+#.-]{1,${MAX_LANG_LENGTH}})?\\n)?([\\s\\S]*?)\\n?\`\`\``, 'g');
+const LIST_LINE = /^( *)(?:([-*•])|(\d{1,4})[.)]) +(\S.*)$/;
+/** Deepest list nesting shown (deeper items are drawn at this level). */
+const MAX_LIST_LEVEL = 4;
 
-/** Splits a message into code blocks, quotes and plain paragraphs (paragraph text keeps its line breaks). */
+/** Splits a message into code blocks, quotes, lists and plain paragraphs (paragraph text keeps its line breaks). */
 export function parseBlocks(text: string): Block[] {
   const blocks: Block[] = [];
   const pushProse = (prose: string) => {
     if (!prose) return;
-    // Consecutive "> " lines become one quote; everything else stays a paragraph.
+    // Consecutive lines of the same kind ("> " quote, "- " / "1. " list, other) become one block.
     const lines = prose.split('\n');
     let buffer: string[] = [];
-    let quoting = false;
+    let items: ListItem[] = [];
+    let kind: 'para' | 'quote' | 'list' = 'para';
     const flush = () => {
+      if (kind === 'list') { if (items.length > 0) blocks.push({ kind: 'list', items }); items = []; return; }
       if (buffer.length === 0) return;
       const joined = buffer.join('\n');
-      if (quoting) blocks.push({ kind: 'quote', text: joined });
+      if (kind === 'quote') blocks.push({ kind: 'quote', text: joined });
       else if (joined.trim()) blocks.push({ kind: 'para', text: joined.replace(/^\n+|\n+$/g, '') });
       buffer = [];
     };
     for (const line of lines) {
       const quote = /^>\s?(.*)$/.exec(line);
-      if (Boolean(quote) !== quoting) { flush(); quoting = Boolean(quote); }
-      buffer.push(quote ? quote[1] : line);
+      const list = quote ? null : LIST_LINE.exec(line);
+      const next = quote ? 'quote' : list ? 'list' : 'para';
+      if (next !== kind) { flush(); kind = next; }
+      if (list) items.push({ ordered: !list[2], number: list[3] ? Number(list[3]) : 0, level: Math.min(MAX_LIST_LEVEL, Math.floor(list[1].length / 2)), text: list[4] });
+      else buffer.push(quote ? quote[1] : line);
     }
     flush();
   };
@@ -143,6 +156,7 @@ export function plainText(text: string): string {
     .replace(/(?<![\w*])\*(?=[^\s*])([^\n*]+?)(?<=\S)\*(?![\w*])/g, '$1')
     .replace(/(?<![A-Za-z0-9_])_(?=[^\s_])([^\n_]+?)(?<=\S)_(?![A-Za-z0-9_])/g, '$1')
     .replace(/^>\s?/gm, '')
+    .replace(/^ *(?:[-*•]|\d{1,4}[.)]) +/gm, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -157,40 +171,75 @@ export function startsGroup(previous: { userId: string; createdAt: string } | nu
   return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() > GROUP_GAP_MS;
 }
 
-/** Whether the caret sits inside an unclosed ``` block (then Enter adds a line instead of sending). */
-export function insideCodeFence(text: string, caret: number): boolean {
-  return ((text.slice(0, caret).match(/```/g)?.length ?? 0) % 2) === 1;
+/** The parts of the editor's JSON document (ProseMirror / Tiptap `getJSON()`) the serializer reads. */
+export interface DocNode {
+  type?: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+  content?: DocNode[];
 }
 
-export type Format = 'bold' | 'italic' | 'strike' | 'code' | 'codeblock' | 'quote';
-const MARKERS: Record<Exclude<Format, 'codeblock' | 'quote'>, string> = { bold: '**', italic: '_', strike: '~~', code: '`' };
+const str = (value: unknown) => (typeof value === 'string' ? value : '');
+
+/** One text run with its marks, as Markdown. Whitespace stays outside the markers (`**a **` would not parse). */
+function markText(text: string, marks: DocNode['marks'] = []): string {
+  const has = (type: string) => marks.some((m) => m.type === type);
+  if (has('code')) return `\`${text.replace(/`/g, 'ʼ')}\``;
+  const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(text) ?? ['', '', text, ''];
+  if (!core) return text;
+  let out = core;
+  const href = str(marks.find((m) => m.type === 'link')?.attrs?.href);
+  // Links are sent as their address: a different visible text is kept, with the address after it in brackets.
+  if (/^https?:\/\//i.test(href) && href !== core) out = `${core} (${href})`;
+  if (has('strike')) out = `~~${out}~~`;
+  if (has('italic')) out = `_${out}_`;
+  if (has('bold')) out = `**${out}**`;
+  return lead + out + trail;
+}
 
 /**
- * Applies a formatting button to the selection [start, end): wraps it (or removes the markers when it is
- * already wrapped), or with no selection inserts an empty pair with the caret in between. Returns the new
- * text and selection.
+ * Turns the composer's document into the message format (the Markdown subset above) and the ids of the
+ * people mentioned in it. Anything the chat can't show (images, tables, headings from a paste…) is
+ * reduced to its text.
  */
-export function applyFormat(text: string, start: number, end: number, format: Format): { text: string; start: number; end: number } {
-  const selected = text.slice(start, end);
-  if (format === 'codeblock') {
-    const before = start > 0 && text[start - 1] !== '\n' ? '\n' : '';
-    const open = `${before}\`\`\`\n`;
-    const close = '\n```';
-    const after = end < text.length && text[end] !== '\n' ? '\n' : '';
-    return { text: text.slice(0, start) + open + selected + close + after + text.slice(end), start: start + open.length, end: start + open.length + selected.length };
-  }
-  if (format === 'quote') {
-    const lineStart = text.lastIndexOf('\n', start - 1) + 1;
-    const block = text.slice(lineStart, end);
-    const quoted = block.split('\n').map((l) => `> ${l}`).join('\n');
-    const added = quoted.length - block.length;
-    return { text: text.slice(0, lineStart) + quoted + text.slice(end), start: start + 2, end: end + added };
-  }
-  const marker = MARKERS[format];
-  const n = marker.length;
-  // Already wrapped (markers just outside the selection): unwrap.
-  if (start >= n && text.slice(start - n, start) === marker && text.slice(end, end + n) === marker) {
-    return { text: text.slice(0, start - n) + selected + text.slice(end + n), start: start - n, end: end - n };
-  }
-  return { text: text.slice(0, start) + marker + selected + marker + text.slice(end), start: start + n, end: end + n };
+export function docToMarkdown(doc: DocNode): { text: string; mentions: string[] } {
+  const mentions: string[] = [];
+  const inline = (nodes: DocNode[] = []): string => nodes.map((n) => {
+    if (n.type === 'text') return markText(n.text ?? '', n.marks);
+    if (n.type === 'hardBreak') return '\n';
+    if (n.type === 'mention') {
+      const id = str(n.attrs?.id);
+      if (id && !mentions.includes(id)) mentions.push(id);
+      return `@${str(n.attrs?.label) || str(n.attrs?.id)}`;
+    }
+    return inline(n.content);
+  }).join('');
+
+  const blocks = (nodes: DocNode[] = [], indent = ''): string[] => nodes.flatMap((n): string[] => {
+    switch (n.type) {
+      case 'paragraph': case 'heading': return [indent + inline(n.content).replace(/\n/g, `\n${indent}`)];
+      case 'codeBlock': {
+        const lang = str(n.attrs?.language).replace(/[^\w+#.-]/g, '').slice(0, MAX_LANG_LENGTH);
+        return [`${indent}\`\`\`${lang}\n${(n.content ?? []).map((c) => c.text ?? '').join('')}\n${indent}\`\`\``];
+      }
+      case 'blockquote': return blocks(n.content).join('\n').split('\n').map((line) => `${indent}> ${line}`);
+      case 'bulletList': case 'orderedList': {
+        const start = typeof n.attrs?.start === 'number' ? n.attrs.start : 1;
+        return (n.content ?? []).flatMap((item, i) => {
+          const marker = n.type === 'orderedList' ? `${start + i}. ` : '- ';
+          const [first, ...rest] = item.content ?? [];
+          const head = first && (first.type === 'paragraph' || first.type === 'heading') ? inline(first.content).replace(/\n/g, ' ') : '';
+          const tail = first && !(first.type === 'paragraph' || first.type === 'heading') ? [first, ...rest] : rest;
+          return [`${indent}${marker}${head}`, ...blocks(tail, `${indent}  `)];
+        });
+      }
+      case 'horizontalRule': return [`${indent}---`];
+      default: return n.content ? blocks(n.content, indent) : n.text ? [indent + n.text] : [];
+    }
+  });
+
+  const text = blocks(doc.content).join('\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+  return { text, mentions };
 }
+

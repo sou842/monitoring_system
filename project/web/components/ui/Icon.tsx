@@ -2,7 +2,7 @@ import {
   Activity, ArrowDown, ArrowUp, Bell, Check, CheckCheck, ChevronDown, Eye, Folder, Ghost, Heart, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
   Bomb, Bug, Cpu, FileJson, FileSearch, Gauge, Globe, Hourglass, ImageOff, MemoryStick, MessageSquare, OctagonPause, ServerCrash, ShieldAlert, SquareDashed, Terminal, Timer, WifiOff,
   PartyPopper, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Smile, Sparkles, Sun, ThumbsUp, Trash2, User, Users, X, LayoutDashboard, Clock, Copy, CircleAlert, Reply, RotateCw,
-  Bold, Italic, Strikethrough, Code, SquareCode, SmilePlus, Hash, AtSign, Ellipsis, Link, Quote,
+  Bold, Italic, Strikethrough, Code, SquareCode, SmilePlus, Hash, AtSign, Ellipsis, Link, Quote, List, ListOrdered, Type, RemoveFormatting,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -59,6 +59,10 @@ export const ICONS = {
   at: AtSign,
   more: Ellipsis,
   link: Link,
+  list: List,
+  listOrdered: ListOrdered,
+  format: Type,
+  clearFormat: RemoveFormatting,
   // Issue kinds (chat issue cards)
   bug: Bug,
   bomb: Bomb,
