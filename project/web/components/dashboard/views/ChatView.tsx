@@ -398,61 +398,57 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   // ---- render
   const pickedNames = picked.map((p) => p.name).filter((n) => text.includes(`@${n}`));
-  // Whether row i sits right under row i-1 in the same group (same person, no day/unread break in between) — computed
-  // up front so a bubble also knows whether the *next* row continues it, to flatten the corner that faces that neighbour.
-  const continuedArr = rows.map((row, i) => {
-    const prev = i > 0 ? rows[i - 1] : null;
-    return !!prev && prev.msg.userId === row.msg.userId && dayLabel(prev.msg.createdAt) === dayLabel(row.msg.createdAt) && row.msg.id !== unreadAnchor;
-  });
   const items: ReactNode[] = [];
   let previous: Row | null = null;
   let unreadShown = false;
   const unreadCount = unreadAnchor ? chat.messages.filter((m) => m.userId !== me.id && m.id >= unreadAnchor).length : 0;
-  rows.forEach((row, rowIndex) => {
+  rows.forEach((row) => {
     const m = row.msg;
     const newDay = !previous || dayLabel(previous.msg.createdAt) !== dayLabel(m.createdAt);
     if (newDay) {
       items.push(
-        <div key={`d-${row.key}`} className="my-3 flex justify-center">
-          <span className="rounded-full bg-panel/90 px-3 py-1 text-xs font-medium text-muted shadow-sm">{dayLabel(m.createdAt)}</span>
+        <div key={`d-${row.key}`} className="mt-4 mb-1 flex items-center gap-3">
+          <span className="h-px flex-1 bg-line" />
+          <span className="rounded-full border border-line bg-panel px-3 py-0.5 text-xs font-medium text-muted">{dayLabel(m.createdAt)}</span>
+          <span className="h-px flex-1 bg-line" />
         </div>,
       );
     }
     if (!unreadShown && unreadAnchor && m.id === unreadAnchor) {
       unreadShown = true;
       items.push(
-        <div key="unread" className="my-3 flex justify-center">
-          <span className="rounded-full bg-(--mention)/12 px-3 py-1 text-xs font-semibold text-(--mention)">{unreadCount} unread {unreadCount === 1 ? 'message' : 'messages'}</span>
+        <div key="unread" className="mt-3 mb-1 flex items-center gap-3">
+          <span className="h-px flex-1 bg-(--mention)/40" />
+          <span className="text-xs font-semibold text-(--mention)">{unreadCount} unread {unreadCount === 1 ? 'message' : 'messages'}</span>
+          <span className="h-px flex-1 bg-(--mention)/40" />
         </div>,
       );
     }
     const own = m.userId === me.id;
     const continued = !newDay && previous !== null && !(unreadShown && m.id === unreadAnchor) && previous.msg.userId === m.userId;
-    const groupEnd = rowIndex + 1 >= rows.length || !continuedArr[rowIndex + 1];
     const author = m.userName ?? 'Deleted user';
     const names = m.mentions.map((id) => byId.get(id)?.name).filter((n): n is string => Boolean(n));
     const canDelete = row.status === 'sent' && !m.deleted && (own || isOwner);
     const showTools = row.status === 'sent' && !m.deleted && canPost;
     const menuOpen = openMenu === m.id;
     const reactOpen = openReact === m.id;
-    const time = (
-      <span className={cn('float-right mt-1.5 ml-3 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none select-none', own ? 'text-(--bubble-own-fg-dim)' : 'text-muted')} title={new Date(m.createdAt).toLocaleString()}>
+    const stamp = (
+      <span className="inline-flex items-center gap-1 text-[11px] leading-none text-muted select-none" title={new Date(m.createdAt).toLocaleString()}>
         {clock(m.createdAt)}
-        {own ? <Icon name={row.status === 'sending' ? 'clock' : row.status === 'failed' ? 'alert' : 'checkDouble'} className={cn('size-3.5', row.status === 'failed' ? 'text-danger' : 'text-(--bubble-own-fg-dim)')} /> : null}
+        {own && row.status !== 'sent' ? <Icon name={row.status === 'sending' ? 'clock' : 'alert'} className={cn('size-3', row.status === 'failed' && 'text-danger')} /> : null}
       </span>
     );
-    // Sits outside the bubble (never inside its overflow-hidden box, so the dropdown below it isn't clipped), lined up
-    // with the bottom corner nearest the edge of the screen, so it never shifts the bubble's own layout.
+    // Hover toolbar at the top right of the row (Slack-style): react, reply, copy, delete.
+    const toolBtn = 'grid size-7 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg';
     const tools = showTools ? (
-      <div className={cn('absolute bottom-0 z-20 hidden items-center gap-0.5 group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex', own ? 'right-full mr-1.5' : 'left-full ml-1.5')}>
+      <div className={cn('absolute -top-3.5 right-2 z-20 hidden items-center gap-0.5 rounded-xl border border-line bg-panel p-0.5 shadow-(--menu-shadow) group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex')}>
         {!own ? (
           <div className="relative">
-            <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }}
-              className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-panel p-0 text-muted shadow-(--menu-shadow) hover:text-fg">
+            <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }} className={toolBtn}>
               <Icon name="smile" className="size-4" />
             </button>
             {reactOpen ? (
-              <div role="menu" aria-label="React" className="absolute bottom-full left-1/2 z-30 mb-1.5 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)">
+              <div role="menu" aria-label="React" className="absolute top-full right-0 z-30 mt-1.5 flex items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)">
                 {CHAT_REACTIONS.map((e) => (
                   <button key={e} type="button" title={e} aria-label={`React with ${e}`} onClick={(ev) => { ev.stopPropagation(); chat.react(m.id, e); setOpenReact(null); }}
                     className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg">
@@ -463,15 +459,13 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             ) : null}
           </div>
         ) : null}
+        <button type="button" title="Reply" aria-label="Reply" onClick={(e) => { e.stopPropagation(); startReply(m); }} className={toolBtn}><Icon name="reply" className="size-4" /></button>
         <div className="relative">
-          <button type="button" title="More" aria-label="More options" onClick={(e) => { e.stopPropagation(); setOpenReact(null); setOpenMenu(menuOpen ? null : m.id); }}
-            className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-panel p-0 text-muted shadow-(--menu-shadow) hover:text-fg">
+          <button type="button" title="More" aria-label="More options" onClick={(e) => { e.stopPropagation(); setOpenReact(null); setOpenMenu(menuOpen ? null : m.id); }} className={toolBtn}>
             <Icon name="chevron" className="size-4" />
           </button>
           {menuOpen ? (
-            <div role="menu" className={cn('absolute bottom-full z-30 mb-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)', own ? 'right-0' : 'left-0')}>
-              <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); startReply(m); }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="reply" className="size-4 text-muted" />Reply</button>
+            <div role="menu" className="absolute top-full right-0 z-30 mt-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)">
               {m.text ? (
                 <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); copyText(m); }}
                   className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="copy" className="size-4 text-muted" />Copy</button>
@@ -485,70 +479,51 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         </div>
       </div>
     ) : null;
-    // One header (avatar + name) above a whole run of consecutive messages from the same person, Slack-style,
-    // instead of repeating the name inside every bubble.
-    if (!own && !continued) {
-      items.push(
-        <div key={`h-${row.key}`} className="mt-3 flex items-center gap-2 pl-0.5">
-          <Avatar name={author} size="sm" />
-          <span className="truncate text-xs font-normal dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</span>
-        </div>,
-      );
-    }
     items.push(
-      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-2 rounded-xl data-[flash]:bg-amber-400/25 data-[flash]:transition-colors', own ? 'justify-end' : 'justify-start', own && !continued ? 'mt-2.5' : 'mt-0.5')}>
-        {!own ? <div className="w-8 shrink-0" /> : null}
-        <div className={cn('relative min-w-0 max-w-[84%] sm:max-w-[70%]', own ? 'items-end' : 'items-start')}>
-          <div className="relative">
-            {tools}
-            <div
-              className={cn(
-                'overflow-hidden rounded-2xl px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,.12)]',
-                own ? 'bg-(--bubble-own) text-(--bubble-own-fg)' : 'bg-panel text-fg',
-                row.status === 'sending' && 'opacity-75',
-                // The corner facing the rest of the group (own = right side, others = left side) flattens where
-                // it meets a neighbour bubble, so a run of messages from one person reads as one connected shape.
-                own && continued && 'rounded-tr-[4px]',
-                own && !groupEnd && 'rounded-br-[4px]',
-                !own && continued && 'rounded-tl-[4px]',
-                !own && !groupEnd && 'rounded-bl-[4px]',
-              )}
-            >
-              {m.replyTo ? (
-                <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }}
-                  className="mb-1 mt-0.5 block w-full cursor-pointer rounded-lg border-0 border-l-4 bg-black/[.045] px-2.5 py-1.5 text-left shadow-none dark:bg-white/[.07]"
-                  style={{ borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
-                  <span className="block truncate text-xs font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
-                  <span className={cn('block truncate text-xs text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
-                </button>
-              ) : null}
-              {m.deleted ? (
-                <p className={cn('m-0 text-[13px] italic', own ? 'text-(--bubble-own-fg-dim)' : 'text-muted')}>This message was deleted{time}</p>
-              ) : (
-                <>
-                    {m.issues.length > 0 ? (
-                      <div className={cn('grid gap-1.5', m.text ? 'mt-1.5' : 'mt-0.5')}>
-                        {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} tone={own ? 'own' : 'bubble'} />)}
-                        {!m.text ? <div className="text-right">{time}</div> : null}
-                      </div>
-                    ) : null}
-                  {m.text ? (
-                    <p className="m-0 leading-relaxed break-words whitespace-pre-wrap">
-                      {withMentions(m.text, names, (part, i) => <span key={i} className="rounded bg-(--mention)/12 text-(--mention)">{part}</span>)}
-                      {time}
-                    </p>
-                  ) : null}
-                </>
-              )}
-              <div className="clear-both" />
+      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-3 rounded-xl px-2 py-1 transition-colors hover:bg-(--hover) data-[flash]:bg-amber-400/25', continued ? 'mt-0' : 'mt-3', row.status === 'sending' && 'opacity-70')}>
+        {/* Avatar on the first message of a run; later ones show their time in the same column when hovered. */}
+        <div className="w-[34px] shrink-0 pt-0.5">
+          {continued ? (
+            <span className="hidden pt-1 text-center text-[10px] leading-none text-muted group-hover/row:block" title={new Date(m.createdAt).toLocaleString()}>{clock(m.createdAt)}</span>
+          ) : <Avatar name={author} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          {!continued ? (
+            <div className="flex items-baseline gap-2">
+              <span className="truncate text-sm font-semibold text-fg">{author}{own ? <span className="font-normal text-muted"> (you)</span> : null}</span>
+              {stamp}
             </div>
-          </div>
+          ) : null}
+          {m.replyTo ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }}
+              className="mt-1 mb-1 block w-full max-w-lg cursor-pointer rounded-lg border-0 border-l-4 bg-(--hover) px-2.5 py-1.5 text-left shadow-none"
+              style={{ borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
+              <span className="block truncate text-xs font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
+              <span className={cn('block truncate text-xs text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
+            </button>
+          ) : null}
+          {m.deleted ? (
+            <p className="m-0 text-[13px] text-muted italic">This message was deleted</p>
+          ) : (
+            <>
+              {m.text ? (
+                <p className="m-0 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap text-fg">
+                  {withMentions(m.text, names, (part, i) => <span key={i} className="rounded bg-(--mention)/12 text-(--mention)">{part}</span>)}
+                </p>
+              ) : null}
+              {m.issues.length > 0 ? (
+                <div className="mt-1.5 grid max-w-md gap-1.5">
+                  {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} />)}
+                </div>
+              ) : null}
+            </>
+          )}
 
           {m.reactions.length > 0 ? (
-            <div className={cn('relative z-10 -mt-1.5 flex flex-wrap gap-1 px-2', own ? 'justify-end' : 'justify-start')}>
+            <div className="mt-1.5 flex flex-wrap gap-1">
               {m.reactions.map((r) => (
                 <button key={r.emoji} type="button" title={r.names.join(', ')} onClick={(e) => { e.stopPropagation(); if (canPost && !own) chat.react(m.id, r.emoji); }}
-                  className={cn('inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs shadow-sm', own ? 'cursor-default' : 'cursor-pointer', r.mine ? 'border-(--mention)/40 bg-(--mention)/12' : 'border-line bg-panel')}>
+                  className={cn('inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs shadow-none', own ? 'cursor-default' : 'cursor-pointer', r.mine ? 'border-(--mention)/40 bg-(--mention)/12' : 'border-line bg-panel')}>
                   <span>{r.emoji}</span>{r.count > 1 ? <span className="font-medium tabular-nums">{r.count}</span> : null}
                 </button>
               ))}
@@ -556,7 +531,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : null}
 
           {row.status === 'failed' && row.clientId ? (
-            <div className="mt-1 flex items-center justify-end gap-2 text-[11px] text-danger" role="status" title={row.error ?? undefined}>
+            <div className="mt-1 flex items-center gap-2 text-[11px] text-danger" role="status" title={row.error ?? undefined}>
               <Icon name="alert" className="size-3.5" />
               <span>Not sent</span>
               <button type="button" onClick={() => chat.retry(row.clientId as string)} className="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent p-0 font-semibold text-danger underline shadow-none"><Icon name="retry" className="size-3" />Retry</button>
@@ -564,6 +539,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             </div>
           ) : null}
         </div>
+        {tools}
       </div>,
     );
     previous = row;
@@ -630,7 +606,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : null}
         </div>
 
-        <footer className="relative shrink-0 border-t border-line bg-panel px-3 py-2.5 md:px-4 flex flex-col justify-center items-center">
+        <footer className="relative mx-auto flex w-full max-w-[1400px] shrink-0 flex-col justify-center items-center bg-panel-2 px-3 pt-1 pb-3 md:px-6">
           {canPost ? (
             <>
               {picker && (options.length > 0 || (picker.kind === 'issue' && !searching)) ? (
@@ -672,7 +648,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               ) : null}
 
               {replyTo ? (
-                <div className="w-full max-w-4xl mb-2 flex items-start gap-2 rounded-xl border-l-4 bg-panel-2 py-1.5 pr-1.5 pl-3" style={{ borderLeftColor: nameColor(replyTo.userName ?? 'Deleted user') }}>
+                <div className="w-full mb-2 flex items-start gap-2 rounded-xl border-l-4 bg-panel-2 py-1.5 pr-1.5 pl-3" style={{ borderLeftColor: nameColor(replyTo.userName ?? 'Deleted user') }}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-semibold" style={{ color: nameColor(replyTo.userName ?? 'Deleted user') }}>Replying to {replyTo.userId === me.id ? 'yourself' : (replyTo.userName ?? 'Deleted user')}</div>
                     <div className="truncate text-xs text-fg-2">{snippetOf(replyTo)}</div>
@@ -682,45 +658,47 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               ) : null}
 
               {attached.length > 0 ? (
-                <div className="mb-2 grid gap-2 sm:grid-cols-1 max-w-4xl w-full">
+                <div className="mb-2 grid w-full max-w-md gap-2 self-start">
                   {attached.map((issue) => <IssueCard key={issue.id} issue={issue} onRemove={() => setAttached((list) => list.filter((i) => i.id !== issue.id))} />)}
                 </div>
               ) : null}
 
-              <div className="flex items-end gap-1.5 max-w-4xl w-full">
-                {/* <button type="button" title="Emoji" aria-label="Emoji" aria-expanded={emojiOpen} onClick={() => { setEmojiOpen((o) => !o); setPicker(null); }}
-                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="smile" className="size-5" /></button> */}
-                {/* <button type="button" title="Mention someone" aria-label="Mention someone" onClick={() => insertAtCaret('@', 'mention')}
-                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-base font-semibold text-muted shadow-none hover:bg-(--hover) hover:text-fg max-sm:hidden">@</button>
-                <button type="button" title="Attach an issue" aria-label="Attach an issue" disabled={attached.length >= MAX_ISSUES} onClick={() => insertAtCaret('/', 'issue')}
-                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-base font-semibold text-muted shadow-none hover:bg-(--hover) hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 max-sm:hidden">/</button> */}
-
-                <div className="relative min-w-0 flex-1 rounded-3xl bg-panel-2 px-4 py-2.5">
-                  <div className="relative">
-                    <div ref={mirror} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden text-sm leading-6 break-words whitespace-pre-wrap text-fg">
-                      {withMentions(text, pickedNames, (part, i) => <span key={i} className="rounded-[4px] bg-(--mention)/15 text-(--mention)">{part}</span>)}
-                      {'​'}
-                    </div>
-                    <textarea
-                      ref={box}
-                      rows={1}
-                      value={text}
-                      maxLength={4000}
-                      placeholder="Type a message"
-                      aria-label={`Message ${projectName}`}
-                      onChange={(e) => onChange(e.target.value)}
-                      onKeyDown={onKeyDown}
-                      onScroll={(e) => { if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop; }}
-                      className="relative block w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 break-words whitespace-pre-wrap text-transparent caret-(--fg) outline-none placeholder:text-muted"
-                      style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
-                    />
+              <div className="w-full rounded-2xl border border-line bg-panel px-4 pt-3 pb-2.5 shadow-sm focus-within:border-(--fg)/30">
+                <div className="relative">
+                  <div ref={mirror} aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden text-sm leading-6 wrap-break-word whitespace-pre-wrap text-fg">
+                    {withMentions(text, pickedNames, (part, i) => <span key={i} className="rounded-sm bg-(--mention)/15 text-(--mention)">{part}</span>)}
+                    {'​'}
                   </div>
+                  <textarea
+                    ref={box}
+                    rows={1}
+                    value={text}
+                    maxLength={4000}
+                    placeholder="Write a message…"
+                    aria-label={`Message ${projectName}`}
+                    onChange={(e) => onChange(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    onScroll={(e) => { if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop; }}
+                    className="relative block w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 wrap-break-word whitespace-pre-wrap text-transparent caret-(--fg) outline-none placeholder:text-muted"
+                    style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
+                  />
                 </div>
-
-                <button type="button" onClick={submit} disabled={!sendable} aria-label="Send message" title="Send (Enter)"
-                  className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-invert-bg p-0 text-invert-fg shadow-none transition-opacity disabled:cursor-not-allowed disabled:opacity-30">
-                  <Icon name="send" className="size-4.5" />
-                </button>
+                <div className="mt-2 flex items-center gap-1.5">
+                  <button type="button" title="Mention someone" aria-label="Mention someone" onClick={() => insertAtCaret('@', 'mention')}
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-transparent px-3 text-xs font-medium text-fg-2 shadow-none hover:bg-(--hover) hover:text-fg">
+                    <span className="text-sm leading-none">@</span>Mention
+                  </button>
+                  <button type="button" title="Attach an issue" aria-label="Attach an issue" disabled={attached.length >= MAX_ISSUES} onClick={() => insertAtCaret('/', 'issue')}
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-transparent px-3 text-xs font-medium text-fg-2 shadow-none hover:bg-(--hover) hover:text-fg disabled:cursor-not-allowed disabled:opacity-40">
+                    <span className="text-sm leading-none">/</span>Add issue
+                  </button>
+                  <button type="button" title="Emoji" aria-label="Emoji" aria-expanded={emojiOpen} onClick={() => { setEmojiOpen((o) => !o); setPicker(null); }}
+                    className="grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg"><Icon name="smile" className="size-4" /></button>
+                  <button type="button" onClick={submit} disabled={!sendable} aria-label="Send message" title="Send (Enter)"
+                    className="ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-invert-bg p-0 text-invert-fg shadow-none transition-opacity disabled:cursor-not-allowed disabled:opacity-30">
+                    <Icon name="send" className="size-4" />
+                  </button>
+                </div>
               </div>
             </>
           ) : (

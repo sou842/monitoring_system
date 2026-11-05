@@ -248,19 +248,18 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
                 })}
               </nav>
 
-              <NavGroup label="Projects">
+              <NavGroup label="Channels">
                 {shown.map((p) => {
-                  const active = isUnder(pathname, `/projects/${p.id}`);
+                  const active = isUnder(pathname, '/chats') && p.id === projectId;
                   return (
-                    <Link key={p.id} href={`/projects/${p.id}`} onClick={() => setProjectId(p.id)} className={`nav-item${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} title={collapsed ? p.name : undefined}>
+                    <Link key={p.id} href="/chats" onClick={() => setProjectId(p.id)} className={`nav-item${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} title={collapsed ? p.name : undefined}>
                       <Avatar name={p.name} size="sm" shape="square" />
                       <span className="nav-text">{p.name}</span>
-                      {p.openIssues > 0 ? <span className="nav-count">{p.openIssues > 999 ? '999+' : p.openIssues}</span> : null}
+                      {p.unreadMessages > 0 ? <span className="nav-count">{p.unreadMessages > 99 ? '99+' : p.unreadMessages}</span> : null}
                     </Link>
                   );
                 })}
                 {projects.length > shown.length ? <Link href="/projects" className="nav-item muted-item"><Icon name="folder" /><span className="nav-text">All projects ({projects.length})</span></Link> : null}
-                <Link href="/projects?new=1" className="nav-item muted-item" title={collapsed ? 'New project' : undefined}><Icon name="plus" /><span className="nav-text">New project</span></Link>
               </NavGroup>
 
               {user.role === 'admin' ? (
