@@ -287,7 +287,8 @@
   select:where(:not([data-slot])) { cursor: pointer; }
   
   /* ---------- Panels ---------- */
-  .card, .panel { background: var(--panel); border: 1px solid var(--line); position: relative; }
+  .card, .panel { background: var(--panel); border: 1px solid transparent; position: relative; }
+  :root[data-theme='light'] .card, :root[data-theme='light'] .panel { border-color: var(--line); }
   .card-body { padding: 22px; }
   .section { margin-top: 20px; }
   .panel { padding: 18px 20px; min-width: 0; }

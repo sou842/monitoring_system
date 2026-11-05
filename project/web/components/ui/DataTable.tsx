@@ -198,7 +198,7 @@ export function DataTable<T extends RowData>({
   return (
     <div className={cn(CARD, 'min-w-0 max-w-full', className)}>
       {hasHead ? (
-        <div className="flex md:flex-col flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3">
+        <div className="flex flex-col items-stretch md:flex-row md:flex-wrap md:items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3">
           {title || description ? (
             <div className="min-w-0">
               {title ? <h3 className="m-0 text-sm font-semibold">{title}</h3> : null}
@@ -207,7 +207,7 @@ export function DataTable<T extends RowData>({
           ) : null}
           {toolbar}
           {search ? (
-            <div className="relative w-full max-w-xs min-w-48 flex-1">
+            <div className="relative w-full min-w-0 md:max-w-xs md:min-w-48 md:flex-1">
               <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
               <input
                 type="search"
@@ -219,7 +219,7 @@ export function DataTable<T extends RowData>({
               />
             </div>
           ) : null}
-          <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-muted" aria-live="polite">
+          <div className="flex flex-wrap items-center gap-2 text-xs md:ml-auto text-muted" aria-live="polite">
             {selectedCount > 0 ? (
               <span>
                 {selectedCount} selected ·{' '}
