@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Icon } from '../../ui/Icon';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { MessageBody } from './MessageBody';
-import { clock, Emoji, fullDate, IssueCard, peerColor } from './shared';
+import { BigEmoji, bigEmojiOf, clock, Emoji, fullDate, IssueCard, peerColor } from './shared';
 
 /** One line of the conversation: a stored message, or one still being sent / that failed. */
 export type Row = { key: string; msg: ChatMessageView; status: 'sent' | 'sending' | 'failed'; clientId?: string; error?: string | null };
@@ -176,6 +176,8 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
   const metaContent = <><time dateTime={m.createdAt} title={fullDate(m.createdAt)}>{clock(m.createdAt)}</time>{status}</>;
   const spacer = <span className="tg-meta-spacer" aria-hidden="true">{metaContent}</span>;
   const textLast = Boolean(m.text) && m.issues.length === 0 && m.reactions.length === 0;
+  // A message of only 1–3 emoji (no reply quote, no issue cards) is drawn big, without a bubble.
+  const big = !m.deleted && !m.replyTo && m.issues.length === 0 && m.text ? bigEmojiOf(m.text) : null;
 
   const label = `${own ? 'You' : author}, ${clock(m.createdAt)}${mentionsMe ? ', mentions you' : ''}${row.status === 'failed' ? ', not sent' : row.status === 'sending' ? ', sending' : ''}`;
 
@@ -205,7 +207,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
         style={{ transform: swipe ? `translateX(${swipe}px)` : undefined, transition: swipe ? 'none' : 'transform .22s cubic-bezier(.2,.8,.3,1)' }}>
         <div
           ref={bubble}
-          className={cn('tg-bubble [-webkit-touch-callout:none] [@media(hover:none)]:select-none', own ? 'is-own' : 'is-in', first && 'is-first', last && 'is-last', animate && 'tg-enter')}
+          className={cn('tg-bubble [-webkit-touch-callout:none] [@media(hover:none)]:select-none', own ? 'is-own' : 'is-in', first && 'is-first', last && 'is-last', big && 'is-big-emoji', animate && 'tg-enter')}
           style={{ '--peer': peerColor(m.userId) } as CSSProperties}
         >
           {first && !own ? (
@@ -224,7 +226,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
             <p className="m-0 text-[15px] leading-[21px] italic opacity-70">Message deleted{spacer}</p>
           ) : (
             <div className={cn(row.status === 'sending' && 'opacity-80')}>
-              {m.text ? <MessageBody text={m.text} names={names} myName={me.name} bubble trailing={textLast ? spacer : undefined} /> : null}
+              {big ? <BigEmoji emoji={big} play={animate} /> : m.text ? <MessageBody text={m.text} names={names} myName={me.name} bubble trailing={textLast ? spacer : undefined} /> : null}
               {m.issues.length > 0 ? (
                 <div className={cn('grid gap-1', m.text ? 'mt-1.5' : 'mt-0.5')}>
                   {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} inBubble />)}
@@ -243,7 +245,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
                   })}
                   {spacer}
                 </div>
-              ) : !textLast ? <div className="h-3.5">{spacer}</div> : null}
+              ) : !textLast && !big ? <div className="h-3.5">{spacer}</div> : null}
             </div>
           )}
 

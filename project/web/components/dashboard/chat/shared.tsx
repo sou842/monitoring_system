@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import type { ChatIssueView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
@@ -47,7 +47,64 @@ export function ChatAvatar({ id, name, size = 40, className }: { id: string; nam
  * public/chat/emoji/<codepoints>.svg (still) and .webp (animated, reactions only), so every system shows the same art.
  */
 const NOTO_STILL = new Set(['1f44d', '1f44e', '1f44f', '1f64f', '1f64c', '1f4aa', '1f440', '1f91d', '1f600', '1f602', '1f642', '1f609', '1f914', '1f605', '1f62c', '1f622', '2705', '274c', '26a0_fe0f', '2757', '2753', '1f525', '1f680', '1f389', '1f41b', '1f6e0_fe0f', '1f50d', '1f4cc', '1f4c8', '1f4c9', '23f3', '1f4a1', '2764_fe0f']);
-const NOTO_ANIMATED = new Set(['1f44d', '2764_fe0f', '1f602', '1f389', '1f440', '2705']);
+/**
+ * Noto Animated Emoji we ship (.webp), with the length of one loop in ms (sum of the file's frame
+ * durations), so a big emoji can play exactly once. 🔍 and 📌 have no animated version from Google.
+ */
+const NOTO_ANIMATED: Record<string, number> = {
+  '2705': 1310, '2753': 2670, '2757': 2580, '1f389': 1380, '1f41b': 3332, '1f440': 1355, '1f44d': 720, '1f44e': 780, '1f44f': 660,
+  '1f4a1': 872, '1f4aa': 1410, '1f4c8': 784, '1f4c9': 845, '1f525': 990, '1f600': 2100, '1f602': 1770, '1f605': 1800, '1f609': 2250,
+  '1f622': 1650, '1f62c': 2670, '1f642': 3000, '1f64c': 1414, '1f64f': 750, '1f680': 600, '1f6e0_fe0f': 2730, '1f914': 1800,
+  '1f91d': 1080, '23f3': 1980, '26a0_fe0f': 1440, '274c': 990, '2764_fe0f': 1800,
+};
+const hasAnimation = (code: string) => Object.prototype.hasOwnProperty.call(NOTO_ANIMATED, code);
+
+/** Most emoji a message may hold and still be shown big, without a bubble. */
+export const BIG_EMOJI_MAX = 3;
+
+/**
+ * The emoji of a message that is nothing but 1–3 emoji with Noto art (spaces allowed), else null.
+ * Such a message is drawn big and without a bubble.
+ */
+export function bigEmojiOf(text: string): string[] | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const found = trimmed.match(/\p{Extended_Pictographic}️?/gu);
+  if (!found || found.length > BIG_EMOJI_MAX) return null;
+  if (trimmed.replace(/\p{Extended_Pictographic}️?|\s/gu, '') !== '') return null;
+  return found.every((e) => notoCode(e) !== null) ? found : null;
+}
+
+/**
+ * Big emoji of an emoji-only message. They play their Noto animation once when `play` is set (a
+ * message that just arrived) and again when clicked, then rest on the still art. People who asked
+ * their system for less motion always see the still art.
+ */
+export function BigEmoji({ emoji, play }: { emoji: string[]; play: boolean }) {
+  const size = emoji.length === 1 ? 112 : emoji.length === 2 ? 88 : 72;
+  const [run, setRun] = useState(() => (play && !prefersStill() ? 1 : 0));
+  const codes = emoji.map((e) => notoCode(e) ?? '');
+  const longest = Math.max(0, ...codes.map((c) => NOTO_ANIMATED[c] ?? 0));
+  useEffect(() => {
+    if (!run || !longest) return;
+    const t = window.setTimeout(() => setRun(0), longest);
+    return () => window.clearTimeout(t);
+  }, [run, longest]);
+  const replay = () => { if (longest && !prefersStill()) setRun((r) => (r ? r : Date.now())); };
+  return (
+    <button type="button" onClick={replay} aria-label={`${emoji.join(' ')}${longest ? ', play animation' : ''}`}
+      className="flex cursor-pointer gap-1 border-0 bg-transparent p-0 shadow-none select-none">
+      {codes.map((code, i) => {
+        const animated = run !== 0 && hasAnimation(code);
+        return (
+          // eslint-disable-next-line @next/next/no-img-element -- tiny local files, no optimisation needed
+          <img key={`${i}-${animated ? run : 's'}`} src={`/chat/emoji/${code}.${animated ? 'webp' : 'svg'}`} alt="" aria-hidden="true"
+            width={size} height={size} draggable={false} decoding="async" style={{ width: size, height: size }} />
+        );
+      })}
+    </button>
+  );
+}
 
 function notoCode(emoji: string): string | null {
   const full = [...emoji].map((c) => (c.codePointAt(0) ?? 0).toString(16)).join('_');
@@ -62,12 +119,40 @@ const prefersStill = () => typeof window !== 'undefined' && Boolean(window.match
 export function Emoji({ emoji, size = 20, play = false, className }: { emoji: string; size?: number; play?: boolean; className?: string }) {
   const code = notoCode(emoji);
   if (!code) return <span className={className} style={{ fontSize: size * 0.9, lineHeight: 1 }} aria-hidden="true">{emoji}</span>;
-  const animated = play && NOTO_ANIMATED.has(code) && !prefersStill();
+  const animated = play && hasAnimation(code) && !prefersStill();
   return (
     // eslint-disable-next-line @next/next/no-img-element -- tiny local files, no optimisation needed
     <img src={`/chat/emoji/${code}.${animated ? 'webp' : 'svg'}`} alt="" aria-hidden="true" width={size} height={size} draggable={false}
       decoding="async" className={cn('inline-block shrink-0 select-none', className)} style={{ width: size, height: size }} />
   );
+}
+
+/** An emoji, optionally followed by the emoji presentation selector. */
+const EMOJI_RE = /\p{Extended_Pictographic}️?/gu;
+
+/**
+ * Text with every emoji that has Noto art drawn as an inline image sized to the text (1.25em); other
+ * emoji stay as typed. Copying the text still gives the emoji, through the image's `alt`.
+ */
+export function withEmoji(text: string, keyPrefix: string): ReactNode[] | string {
+  if (!/\p{Extended_Pictographic}/u.test(text)) return text;
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(EMOJI_RE)) {
+    const code = notoCode(m[0]);
+    if (!code) continue;
+    const at = m.index ?? 0;
+    if (at > last) out.push(text.slice(last, at));
+    out.push(
+      // eslint-disable-next-line @next/next/no-img-element -- tiny local files, no optimisation needed
+      <img key={`${keyPrefix}e${at}`} src={`/chat/emoji/${code}.svg`} alt={m[0]} draggable={false} decoding="async"
+        className="inline-block size-[1.25em] select-none align-[-0.25em]" />,
+    );
+    last = at + m[0].length;
+  }
+  if (last === 0) return text;
+  if (last < text.length) out.push(text.slice(last));
+  return out;
 }
 
 /** "smooth", unless the person asked their system for less motion. */

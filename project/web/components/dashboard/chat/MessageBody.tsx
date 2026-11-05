@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { memo, useState, type ReactNode } from 'react';
+import { Fragment, memo, useState, type ReactNode } from 'react';
 import { parseBlocks, parseInline, type Inline } from '@/lib/chatText';
 import { cn } from '@/lib/utils';
 import { Icon } from '../../ui/Icon';
+import { withEmoji } from './shared';
 
 /** A link to this dashboard (opened in place) or to somewhere else (new tab, no referrer, no opener). */
 function MessageLink({ url }: { url: string }) {
@@ -22,7 +23,7 @@ function renderInline(nodes: Inline[], myName: string | null, keyPrefix = ''): R
   return nodes.map((node, i) => {
     const key = `${keyPrefix}${i}`;
     switch (node.kind) {
-      case 'text': return node.text;
+      case 'text': return <Fragment key={key}>{withEmoji(node.text, key)}</Fragment>;
       case 'code': return <code key={key} className="rounded-md border border-line bg-(--chip) px-1 py-px font-mono text-[0.86em] text-fg">{node.text}</code>;
       case 'link': return <MessageLink key={key} url={node.url} />;
       case 'mention': {

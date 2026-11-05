@@ -4,4 +4,4 @@ Emoji artwork in this folder is by Google:
 - *.webp — Noto Animated Emoji (https://googlefonts.github.io/noto-emoji-animation/),
            Creative Commons Attribution 4.0 International (https://creativecommons.org/licenses/by/4.0/).
 
-Files are unmodified, downloaded 2026-11-05 from fonts.gstatic.com/s/e/notoemoji/latest/<codepoints>/.
+Files are unmodified, downloaded 2026-11-05 and 2026-11-06 from fonts.gstatic.com/s/e/notoemoji/latest/<codepoints>/.
