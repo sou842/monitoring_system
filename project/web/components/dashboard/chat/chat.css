@@ -107,6 +107,12 @@
   [data-theme=dark] .tg-bubble.is-own .text-muted { color: rgb(255 255 255 / 0.72); }
 
   /* Time + status: an invisible copy at the end of the text keeps room, the real one sits in the corner. */
+  /* Emoji-only message: just the big emoji, no bubble, tail or shadow. */
+  .tg-bubble.tg-bubble.is-big-emoji { display: flex; flex-direction: column; background: transparent; box-shadow: none; filter: none; padding: 0; }
+  .tg-bubble.tg-bubble.is-big-emoji::before { display: none; }
+  .tg-bubble.is-big-emoji.is-own { align-items: flex-end; }
+  /* The time is its own line under the emoji (never over them), on a small pill so it reads on the wallpaper. */
+  .tg-bubble.tg-bubble.is-big-emoji .tg-meta { position: static; order: 99; align-self: flex-end; margin-top: 4px; padding: 2px 7px; border-radius: 9999px; background: var(--tg-pill); color: #fff; }
   .tg-meta { position: absolute; right: 8px; bottom: 4px; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; line-height: 14px; color: var(--tg-in-meta); white-space: nowrap; user-select: none; }
   .tg-bubble.is-own .tg-meta { color: var(--tg-own-meta); }
   .tg-meta-spacer { visibility: hidden; display: inline-flex; gap: 3px; padding-left: 10px; font-size: 12px; line-height: 14px; vertical-align: baseline; white-space: nowrap; }
