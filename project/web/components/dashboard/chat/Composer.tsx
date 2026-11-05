@@ -365,7 +365,11 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       </button>
       <button type="button" className={side} title={attached.length >= MAX_ISSUES ? `Up to ${MAX_ISSUES} issues per message` : 'Share an issue (/)'} aria-label="Share an issue"
         disabled={attached.length >= MAX_ISSUES} onMouseDown={(e) => e.preventDefault()} onClick={() => insert('/', true)}>
-        <Icon name="bug" className="size-4" />
+        <Icon name="wrench" className="size-4" />
+      </button>
+      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
+        className="tg-send ml-0.5 size-9 sm:size-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
+        <Icon name="send" className="size-5" />
       </button>
     </div>
   );
@@ -453,10 +457,6 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         </div>
       </div>
 
-      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
-        className="tg-fab tg-sendfocus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
-        <Icon name="send" className="size-5.5" />
-      </button>
       {!expanded ? <span id={`${listId}-hint`} className="sr-only">Enter to send, Shift+Enter for a new line. Type @ to mention someone and / to share an issue.</span> : null}
     </div>
   );
