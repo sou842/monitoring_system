@@ -34,7 +34,7 @@ const STUCK_TOP_PX = 8;
 /** Size of the avatar next to a group of others' messages. */
 const GROUP_AVATAR_PX = 34;
 /** The conversation column (messages and the message box) is at most this wide. */
-const COLUMN = 'mx-auto w-full max-w-[740px]';
+const COLUMN = 'mx-auto w-full max-w-[1400px]';
 
 /** Looks like the closed message box, shown while the editor's code loads (so nothing jumps). */
 function ComposerPlaceholder() {
@@ -466,8 +466,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
           <div className={cn(COLUMN, 'pointer-events-none absolute inset-x-0 bottom-3 flex justify-end px-3 md:px-5')}>
             <button type="button" onClick={jumpToLatest} tabIndex={showJump && rows.length > 0 ? 0 : -1} aria-hidden={!(showJump && rows.length > 0)}
               aria-label={newBelow > 0 ? `${newBelow} new ${newBelow === 1 ? 'message' : 'messages'}, jump to latest` : 'Jump to the latest message'}
-              className={cn('tg-fab relative size-[50px]', showJump && rows.length > 0 ? 'pointer-events-auto' : 'translate-y-4 scale-75 opacity-0')}>
-              <Icon name="arrowDown" className="size-6" />
+              className={cn('tg-fab relative size-10', showJump && rows.length > 0 ? 'pointer-events-auto' : 'translate-y-4 scale-75 opacity-0')}>
+              <Icon name="arrowDown" className="size-5" />
               {newBelow > 0 ? <span className="tg-fab-badge">{newBelow > 99 ? '99+' : newBelow}</span> : null}
             </button>
           </div>

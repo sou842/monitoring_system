@@ -341,7 +341,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       </button>
       {emojiOpen ? (
         <div ref={emojiPanel} role="menu" aria-label="Emoji" onKeyDown={onMenuKeyDown}
-          className="tg-fade-in absolute bottom-full left-0 z-30 mb-3 grid w-[324px] max-w-[calc(100vw-24px)] grid-cols-8 gap-0.5 rounded-2xl bg-(--tg-menu) p-2 shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl">
+          className="tg-fade-in absolute bottom-full left-0 z-30 mb-3 grid w-81 max-w-[calc(100vw-24px)] grid-cols-8 gap-0.5 rounded-2xl bg-(--tg-menu) p-2 shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl">
           {EMOJI.map(([e, name]) => (
             <button key={e} type="button" role="menuitem" aria-label={name} title={name} onMouseDown={(ev) => ev.preventDefault()}
               onClick={() => { insert(e); setEmojiOpen(false); }}
@@ -371,10 +371,10 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   );
 
   return (
-    <div className="relative mx-auto flex w-full max-w-[740px] items-end gap-2 px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4">
+    <div className="relative mx-auto flex w-full max-w-185 items-end gap-2 px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4">
       {shown ? (
         <ul id={listId} role="listbox" aria-label={suggest.kind === 'mention' ? 'People in this project' : 'Issues in this project'}
-          className="tg-fade-in absolute right-[72px] bottom-full left-2 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto rounded-2xl bg-(--tg-menu) p-1.5 text-(--tg-text) shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl md:left-4">
+          className="tg-fade-in absolute right-18 bottom-full left-2 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto rounded-2xl bg-(--tg-menu) p-1.5 text-(--tg-text) shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl md:left-4">
           <li className="px-2.5 pt-1 pb-1.5 text-[12px] font-medium text-(--tg-in-meta)" role="presentation">
             {suggest.kind === 'mention' ? 'People in this project' : searching ? 'Searching issues…' : 'Issues in this project'}
           </li>
@@ -394,7 +394,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
                 </>
               ) : (
                 <>
-                  <span className={cn('grid size-[34px] shrink-0 place-items-center rounded-full', issueTile(option.eventType))} aria-hidden="true"><Icon name={issueIcon(option)} className="size-4" /></span>
+                  <span className={cn('grid size-8.5 shrink-0 place-items-center rounded-full', issueTile(option.eventType))} aria-hidden="true"><Icon name={issueIcon(option)} className="size-4" /></span>
                   <span className="min-w-0 flex-1"><b className="block truncate font-medium">{option.errorType}</b><span className="block truncate text-[13px] text-(--tg-in-meta)">{option.message || '(no message)'}</span></span>
                   <span className="shrink-0 text-[13px] text-(--tg-in-meta) tabular-nums">{option.count.toLocaleString()}</span>
                 </>
@@ -407,7 +407,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       <div className="tg-input has-tail min-w-0 flex-1">
         {replyTo ? (
           <div className="tg-fade-in flex items-center gap-1 pt-1.5 pr-1 pl-1">
-            <span className="grid size-10 shrink-0 place-items-center text-(--tg-accent)"><Icon name="reply" className="size-[22px]" /></span>
+            <span className="grid size-10 shrink-0 place-items-center text-(--tg-accent)"><Icon name="reply" className="size-5.5" /></span>
             <button type="button" onClick={() => document.getElementById(`m-${replyTo.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
               className="tg-quote m-0 flex-1 cursor-pointer" style={{ '--peer': 'var(--tg-accent)' } as CSSProperties} title="Show the message">
               <span className="truncate font-medium text-(--tg-accent)">Reply to {replyTo.userId === me.id ? 'yourself' : (replyTo.userName ?? 'Deleted user')}</span>
@@ -443,9 +443,9 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
           </div>
         ) : null}
 
-        <div className="flex items-end gap-0.5 px-1.5 py-[7px]">
+        <div className="flex items-end gap-0.5 px-1.5 py-1.75">
           {emoji}
-          <div className={cn('min-w-0 flex-1 cursor-text overflow-y-auto px-1 py-[8px]', expanded ? 'max-h-[min(360px,45vh)] min-h-24' : 'max-h-[min(260px,38vh)]')}
+          <div className={cn('min-w-0 flex-1 cursor-text overflow-y-auto px-1 py-2', expanded ? 'max-h-[min(360px,45vh)] min-h-24' : 'max-h-[min(260px,38vh)]')}
             onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); editor?.commands.focus('end'); } }}>
             {editor ? <EditorContent editor={editor} /> : <div className="text-[16px] leading-6 text-(--tg-in-meta)">{placeholder.current}</div>}
           </div>
