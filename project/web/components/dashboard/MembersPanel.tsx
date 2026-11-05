@@ -86,7 +86,7 @@ function buildColumns(tools: MutableRefObject<RowTools>) {
       header: 'Person',
       cell: ({ row }) => {
         const { person, member } = row.original;
-        const badge = !member ? <Badge tone="dark">Owner</Badge> : member.id === tools.current.userId ? <Badge tone="muted">You</Badge> : undefined;
+        const badge = !member ? <Badge className="px-2 py-0" tone="dark">Owner</Badge> : member.id === tools.current.userId ? <Badge className="text-xs" tone="muted">You</Badge> : undefined;
         return <Person person={person} badge={badge} />;
       },
     }),

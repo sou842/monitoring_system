@@ -96,7 +96,7 @@ function ImpactPanel({ impact, total }: { impact: IssueImpact; total: number }) 
   return (
     <div className="mt-4 border-t border-line pt-3" aria-label={`Impact over ${scope}`}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">Who it affects</span>
+        {/* <span className="text-[10px] font-semibold tracking-wider text-muted uppercase">Who it affects</span> */}
         <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
           {summary.map(([label, text]) => (
             <span key={label} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-panel-2 px-2.5 py-1 text-xs" title={`${label}, in ${scope}`}>
