@@ -1,5 +1,6 @@
 import {
   Activity, ArrowDown, ArrowUp, Bell, Check, CheckCheck, ChevronDown, Eye, Folder, Ghost, Heart, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
+  Bomb, Bug, Cpu, FileJson, FileSearch, Gauge, Globe, Hourglass, ImageOff, MemoryStick, MessageSquare, OctagonPause, ServerCrash, ShieldAlert, SquareDashed, Terminal, Timer, WifiOff,
   PartyPopper, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Smile, Sparkles, Sun, ThumbsUp, Trash2, User, Users, X, LayoutDashboard, Clock, Copy, CircleAlert, Reply, RotateCw,
   type LucideIcon,
 } from 'lucide-react';
@@ -45,6 +46,25 @@ export const ICONS = {
   heart: Heart,
   party: PartyPopper,
   eye: Eye,
+  // Issue kinds (chat issue cards)
+  bug: Bug,
+  bomb: Bomb,
+  serverCrash: ServerCrash,
+  wifiOff: WifiOff,
+  fileJson: FileJson,
+  imageOff: ImageOff,
+  shieldAlert: ShieldAlert,
+  cpu: Cpu,
+  terminal: Terminal,
+  fileSearch: FileSearch,
+  blankPage: SquareDashed,
+  hourglass: Hourglass,
+  timer: Timer,
+  memory: MemoryStick,
+  octagonPause: OctagonPause,
+  gauge: Gauge,
+  globe: Globe,
+  messageSquare: MessageSquare,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

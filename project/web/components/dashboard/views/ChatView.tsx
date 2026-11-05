@@ -25,6 +25,9 @@ const ISSUE_RESULTS = 6;
 const ISSUE_SEARCH_DELAY_MS = 200;
 /** Tallest the message box grows before it scrolls (px). */
 const COMPOSER_MAX_HEIGHT = 144;
+/** Room (px) a message's popup needs below its button; with less, it opens upwards instead. */
+const POPUP_MENU_PX = 130;
+const POPUP_REACT_PX = 56;
 /** How long a quoted message stays highlighted after jumping to it. */
 const FLASH_MS = 1400;
 
@@ -32,6 +35,17 @@ const EMOJI = ['😀', '😂', '😊', '😍', '🙏', '👏', '🎉', '🔥', '
 const EVENT_TONE: Record<string, Tone> = { crash: 'dark', error: 'red', performance: 'amber', message: 'neutral' };
 /** Maps each reaction emoji to its Lucide icon name, for the reaction picker toolbar. */
 const REACTION_ICON_MAP: Record<string, IconName> = { '👍': 'thumbsUp', '❤️': 'heart', '😂': 'smile', '🎉': 'party', '👀': 'eye', '✅': 'checkDouble' };
+/** The icon for each kind of issue the SDK reports (by error type); anything else falls back to its event type. */
+const ISSUE_ICON_BY_TYPE: Record<string, IconName> = {
+  HttpError: 'serverCrash', NetworkError: 'wifiOff', InvalidJsonResponse: 'fileJson', ResourceError: 'imageOff', CspViolation: 'shieldAlert',
+  WorkerError: 'cpu', ConsoleError: 'terminal', CrossOriginScriptError: 'globe', PageNotFound: 'fileSearch', BlankPage: 'blankPage',
+  SlowPageLoad: 'hourglass', SlowApiCall: 'timer', MemoryLeakSuspected: 'memory', MainThreadBlocked: 'octagonPause', LowFrameRate: 'gauge',
+};
+const ISSUE_ICON_BY_EVENT: Record<string, IconName> = { crash: 'bomb', error: 'bug', performance: 'gauge', message: 'messageSquare' };
+/** Soft tinted tile colours per event type. */
+const ISSUE_TILE: Record<string, string> = {
+  crash: 'bg-fg/10 text-fg', error: 'bg-red-500/10 text-red-500', performance: 'bg-amber-500/12 text-amber-600 dark:text-amber-400', message: 'bg-(--chip) text-muted',
+};
 const STATUS_TONE: Record<string, Tone> = { open: 'neutral', resolved: 'green', ignored: 'muted' };
 
 const dayLabel = (iso: string) => {
@@ -62,10 +76,10 @@ const snippetOf = (m: { text: string; issues?: unknown[]; hasIssues?: boolean; d
 
 /** An attached issue: a compact one-row card that opens the issue (or, in the composer, can be removed). */
 function IssueCard({ issue, onRemove }: { issue: ChatIssueView; onRemove?: () => void }) {
-  const dot = issue.eventType === 'crash' ? 'bg-fg' : issue.eventType === 'performance' ? 'bg-amber-500' : issue.eventType === 'message' ? 'bg-muted' : 'bg-red-500';
+  const glyph = ISSUE_ICON_BY_TYPE[issue.errorType] ?? ISSUE_ICON_BY_EVENT[issue.eventType] ?? 'bug';
   const body = (
     <>
-      <span className={cn('size-2 shrink-0 rounded-full', dot)} aria-hidden="true" />
+      <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', ISSUE_TILE[issue.eventType] ?? ISSUE_TILE.error)} aria-hidden="true"><Icon name={glyph} className="size-4" /></span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-[13px] leading-5 font-semibold">
           <span className="truncate">{issue.errorType}</span>
@@ -373,6 +387,12 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
   // ---- message actions
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [openReact, setOpenReact] = useState<string | null>(null);
+  // Whether the open popup goes above its button: decided when it opens, from the room left below it in the message list.
+  const [popUp, setPopUp] = useState(false);
+  const decidePlacement = (button: HTMLElement, needed: number) => {
+    const list = scroller.current?.getBoundingClientRect();
+    setPopUp(list ? list.bottom - button.getBoundingClientRect().bottom < needed : false);
+  };
   const removeMessage = (m: ChatMessageView) => action(async () => {
     const ok = await openDialog({
       title: 'Delete this message?',
@@ -440,11 +460,11 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
       <div className={cn('absolute -top-3.5 right-2 z-20 hidden items-center gap-0.5 rounded-xl border border-line bg-panel p-0.5 shadow-(--menu-shadow) group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex')}>
         {!own ? (
           <div className="relative">
-            <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }} className={toolBtn}>
+            <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); decidePlacement(e.currentTarget, POPUP_REACT_PX); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }} className={toolBtn}>
               <Icon name="smile" className="size-4" />
             </button>
             {reactOpen ? (
-              <div role="menu" aria-label="React" className="absolute top-full right-0 z-30 mt-1.5 flex items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)">
+              <div role="menu" aria-label="React" className={cn('absolute right-0 z-30 flex items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)', popUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5')}>
                 {CHAT_REACTIONS.map((e) => (
                   <button key={e} type="button" title={e} aria-label={`React with ${e}`} onClick={(ev) => { ev.stopPropagation(); chat.react(m.id, e); setOpenReact(null); }}
                     className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg">
@@ -457,11 +477,11 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         ) : null}
         <button type="button" title="Reply" aria-label="Reply" onClick={(e) => { e.stopPropagation(); startReply(m); }} className={toolBtn}><Icon name="reply" className="size-4" /></button>
         <div className="relative">
-          <button type="button" title="More" aria-label="More options" onClick={(e) => { e.stopPropagation(); setOpenReact(null); setOpenMenu(menuOpen ? null : m.id); }} className={toolBtn}>
+          <button type="button" title="More" aria-label="More options" onClick={(e) => { e.stopPropagation(); decidePlacement(e.currentTarget, POPUP_MENU_PX); setOpenReact(null); setOpenMenu(menuOpen ? null : m.id); }} className={toolBtn}>
             <Icon name="chevron" className="size-4" />
           </button>
           {menuOpen ? (
-            <div role="menu" className="absolute top-full right-0 z-30 mt-1.5 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)">
+            <div role="menu" className={cn('absolute right-0 z-30 min-w-[132px] overflow-hidden rounded-xl border border-line bg-panel py-1 text-left shadow-(--menu-shadow)', popUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5')}>
               {m.text ? (
                 <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setOpenMenu(null); copyText(m); }}
                   className="flex w-full cursor-pointer items-center gap-2 rounded-none border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-fg shadow-none hover:bg-(--hover)"><Icon name="copy" className="size-4 text-muted" />Copy</button>
@@ -492,10 +512,13 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : null}
           {m.replyTo ? (
             <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }} title="Go to the original message"
-              className="mb-1 flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent p-0 text-left text-xs shadow-none">
-              <Icon name="reply" className="size-3.5 shrink-0 text-muted" />
-              <span className="shrink-0 font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
-              <span className={cn('min-w-0 truncate text-muted hover:text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
+              className="mt-1 mb-1.5 block w-full max-w-md min-w-0 cursor-pointer rounded-lg border-0 border-l-[3px] bg-(--chip) py-1.5 pr-3 pl-3 text-left shadow-none transition-colors hover:bg-(--hover)"
+              style={{ borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
+              <span className="flex items-center gap-1.5 text-[11px] leading-4 text-muted">
+                <Icon name="reply" className="size-3 shrink-0" />Replying to
+                <span className="truncate text-xs font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
+              </span>
+              <span className={cn('mt-0.5 line-clamp-2 block text-[13px] leading-snug text-fg-2', m.replyTo.deleted && 'italic text-muted')}>{snippetOf(m.replyTo) || 'Message'}</span>
             </button>
           ) : null}
           {m.deleted ? (
