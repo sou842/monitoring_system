@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="360" viewBox="0 0 360 360" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Original doodles for the chat wallpaper (monitoring theme). Drawn for this project. -->
+  <!-- bug -->
+  <g transform="translate(28 26) rotate(-14 18 20)">
+    <ellipse cx="18" cy="24" rx="10" ry="13"/><circle cx="18" cy="8" r="5"/><path d="M18 13v24M8 18 1 14M8 26H0M9 33l-6 5M28 18l7-4M28 26h8M27 33l6 5M15 4l-3-4M21 4l3-4"/>
+  </g>
+  <!-- bar chart -->
+  <g transform="translate(118 18)"><path d="M2 40h40"/><rect x="6" y="22" width="7" height="18" rx="1.5"/><rect x="18" y="10" width="7" height="30" rx="1.5"/><rect x="30" y="2" width="7" height="38" rx="1.5"/></g>
+  <!-- braces -->
+  <g transform="translate(206 30) rotate(10 20 18)"><path d="M10 0C4 0 4 4 4 9s0 8-4 9c4 1 4 4 4 9s0 9 6 9M30 0c6 0 6 4 6 9s0 8 4 9c-4 1-4 4-4 9s0 9-6 9"/><circle cx="16" cy="18" r="1.3"/><circle cx="24" cy="18" r="1.3"/></g>
+  <!-- bell -->
+  <g transform="translate(296 16) rotate(-12 18 20)"><path d="M6 30c3-3 4-7 4-13a10 10 0 0 1 20 0c0 6 1 10 4 13zM15 35a5 5 0 0 0 10 0M20 3V0"/></g>
+  <!-- pulse line -->
+  <g transform="translate(16 112)"><path d="M0 16h12l5-12 8 26 6-18 4 4h17"/></g>
+  <!-- gear -->
+  <g transform="translate(96 92)"><circle cx="20" cy="20" r="7"/><path d="M20 2v6M20 32v6M2 20h6M32 20h6M7.3 7.3l4.2 4.2M28.5 28.5l4.2 4.2M7.3 32.7l4.2-4.2M28.5 11.5l4.2-4.2"/></g>
+  <!-- terminal -->
+  <g transform="translate(168 104) rotate(-8 24 18)"><rect x="0" y="0" width="48" height="36" rx="6"/><path d="M0 9h48M9 18l7 5-7 5M21 29h10"/></g>
+  <!-- magnifier -->
+  <g transform="translate(258 92) rotate(6 18 18)"><circle cx="15" cy="15" r="11"/><path d="M23 23l11 11M10 15h10"/></g>
+  <!-- cloud -->
+  <g transform="translate(306 120)"><path d="M10 28h26a9 9 0 0 0 0-18 13 13 0 0 0-25-1A10 10 0 0 0 10 28z"/></g>
+  <!-- lightning -->
+  <g transform="translate(30 178) rotate(12 12 20)"><path d="M16 0 2 22h11L8 40l16-24H13z"/></g>
+  <!-- line chart with dots -->
+  <g transform="translate(84 186)"><path d="M0 36 14 20l12 8 18-24"/><circle cx="14" cy="20" r="2"/><circle cx="26" cy="28" r="2"/><circle cx="44" cy="4" r="2"/></g>
+  <!-- code slash -->
+  <g transform="translate(160 182) rotate(-10 22 14)"><path d="M12 4 2 14l10 10M32 4l10 10-10 10M26 0l-8 28"/></g>
+  <!-- heart -->
+  <g transform="translate(236 178) rotate(14 16 14)"><path d="M16 28S2 20 2 10a7 7 0 0 1 14-2 7 7 0 0 1 14 2c0 10-14 18-14 18z"/></g>
+  <!-- check circle -->
+  <g transform="translate(300 196)"><circle cx="17" cy="17" r="15"/><path d="M10 17l5 5 9-10"/></g>
+  <!-- coffee cup -->
+  <g transform="translate(14 262) rotate(-6 20 18)"><path d="M2 12h28v12a12 12 0 0 1-12 12h-4A12 12 0 0 1 2 24zM30 16h4a6 6 0 0 1 0 12h-4M10 0c-2 3 2 5 0 8M18 0c-2 3 2 5 0 8"/></g>
+  <!-- database -->
+  <g transform="translate(96 262)"><ellipse cx="18" cy="6" rx="16" ry="6"/><path d="M2 6v26c0 3 7 6 16 6s16-3 16-6V6M2 19c0 3 7 6 16 6s16-3 16-6"/></g>
+  <!-- star -->
+  <g transform="translate(170 266) rotate(18 18 18)"><path d="M18 2l5 10 11 2-8 8 2 11-10-5-10 5 2-11-8-8 11-2z"/></g>
+  <!-- stopwatch -->
+  <g transform="translate(240 256)"><circle cx="18" cy="22" r="14"/><path d="M18 22V14M14 2h8M18 2v6M30 9l3-3"/></g>
+  <!-- warning triangle -->
+  <g transform="translate(306 268) rotate(-10 18 16)"><path d="M18 2 34 30H2zM18 12v8M18 25v.5"/></g>
+  <!-- small dots and crosses to fill gaps -->
+  <circle cx="80" cy="66" r="2"/><circle cx="258" cy="66" r="2"/><circle cx="148" cy="160" r="2"/><circle cx="62" cy="236" r="2"/><circle cx="222" cy="240" r="2"/><circle cx="336" cy="176" r="2"/><circle cx="150" cy="340" r="2"/>
+  <path d="M190 66l6 6M196 66l-6 6M60 150l6 6M66 150l-6 6M282 156l6 6M288 156l-6 6M134 238l6 6M140 238l-6 6M290 330l6 6M296 330l-6 6"/>
+</svg>

@@ -7,17 +7,16 @@ import { PluginKey } from '@tiptap/pm/state';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Suggestion, { exitSuggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion';
-import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { api } from '@/lib/client/api';
 import type { Draft } from '@/lib/client/chat';
 import { docToMarkdown } from '@/lib/chatText';
 import { queryString } from '@/lib/format';
 import type { ChatIssueView, ChatMessageView, IssuesResponse, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { Avatar } from '../../ui/bits';
 import { Icon, type IconName } from '../../ui/Icon';
 import { snippetOf } from './MessageRow';
-import { ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, POPOVER, useDismiss, useFocusFirst } from './shared';
+import { ChatAvatar, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, useDismiss, useFocusFirst } from './shared';
 
 /*
  * The message box, Teams-style: it opens as a plain one-line input, but it is a rich editor (Tiptap) inside.
@@ -132,7 +131,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   const suggestRef = useRef<Suggest | null>(null);
   suggestRef.current = suggest;
   const placeholder = useRef('');
-  placeholder.current = offline ? 'You’re offline. Messages send when you’re back.' : expanded ? `Message #${projectName}` : 'Type a message';
+  placeholder.current = offline ? 'You’re offline. Messages send when you’re back.' : 'Message';
 
   const attachRef = useRef<(issue: ChatIssueView) => void>(() => {});
   attachRef.current = (issue) => setAttached((list) => (list.length >= MAX_ISSUES || list.some((i) => i.id === issue.id) ? list : [...list, issue]));
@@ -209,7 +208,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         spellcheck: 'true',
         dir: 'auto',
         class: cn(
-          'min-h-6 text-[14px] leading-6 text-fg outline-none [overflow-wrap:anywhere] whitespace-pre-wrap',
+          'min-h-6 text-[16px] leading-6 text-(--tg-text) outline-none [overflow-wrap:anywhere] whitespace-pre-wrap',
           '[&_p]:m-0 [&_ul]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-6 [&_li>p]:m-0',
           '[&_blockquote]:my-1 [&_blockquote]:border-0 [&_blockquote]:border-l-[3px] [&_blockquote]:border-solid [&_blockquote]:border-line-strong [&_blockquote]:pl-3 [&_blockquote]:text-fg-2',
           '[&_code]:rounded-md [&_code]:border [&_code]:border-line [&_code]:bg-(--chip) [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.86em]',
@@ -217,7 +216,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
           '[&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0',
           '[&_strong]:font-semibold [&_s]:text-muted',
           '[&_.is-editor-empty:first-child]:before:pointer-events-none [&_.is-editor-empty:first-child]:before:float-left [&_.is-editor-empty:first-child]:before:h-0',
-          '[&_.is-editor-empty:first-child]:before:text-muted [&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]',
+          '[&_.is-editor-empty:first-child]:before:text-(--tg-in-meta) [&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]',
         ),
       },
       // No uploads: files and images pasted or dropped into the box are ignored.
@@ -331,79 +330,73 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
 
   const sendable = (length > 0 || attached.length > 0) && length <= MAX_LENGTH;
 
-  // Normal mode is a pill (round buttons); Format mode is a rounded box (square-ish buttons, like the toolbar).
-  const pill = !expanded;
-  const actionButton = cn(ICON_BUTTON, pill && 'rounded-full');
+  // The box: emoji on the left, the editor, format + issue on the right; the round send button sits outside it.
+  const side = cn(ICON_BUTTON, 'size-10 rounded-full text-(--tg-in-meta) hover:bg-transparent hover:text-(--tg-accent) aria-pressed:bg-transparent aria-pressed:text-(--tg-accent) aria-expanded:bg-transparent aria-expanded:text-(--tg-accent) [&_svg]:size-[22px]');
 
-  const actions: ReactNode = (
-    <div className="flex shrink-0 items-center gap-0.5">
-      <button type="button" className={actionButton} title={expanded ? 'Hide formatting' : 'Format'} aria-label={expanded ? 'Hide formatting' : 'Show formatting'} aria-pressed={expanded}
-        onMouseDown={(e) => e.preventDefault()} onClick={() => { setExpanded((x) => !x); editor?.commands.focus(); }}>
-        <Icon name="format" className="size-4" />
+  const emoji: ReactNode = (
+    <div ref={emojiWrap} className="relative shrink-0 self-end">
+      <button ref={emojiButton} type="button" className={side} title="Emoji" aria-label="Emoji" aria-haspopup="menu" aria-expanded={emojiOpen}
+        onClick={() => setEmojiOpen((o) => !o)}>
+        <Icon name="smile" className="size-4" />
       </button>
-      <div ref={emojiWrap} className="relative">
-        <button ref={emojiButton} type="button" className={actionButton} title="Emoji" aria-label="Emoji" aria-haspopup="menu" aria-expanded={emojiOpen}
-          onClick={() => setEmojiOpen((o) => !o)}>
-          <Icon name="smile" className="size-4" />
-        </button>
-        {emojiOpen ? (
-          <div ref={emojiPanel} role="menu" aria-label="Emoji" onKeyDown={onMenuKeyDown}
-            className={cn(POPOVER, 'absolute right-0 bottom-full z-30 mb-2 grid w-74 grid-cols-8 gap-0.5 p-2')}>
-            {EMOJI.map(([emoji, name]) => (
-              <button key={emoji} type="button" role="menuitem" aria-label={name} title={name} onMouseDown={(ev) => ev.preventDefault()}
-                onClick={() => { insert(emoji); setEmojiOpen(false); }}
-                className="grid size-8 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-lg shadow-none hover:bg-(--hover) focus-visible:bg-(--hover) focus-visible:outline-2 focus-visible:outline-(--mention)">{emoji}</button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-      <button type="button" className={actionButton} title={attached.length >= MAX_ISSUES ? `Up to ${MAX_ISSUES} issues per message` : 'Share an issue (/)'} aria-label="Share an issue"
-        disabled={attached.length >= MAX_ISSUES} onMouseDown={(e) => e.preventDefault()} onClick={() => insert('/', true)}>
-        <Icon name="bug" className="size-4" />
-      </button>
+      {emojiOpen ? (
+        <div ref={emojiPanel} role="menu" aria-label="Emoji" onKeyDown={onMenuKeyDown}
+          className="tg-fade-in absolute bottom-full left-0 z-30 mb-3 grid w-[324px] max-w-[calc(100vw-24px)] grid-cols-8 gap-0.5 rounded-2xl bg-(--tg-menu) p-2 shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl">
+          {EMOJI.map(([e, name]) => (
+            <button key={e} type="button" role="menuitem" aria-label={name} title={name} onMouseDown={(ev) => ev.preventDefault()}
+              onClick={() => { insert(e); setEmojiOpen(false); }}
+              className="grid size-9 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-[22px] shadow-none transition-transform hover:scale-115 hover:bg-(--tg-menu-hover) focus-visible:bg-(--tg-menu-hover) focus-visible:outline-none">{e}</button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const right: ReactNode = (
+    <div className="flex shrink-0 items-center self-end">
       {length >= COUNTER_FROM ? (
-        <span className={cn('mx-1 text-[11px] tabular-nums', length > MAX_LENGTH ? 'font-semibold text-danger' : 'text-muted')} aria-live="polite">
+        <span className={cn('mx-1 text-[12px] tabular-nums', length > MAX_LENGTH ? 'font-semibold text-(--tg-danger)' : 'text-(--tg-in-meta)')} aria-live="polite">
           {length > MAX_LENGTH ? `${(length - MAX_LENGTH).toLocaleString()} over` : `${(MAX_LENGTH - length).toLocaleString()} left`}
         </span>
       ) : null}
-      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
-        className={cn(
-          'ml-0.5 grid size-8 shrink-0 cursor-pointer place-items-center border-0 bg-invert-bg p-0 text-invert-fg shadow-none transition-opacity hover:opacity-85',
-          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--mention) disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted',
-          pill ? 'rounded-full' : 'rounded-lg',
-        )}>
-        <Icon name="send" className="size-4" />
+      <button type="button" className={side} title={expanded ? 'Hide formatting' : 'Format'} aria-label={expanded ? 'Hide formatting' : 'Show formatting'} aria-pressed={expanded}
+        onMouseDown={(e) => e.preventDefault()} onClick={() => { setExpanded((x) => !x); editor?.commands.focus(); }}>
+        <Icon name="format" className="size-4" />
+      </button>
+      <button type="button" className={side} title={attached.length >= MAX_ISSUES ? `Up to ${MAX_ISSUES} issues per message` : 'Share an issue (/)'} aria-label="Share an issue"
+        disabled={attached.length >= MAX_ISSUES} onMouseDown={(e) => e.preventDefault()} onClick={() => insert('/', true)}>
+        <Icon name="bug" className="size-4" />
       </button>
     </div>
   );
 
   return (
-    <div className="relative mx-auto w-full max-w-5xl px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] md:px-6">
+    <div className="relative mx-auto flex w-full max-w-[740px] items-end gap-2 px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4">
       {shown ? (
         <ul id={listId} role="listbox" aria-label={suggest.kind === 'mention' ? 'People in this project' : 'Issues in this project'}
-          className={cn(POPOVER, 'absolute right-4 bottom-full left-4 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto p-1.5 md:right-6 md:left-6')}>
-          <li className="px-2.5 pt-1 pb-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase" role="presentation">
+          className="tg-fade-in absolute right-[72px] bottom-full left-2 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto rounded-2xl bg-(--tg-menu) p-1.5 text-(--tg-text) shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl md:left-4">
+          <li className="px-2.5 pt-1 pb-1.5 text-[12px] font-medium text-(--tg-in-meta)" role="presentation">
             {suggest.kind === 'mention' ? 'People in this project' : searching ? 'Searching issues…' : 'Issues in this project'}
           </li>
           {options.length === 0 ? (
-            <li className="px-2.5 py-2 text-[13px] text-muted" role="presentation">
+            <li className="px-2.5 py-2 text-[14px] text-(--tg-in-meta)" role="presentation">
               {suggest.kind === 'mention' ? `Nobody called “${suggest.query}” is in this project.` : suggest.query ? `No issues match “${suggest.query}”.` : 'This project has no issues yet.'}
             </li>
           ) : null}
           {options.map((option, i) => (
             <li key={option.id} id={`${listId}-${option.id}`} role="option" aria-selected={i === index}
               onMouseDown={(e) => { e.preventDefault(); choose(option); }} onMouseEnter={() => setIndex(i)}
-              className={cn('flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px]', i === index && 'bg-(--hover)')}>
+              className={cn('flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-1.5 text-[14px]', i === index && 'bg-(--tg-menu-hover)')}>
               {'email' in option ? (
                 <>
-                  <Avatar name={option.name} size="sm" />
-                  <span className="min-w-0"><b className="block truncate font-medium">{option.name}</b><span className="block truncate text-xs text-muted">{option.email}</span></span>
+                  <ChatAvatar id={option.id} name={option.name} size={34} />
+                  <span className="min-w-0"><b className="block truncate font-medium">{option.name}</b><span className="block truncate text-[13px] text-(--tg-in-meta)">{option.email}</span></span>
                 </>
               ) : (
                 <>
-                  <span className={cn('grid size-7 shrink-0 place-items-center rounded-md', issueTile(option.eventType))} aria-hidden="true"><Icon name={issueIcon(option)} className="size-3.5" /></span>
-                  <span className="min-w-0 flex-1"><b className="block truncate font-medium">{option.errorType}</b><span className="block truncate text-xs text-muted">{option.message || '(no message)'}</span></span>
-                  <span className="shrink-0 text-xs text-muted tabular-nums">{option.count.toLocaleString()}</span>
+                  <span className={cn('grid size-[34px] shrink-0 place-items-center rounded-full', issueTile(option.eventType))} aria-hidden="true"><Icon name={issueIcon(option)} className="size-4" /></span>
+                  <span className="min-w-0 flex-1"><b className="block truncate font-medium">{option.errorType}</b><span className="block truncate text-[13px] text-(--tg-in-meta)">{option.message || '(no message)'}</span></span>
+                  <span className="shrink-0 text-[13px] text-(--tg-in-meta) tabular-nums">{option.count.toLocaleString()}</span>
                 </>
               )}
             </li>
@@ -411,62 +404,59 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         </ul>
       ) : null}
 
-      <div className={cn(
-        'border border-line-strong bg-panel transition-[border-color,box-shadow,border-radius] focus-within:border-fg/40 focus-within:shadow-[0_0_0_3px_var(--ring)]',
-        // Half the one-line height (42 px): fully round ends, which stay round as the text grows.
-        pill ? 'rounded-[21px]' : 'rounded-xl',
-      )}>
+      <div className="tg-input has-tail min-w-0 flex-1">
         {replyTo ? (
-          <div className="flex items-center gap-2.5 border-b border-line px-3 py-2">
-            <Icon name="reply" className="size-4 shrink-0 text-muted" />
-            <div className="min-w-0 flex-1 text-xs leading-4">
-              <span className="text-muted">Replying to </span>
-              <span className="font-semibold text-fg">{replyTo.userId === me.id ? 'yourself' : (replyTo.userName ?? 'Deleted user')}</span>
-              <div className="truncate text-fg-2">{snippetOf(replyTo)}</div>
-            </div>
-            <button type="button" onClick={onCancelReply} aria-label="Cancel reply" title="Cancel reply (Esc)" className={cn(ICON_BUTTON, 'size-7 rounded-full')}><Icon name="close" className="size-3.5" /></button>
+          <div className="tg-fade-in flex items-center gap-1 pt-1.5 pr-1 pl-1">
+            <span className="grid size-10 shrink-0 place-items-center text-(--tg-accent)"><Icon name="reply" className="size-[22px]" /></span>
+            <button type="button" onClick={() => document.getElementById(`m-${replyTo.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+              className="tg-quote m-0 flex-1 cursor-pointer" style={{ '--peer': 'var(--tg-accent)' } as CSSProperties} title="Show the message">
+              <span className="truncate font-medium text-(--tg-accent)">Reply to {replyTo.userId === me.id ? 'yourself' : (replyTo.userName ?? 'Deleted user')}</span>
+              <span className="truncate font-normal opacity-90">{snippetOf(replyTo) || 'Message'}</span>
+            </button>
+            <button type="button" onClick={onCancelReply} aria-label="Cancel reply" title="Cancel reply (Esc)" className={side}><Icon name="close" className="size-4" /></button>
           </div>
         ) : null}
 
         {attached.length > 0 ? (
-          <div className="grid gap-1.5 border-b border-line p-2">
-            {attached.map((issue) => <IssueCard key={issue.id} issue={issue} onRemove={() => setAttached((list) => list.filter((i) => i.id !== issue.id))} />)}
+          <div className="grid gap-1.5 px-2.5 pt-2.5">
+            {attached.map((issue) => <IssueCard key={issue.id} issue={issue} inBubble onRemove={() => setAttached((list) => list.filter((i) => i.id !== issue.id))} />)}
           </div>
         ) : null}
 
         {expanded ? (
-          <div className="flex flex-wrap items-center gap-0.5 border-b border-line px-1.5 py-1" role="toolbar" aria-label="Formatting">
-            {TOOLBAR.map((item, i) => item === 'sep' ? <span key={`s${i}`} className="mx-1 h-5 w-px bg-line" aria-hidden="true" /> : (
-              <button key={item.id} type="button" className={ICON_BUTTON} title={item.keys ? `${item.label} (${item.keys})` : item.label} aria-label={item.label}
+          <div className="tg-fade-in mx-2 mt-1.5 flex flex-wrap items-center gap-0.5 border-0 border-b border-solid border-(--tg-bar-line) pb-1" role="toolbar" aria-label="Formatting">
+            {TOOLBAR.map((item, i) => item === 'sep' ? <span key={`s${i}`} className="mx-1 h-5 w-px bg-(--tg-bar-line)" aria-hidden="true" /> : (
+              <button key={item.id} type="button" className={cn(ICON_BUTTON, 'rounded-full')} title={item.keys ? `${item.label} (${item.keys})` : item.label} aria-label={item.label}
                 aria-pressed={Boolean(active?.[item.id])} disabled={!editor} onMouseDown={(e) => e.preventDefault()} onClick={() => editor && item.run(editor)}>
                 <Icon name={item.icon} className="size-4" />
               </button>
             ))}
-            <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
-            <button type="button" className={ICON_BUTTON} title="Mention someone (@)" aria-label="Mention someone" onMouseDown={(e) => e.preventDefault()} onClick={() => insert('@', true)}>
+            <span className="mx-1 h-5 w-px bg-(--tg-bar-line)" aria-hidden="true" />
+            <button type="button" className={cn(ICON_BUTTON, 'rounded-full')} title="Mention someone (@)" aria-label="Mention someone" onMouseDown={(e) => e.preventDefault()} onClick={() => insert('@', true)}>
               <Icon name="at" className="size-4" />
             </button>
-            <button type="button" className={ICON_BUTTON} title="Clear formatting" aria-label="Clear formatting" onMouseDown={(e) => e.preventDefault()}
+            <button type="button" className={cn(ICON_BUTTON, 'rounded-full')} title="Clear formatting" aria-label="Clear formatting" onMouseDown={(e) => e.preventDefault()}
               onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}>
               <Icon name="clearFormat" className="size-4" />
             </button>
+            <span id={`${listId}-hint`} className="ml-auto truncate pr-1 text-[11px] text-(--tg-in-meta) max-sm:hidden"><kbd className="font-sans font-semibold">Enter</kbd> new line · <kbd className="font-sans font-semibold">Ctrl+Enter</kbd> send</span>
           </div>
         ) : null}
 
-        {/* Small box: editor and actions on one line. Big box (Format): a taller editor, actions under it. */}
-        <div className={cn('flex gap-1 py-1', expanded ? 'flex-col px-1.5' : 'items-end pr-1 pl-2.5')}>
-          <div className={cn('min-w-0 flex-1 cursor-text overflow-y-auto px-1.5 py-1', expanded ? 'max-h-[min(360px,45vh)] min-h-24' : 'max-h-[min(220px,35vh)]')}
+        <div className="flex items-end gap-0.5 px-1.5 py-[7px]">
+          {emoji}
+          <div className={cn('min-w-0 flex-1 cursor-text overflow-y-auto px-1 py-[8px]', expanded ? 'max-h-[min(360px,45vh)] min-h-24' : 'max-h-[min(260px,38vh)]')}
             onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); editor?.commands.focus('end'); } }}>
-            {editor ? <EditorContent editor={editor} /> : <div className="text-[14px] leading-6 text-muted">{placeholder.current}</div>}
+            {editor ? <EditorContent editor={editor} /> : <div className="text-[16px] leading-6 text-(--tg-in-meta)">{placeholder.current}</div>}
           </div>
-          {expanded ? (
-            <div className="flex items-center justify-between gap-2 pl-1.5">
-              <span id={`${listId}-hint`} className="truncate text-[11px] text-muted max-sm:hidden"><kbd className="font-sans font-semibold">Enter</kbd> new line · <kbd className="font-sans font-semibold">Ctrl+Enter</kbd> send</span>
-              {actions}
-            </div>
-          ) : actions}
+          {right}
         </div>
       </div>
+
+      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
+        className="tg-fab tg-send ml-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
+        <Icon name="send" className="size-6" />
+      </button>
       {!expanded ? <span id={`${listId}-hint`} className="sr-only">Enter to send, Shift+Enter for a new line. Type @ to mention someone and / to share an issue.</span> : null}
     </div>
   );

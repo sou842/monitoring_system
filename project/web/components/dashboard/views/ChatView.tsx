@@ -9,12 +9,13 @@ import type { ChatMessageView, MembersResponse, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useDialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
-import { pillButton } from '../../ui/kit';
 import { useToast } from '../../ui/Toasts';
+import '../chat/chat.css';
 import { ChannelHeader } from '../chat/ChannelHeader';
 import type { ComposerHandle } from '../chat/Composer';
 import { MessageRow, type Row, type RowActions } from '../chat/MessageRow';
-import { dayLabel, scrollBehavior } from '../chat/shared';
+import { ChatAvatar, dayLabel, scrollBehavior } from '../chat/shared';
+import { Wallpaper, type WallpaperHandle } from '../chat/Wallpaper';
 import { Page } from '../Page';
 import { useSession } from '../Shell';
 
@@ -24,14 +25,23 @@ const STICK_PX = 120;
 const LOAD_OLDER_MARGIN_PX = 600;
 /** How long a message stays highlighted after jumping to it. */
 const FLASH_MS = 1600;
-/** Placeholder rows while the first page loads. */
-const SKELETON_ROWS = 6;
+/** Placeholder bubbles while the first page loads. */
+const SKELETON_ROWS = 7;
+/** After scrolling stops, the date stuck to the top fades away after this long. */
+const SCROLL_IDLE_MS = 900;
+/** Where a stuck date pill sits (matches `top-2` on `.tg-day`). */
+const STUCK_TOP_PX = 8;
+/** Size of the avatar next to a group of others' messages. */
+const GROUP_AVATAR_PX = 34;
+/** The conversation column (messages and the message box) is at most this wide. */
+const COLUMN = 'mx-auto w-full max-w-[740px]';
 
 /** Looks like the closed message box, shown while the editor's code loads (so nothing jumps). */
 function ComposerPlaceholder() {
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] md:px-6" aria-hidden="true">
-      <div className="flex h-[42px] items-center rounded-[21px] border border-line-strong bg-panel pl-4 text-[14px] text-muted">Type a message</div>
+    <div className={cn(COLUMN, 'flex items-end gap-2 px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4')} aria-hidden="true">
+      <div className="tg-input has-tail flex h-[54px] flex-1 items-center pl-14 text-[16px] text-(--tg-in-meta)">Message</div>
+      <span className="tg-fab tg-send ml-1.5"><Icon name="send" className="size-6" /></span>
     </div>
   );
 }
@@ -53,15 +63,22 @@ export function ChatView() {
     if (wanted && wanted !== projectId && projects.some((p) => p.id === wanted)) setProjectId(wanted);
   }, [projects, projectId, setProjectId]);
 
-  if (!projects) return <Page crumbs={crumbs} fill hideBar><div className="flex-1 bg-(--content)"><Skeleton /></div></Page>;
+  if (!projects) {
+    return (
+      <Page crumbs={crumbs} fill hideBar>
+        <div className="tg flex flex-1 flex-col overflow-hidden"><Wallpaper /><div className="relative flex-1"><Skeleton /></div></div>
+      </Page>
+    );
+  }
   if (!project) {
     return (
       <Page crumbs={crumbs} fill>
-        <div className="grid flex-1 place-items-center bg-(--content) px-6 text-center">
-          <div className="max-w-sm">
-            <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-(--chip) text-muted"><Icon name="chat" className="size-6" /></div>
-            <h2 className="m-0 mb-1 text-base font-semibold text-fg">No conversations yet</h2>
-            <p className="m-0 text-[13px] text-muted">Every project has a chat for the people who can access it. Create a project, then add your teammates.</p>
+        <div className="tg grid flex-1 place-items-center overflow-hidden px-6 text-center">
+          <Wallpaper />
+          <div className="tg-pill relative max-w-sm rounded-2xl px-6 py-5">
+            <Icon name="chat" className="mx-auto mb-2 size-8 opacity-90" />
+            <h2 className="m-0 mb-1 text-base font-medium">No conversations yet</h2>
+            <p className="m-0 text-[13px] leading-5 font-normal opacity-90">Every project has a chat for the people who can access it. Create a project, then add your teammates.</p>
           </div>
         </div>
       </Page>
@@ -74,19 +91,18 @@ export function ChatView() {
   );
 }
 
-/** Grey placeholder rows, shaped like messages. */
+/** Bubble-shaped placeholders, left and right, while the first page loads. */
 function Skeleton() {
   return (
-    <div className="flex flex-col gap-5 px-4 pt-6 md:px-6" aria-hidden="true">
-      {Array.from({ length: SKELETON_ROWS }, (_, i) => (
-        <div key={i} className="flex gap-3 animate-pulse motion-reduce:animate-none">
-          <div className="size-9 shrink-0 rounded-full bg-(--chip)" />
-          <div className="flex-1 space-y-2 pt-0.5">
-            <div className="h-3 w-32 rounded bg-(--chip)" />
-            <div className="h-3 rounded bg-(--chip)" style={{ width: `${45 + ((i * 37) % 45)}%` }} />
+    <div className={cn(COLUMN, 'flex flex-col gap-2 px-3 pt-6 md:px-5')} aria-hidden="true">
+      {Array.from({ length: SKELETON_ROWS }, (_, i) => {
+        const own = i % 3 === 1;
+        return (
+          <div key={i} className={cn('flex', own ? 'justify-end' : 'justify-start')}>
+            <div className={cn('h-10 animate-pulse rounded-2xl opacity-70 motion-reduce:animate-none', own ? 'bg-(--tg-own)' : 'bg-(--tg-in)')} style={{ width: `${30 + ((i * 37) % 40)}%` }} />
           </div>
-        </div>
-      ))}
+        );
+      })}
       <span className="sr-only" role="status">Loading messages…</span>
     </div>
   );
@@ -101,7 +117,7 @@ function toRow(p: { clientId: string; draft: Draft; status: 'sending' | 'failed'
     error: p.error,
     msg: {
       id: p.clientId, projectId, userId: me.id, userName: me.name, text: p.draft.text, mentions: p.draft.mentions, issues: p.draft.issues,
-      replyTo: r ? { id: r.id, userName: r.userName, text: r.text.slice(0, 140), deleted: false, hasIssues: r.issues.length > 0 } : null,
+      replyTo: r ? { id: r.id, userId: r.userId, userName: r.userName, text: r.text.slice(0, 140), deleted: false, hasIssues: r.issues.length > 0 } : null,
       reactions: [], createdAt: p.createdAt, deleted: false,
     },
   };
@@ -130,8 +146,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   const { toast, action } = useToast();
   const online = useOnline();
   const composer = useRef<ComposerHandle>(null);
+  const wallpaper = useRef<WallpaperHandle>(null);
   const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
 
   const everyone = useMemo<PersonView[]>(() => (people.data ? [...(people.data.owner ? [people.data.owner] : []), ...people.data.members] : []), [people.data]);
   const byId = useMemo(() => new Map(everyone.map((p) => [p.id, p])), [everyone]);
@@ -141,12 +157,30 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     [chat.messages, chat.pending, me, projectId],
   );
 
+  // ---- which rows slide in: only ones added at the end after the chat opened (others' new messages, and
+  // yours while they are being sent; your confirmed copy replaces the pending one without animating again)
+  const seen = useRef<Set<string> | null>(null);
+  const fresh = useRef(new Set<string>());
+  useMemo(() => {
+    if (chat.loading) return;
+    const known = seen.current;
+    if (!known) { seen.current = new Set(rows.map((r) => r.key)); return; }
+    let lastKnown = -1;
+    rows.forEach((r, i) => { if (known.has(r.key)) lastKnown = i; });
+    rows.forEach((r, i) => {
+      if (known.has(r.key)) return;
+      if (i > lastKnown && (r.status !== 'sent' || r.msg.userId !== me.id)) fresh.current.add(r.key);
+      known.add(r.key);
+    });
+  }, [rows, chat.loading, me.id]);
+
   // ---- scrolling: follow new messages while at the bottom; otherwise count them on the "jump to latest" button
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const prevKeys = useRef<string[]>([]);
   const restore = useRef<number | null>(null);
   const loadingOlder = useRef(false);
+  const idleTimer = useRef(0);
   const [placed, setPlaced] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const [newBelow, setNewBelow] = useState(0);
@@ -174,9 +208,10 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     if (!placed) {
       // First paint: a linked message, else the first unread one, else the newest.
       const hash = window.location.hash.startsWith('#m-') ? document.getElementById(window.location.hash.slice(1)) : null;
-      const target = hash ?? (unreadAnchor ? document.getElementById(`m-${unreadAnchor}`) : null);
+      const target = hash ?? (unreadAnchor ? document.getElementById('tg-unread') : null);
       if (target) {
-        el.scrollTop = Math.max(0, target.offsetTop - (hash ? el.clientHeight / 3 : 64));
+        const offset = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+        el.scrollTop = Math.max(0, offset - (hash ? el.clientHeight / 3 : 48));
         if (hash) flash(hash);
       } else {
         el.scrollTop = el.scrollHeight;
@@ -192,13 +227,13 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
       restore.current = null;
       return;
     }
-    if (atBottom.current) { el.scrollTop = el.scrollHeight; return; }
+    if (atBottom.current) { el.scrollTo({ top: el.scrollHeight, behavior: prev.length > 0 ? scrollBehavior() : 'auto' }); return; }
     const lastIndex = prev.length > 0 ? keys.lastIndexOf(prev[prev.length - 1]) : -1;
     const fromOthers = lastIndex === -1 ? 0 : rows.slice(lastIndex + 1).filter((r) => r.msg.userId !== me.id).length;
     if (fromOthers > 0) { setNewBelow((n) => n + fromOthers); setShowJump(true); }
   }, [rows, placed, unreadAnchor, me.id, flash]);
 
-  // The list also grows without new rows (a "Not sent" line, an issue card): while at the bottom, stay there.
+  // The list also grows without new rows (an issue card, a reaction): while at the bottom, stay there.
   const content = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = scroller.current;
@@ -227,17 +262,38 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     observer.observe(top);
     return () => observer.disconnect();
   }, [placed, hasMore, loadOlderKeepingPlace, rows.length]);
+  useEffect(() => () => clearTimeout(idleTimer.current), []);
 
   const jumpToLatest = () => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: scrollBehavior() });
     setNewBelow(0);
   };
 
+  // While scrolling, every date shows; once it stops, the one stuck to the top fades away.
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+    atBottom.current = near;
+    setShowJump(!near);
+    if (near) setNewBelow(0);
+    el.classList.add('is-scrolling');
+    clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(() => {
+      el.classList.remove('is-scrolling');
+      const top = el.getBoundingClientRect().top;
+      el.querySelectorAll<HTMLElement>('.tg-day').forEach((day) => {
+        const section = day.parentElement;
+        day.classList.toggle('is-stuck', Boolean(section && section.getBoundingClientRect().top < top && day.getBoundingClientRect().top - top <= STUCK_TOP_PX + 1));
+      });
+    }, SCROLL_IDLE_MS);
+  };
+
   // ---- row actions: one stable object, reading the latest state through a ref, so memoised rows don't re-render
   const latest = useRef({ chat, openDialog, toast, action, projectId });
   latest.current = { chat, openDialog, toast, action, projectId };
   const actions = useMemo<RowActions>(() => ({
-    reply: (m) => { setReplyTo(m); setSelected(null); composer.current?.focus(); },
+    reply: (m) => { setReplyTo(m); composer.current?.focus(); },
     react: (id, emoji) => latest.current.chat.react(id, emoji),
     remove: (m) => {
       const { action: run, openDialog: open, chat: c, toast: say } = latest.current;
@@ -261,17 +317,16 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     },
     retry: (clientId) => latest.current.chat.retry(clientId),
     discard: (clientId) => latest.current.chat.discard(clientId),
-    select: (key) => setSelected(key),
-    roomBelow: (el) => (scroller.current?.getBoundingClientRect().bottom ?? window.innerHeight) - el.getBoundingClientRect().bottom,
   }), []);
 
   const send = useCallback((draft: Draft) => {
     atBottom.current = true;
     setReplyTo(null);
+    wallpaper.current?.shift();
     chat.send(draft);
   }, [chat]);
 
-  // Arrow keys move between messages (each one then shows its toolbar); Escape goes back to the message box.
+  // Arrow keys move between messages; Escape goes back to the message box.
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
     if (target !== e.currentTarget && !target.hasAttribute('data-row')) return;
@@ -286,134 +341,151 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     list[next].scrollIntoView({ block: 'nearest' });
   }
 
-  // ---- render: one section per day (its date sticks to the top while you scroll through it)
-  const sections: ReactNode[] = [];
-  let current: { key: string; label: string; items: ReactNode[] } | null = null;
+  // ---- render: days → groups (one person in a row) → bubbles. A day's date sticks to the top while you scroll through it.
+  type Group = { key: string; own: boolean; userId: string; name: string; items: ReactNode[] };
+  type Day = { key: string; label: string; parts: ReactNode[]; group: Group | null };
+  const days: ReactNode[] = [];
+  let day: Day | null = null;
   const unreadCount = unreadAnchor ? chat.messages.filter((m) => m.userId !== me.id && m.id >= unreadAnchor).length : 0;
-  const flush = () => {
-    if (!current) return;
-    sections.push(
-      <section key={current.key} aria-label={current.label}>
-        <div className="pointer-events-none sticky top-2 z-10 my-3 flex justify-center">
-          <span className="rounded-full border border-line bg-panel px-3 py-0.5 text-xs font-semibold text-fg-2 shadow-(--shadow-sm)">{current.label}</span>
+
+  const closeGroup = () => {
+    const g = day?.group;
+    if (!day || !g) return;
+    day.parts.push(g.own ? (
+      <div key={g.key} className="flex flex-col">{g.items}</div>
+    ) : (
+      <div key={g.key} className="flex">
+        <div className="flex w-[42px] shrink-0 flex-col justify-end pb-1.5 pl-0.5">
+          <span className="sticky bottom-1.5"><ChatAvatar id={g.userId} name={g.name} size={GROUP_AVATAR_PX} /></span>
         </div>
-        {current.items}
+        <div className="flex min-w-0 flex-1 flex-col">{g.items}</div>
+      </div>
+    ));
+    day.group = null;
+  };
+  const closeDay = () => {
+    if (!day) return;
+    closeGroup();
+    days.push(
+      <section key={day.key} aria-label={day.label} className="relative">
+        <div className="tg-day pointer-events-none sticky top-2 z-10 my-2 flex justify-center"><span className="tg-pill">{day.label}</span></div>
+        {day.parts}
       </section>,
     );
   };
+
   rows.forEach((row, i) => {
     const m = row.msg;
-    const day = dayKey(m.createdAt);
-    if (!current || current.key !== day) { flush(); current = { key: day, label: dayLabel(m.createdAt), items: [] }; }
+    const dk = dayKey(m.createdAt);
+    if (!day || day.key !== dk) { closeDay(); day = { key: dk, label: dayLabel(m.createdAt), parts: [], group: null }; }
+    const d: Day = day;
     const isUnreadStart = unreadAnchor !== null && m.id === unreadAnchor;
-    if (isUnreadStart) {
-      current.items.push(
-        <div key="unread" className="my-2 flex items-center gap-2 px-4 md:px-6" role="separator" aria-label={`${unreadCount} new ${unreadCount === 1 ? 'message' : 'messages'}`}>
-          <span className="h-px flex-1 bg-(--unread)" />
-          <span className="text-[11px] font-bold tracking-wide text-(--unread) uppercase">New</span>
-        </div>,
-      );
+    const first = isUnreadStart || startsGroup(i > 0 ? rows[i - 1].msg : null, m);
+    const next = rows[i + 1]?.msg;
+    const last = !next || (unreadAnchor !== null && next.id === unreadAnchor) || startsGroup(m, next);
+    if (first) {
+      closeGroup();
+      if (isUnreadStart) {
+        d.parts.push(<div key="unread" id="tg-unread" className="tg-unread" role="separator" aria-label={`${unreadCount} unread ${unreadCount === 1 ? 'message' : 'messages'}`}>Unread messages</div>);
+      }
+      d.group = { key: row.key, own: m.userId === me.id, userId: m.userId, name: m.userName ?? 'Deleted user', items: [] };
     }
-    const prev = i > 0 ? rows[i - 1].msg : null;
     const own = m.userId === me.id;
-    current.items.push(
-      <MessageRow key={row.key} row={row} groupStart={isUnreadStart || startsGroup(prev, m)} me={me} people={byId} canPost={canPost}
-        canDelete={row.status === 'sent' && !m.deleted && (own || isOwner)} selected={selected === row.key} actions={actions} />,
+    d.group?.items.push(
+      <MessageRow key={row.key} row={row} first={first} last={last} animate={fresh.current.has(row.key)} me={me} people={byId} canPost={canPost}
+        canDelete={row.status === 'sent' && !m.deleted && (own || isOwner)} actions={actions} />,
     );
   });
-  flush();
+  closeDay();
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-(--content)">
-      <ChannelHeader projectName={projectName} people={everyone} ownerId={people.data?.owner?.id ?? null} meId={me.id} manageHref={`/projects/${projectId}?tab=members`}
+    <div className="tg flex min-h-0 flex-1 flex-col overflow-hidden">
+      <ChannelHeader projectId={projectId} projectName={projectName} people={everyone} ownerId={people.data?.owner?.id ?? null} meId={me.id} manageHref={`/projects/${projectId}?tab=members`}
         onOpenDrawer={openDrawer} messages={chat.messages} hasMore={chat.hasMore} onLoadOlder={loadOlderKeepingPlace} onJump={actions.jumpTo} />
 
-      {!online ? (
-        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-line bg-(--amber-soft) px-4 py-1.5 text-xs font-medium text-(--amber)" role="status">
-          <Icon name="wifiOff" className="size-3.5" />You’re offline. New messages will appear when you reconnect.
-        </div>
-      ) : null}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <Wallpaper ref={wallpaper} />
 
-      <div className="relative min-h-0 flex-1">
-        <div
-          ref={scroller}
-          role="log"
-          aria-label={`Messages in #${projectName}`}
-          aria-live={placed ? 'polite' : 'off'}
-          aria-relevant="additions"
-          tabIndex={0}
-          onKeyDown={onListKeyDown}
-          className="h-full overflow-y-auto overscroll-contain outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--mention)]"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
-            atBottom.current = near;
-            setShowJump(!near);
-            if (near) setNewBelow(0);
-          }}
-        >
-          <div ref={content} className="mx-auto flex min-h-full w-full max-w-5xl flex-col pb-3">
-            {chat.error ? (
-              <div className="grid flex-1 place-items-center px-6 py-10 text-center" role="alert">
-                <div>
-                  <div className="mx-auto mb-3 grid size-12 place-items-center rounded-2xl bg-(--red-soft) text-danger"><Icon name="alert" className="size-5" /></div>
-                  <h2 className="m-0 mb-1 text-[15px] font-semibold text-fg">Couldn’t load this conversation</h2>
-                  <p className="m-0 mb-4 text-[13px] text-muted">{online ? 'Something went wrong on our side or the connection dropped.' : 'You’re offline.'}</p>
-                  <button type="button" className={pillButton('secondary')} onClick={chat.reload}><Icon name="retry" className="size-3.5" />Try again</button>
-                </div>
-              </div>
-            ) : chat.loading ? <Skeleton /> : rows.length === 0 ? (
-              <div className="grid flex-1 place-items-center px-6 py-10 text-center">
-                <div className="max-w-sm">
-                  <div className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-(--chip) text-fg-2"><Icon name="hash" className="size-6" /></div>
-                  <h2 className="m-0 mb-1 text-base font-semibold text-fg">This is the start of #{projectName}</h2>
-                  <p className="m-0 text-[13px] leading-5 text-muted">
-                    Everyone with access to this project can read it.{canPost ? <> Mention a teammate with <kbd className="rounded border border-line px-1 font-mono">@</kbd> or share an issue with <kbd className="rounded border border-line px-1 font-mono">/</kbd>.</> : null}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-auto">
-                <div ref={sentinel} aria-hidden="true" />
-                {chat.hasMore ? (
-                  <div className="flex justify-center py-3 text-xs text-muted" role="status"><span className="spinner mr-2" />Loading older messages…</div>
-                ) : (
-                  <div className="px-4 pt-8 pb-2 md:px-6">
-                    <div className="mb-2 grid size-12 place-items-center rounded-xl bg-(--chip) text-fg-2" aria-hidden="true"><Icon name="hash" className="size-5" /></div>
-                    <h2 className="m-0 text-lg font-semibold text-fg">#{projectName}</h2>
-                    <p className="m-0 mt-0.5 text-[13px] text-muted">This is the very beginning of the conversation.</p>
-                  </div>
-                )}
-                {sections}
-              </div>
-            )}
+        {!online ? (
+          <div className="relative z-20 flex shrink-0 justify-center pt-2" role="status">
+            <span className="tg-pill inline-flex items-center gap-2 text-[13px]"><Icon name="wifiOff" className="size-3.5" />Waiting for network…</span>
           </div>
-        </div>
-
-        {showJump && rows.length > 0 ? (
-          <button type="button" onClick={jumpToLatest} aria-label={newBelow > 0 ? `${newBelow} new ${newBelow === 1 ? 'message' : 'messages'}, jump to latest` : 'Jump to the latest message'}
-            className={cn(
-              'absolute bottom-3 left-1/2 z-20 inline-flex h-8 -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold shadow-(--menu-shadow) transition-colors',
-              newBelow > 0 ? 'border-transparent bg-invert-bg text-invert-fg hover:opacity-90' : 'border-line bg-panel text-fg-2 hover:text-fg',
-            )}>
-            <Icon name="arrowDown" className="size-3.5" />
-            {newBelow > 0 ? `${newBelow > 99 ? '99+' : newBelow} new ${newBelow === 1 ? 'message' : 'messages'}` : 'Jump to latest'}
-          </button>
         ) : null}
-      </div>
 
-      <footer className="shrink-0 bg-(--content)">
-        {canPost ? (
-          <Composer handle={composer} key={projectId} projectId={projectId} projectName={projectName} people={everyone} me={me}
-            replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} offline={!online} />
-        ) : (
-          <div className="mx-auto w-full max-w-5xl px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] md:px-6">
-            <p className="m-0 flex items-center justify-center gap-2 rounded-xl border border-line bg-panel-2 px-4 py-3 text-[13px] text-muted">
-              <Icon name="eye" className="size-4" />You can read this conversation, but you don’t have permission to post. Ask the project owner for access.
-            </p>
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scroller}
+            role="log"
+            aria-label={`Messages in ${projectName}`}
+            aria-live={placed ? 'polite' : 'off'}
+            aria-relevant="additions"
+            tabIndex={0}
+            onKeyDown={onListKeyDown}
+            onScroll={onScroll}
+            className="tg-scroll h-full overflow-x-hidden overflow-y-auto overscroll-contain outline-none [scrollbar-width:thin]"
+          >
+            {/* Clips the full-width row highlight and unread bar sideways (overflow-x: clip makes no scroll box). */}
+            <div className="flex min-h-full w-full flex-col overflow-x-clip">
+            <div ref={content} className={cn(COLUMN, 'flex flex-1 flex-col px-1 pb-2 md:px-3')}>
+              {chat.error ? (
+                <div className="grid flex-1 place-items-center px-6 py-10 text-center" role="alert">
+                  <div className="tg-pill max-w-sm rounded-2xl px-6 py-5">
+                    <Icon name="alert" className="mx-auto mb-2 size-7" />
+                    <h2 className="m-0 mb-1 text-[15px] font-medium">Couldn’t load this conversation</h2>
+                    <p className="m-0 mb-3 text-[13px] font-normal opacity-90">{online ? 'Something went wrong on our side or the connection dropped.' : 'You’re offline.'}</p>
+                    <button type="button" onClick={chat.reload} className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border-0 bg-white/20 px-4 py-1.5 text-[13px] font-medium text-inherit shadow-none hover:bg-white/30">
+                      <Icon name="retry" className="size-3.5" />Try again
+                    </button>
+                  </div>
+                </div>
+              ) : chat.loading ? <Skeleton /> : rows.length === 0 ? (
+                <div className="grid flex-1 place-items-center px-6 py-10 text-center">
+                  <div className="tg-pill max-w-xs rounded-2xl px-6 py-5 tg-fade-in">
+                    <div className="mb-1 text-[15px] font-medium">No messages here yet…</div>
+                    <p className="m-0 text-[13px] leading-5 font-normal opacity-90">
+                      Everyone with access to {projectName} can read this chat.{canPost ? ' Mention a teammate with @ or share an issue with /.' : ''}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-auto pt-2">
+                  <div ref={sentinel} aria-hidden="true" />
+                  {chat.hasMore ? (
+                    <div className="flex justify-center py-3" role="status"><span className="tg-pill inline-flex items-center gap-2 text-[13px]"><span className="spinner" />Loading older messages…</span></div>
+                  ) : (
+                    <div className="flex justify-center py-3"><span className="tg-pill text-[13px]">This is the very beginning of {projectName}</span></div>
+                  )}
+                  {days}
+                </div>
+              )}
+            </div>
+            </div>
           </div>
-        )}
-      </footer>
+
+          {/* Round "jump to latest" button with the count of new messages. */}
+          <div className={cn(COLUMN, 'pointer-events-none absolute inset-x-0 bottom-3 flex justify-end px-3 md:px-5')}>
+            <button type="button" onClick={jumpToLatest} tabIndex={showJump && rows.length > 0 ? 0 : -1} aria-hidden={!(showJump && rows.length > 0)}
+              aria-label={newBelow > 0 ? `${newBelow} new ${newBelow === 1 ? 'message' : 'messages'}, jump to latest` : 'Jump to the latest message'}
+              className={cn('tg-fab relative size-[50px]', showJump && rows.length > 0 ? 'pointer-events-auto' : 'translate-y-4 scale-75 opacity-0')}>
+              <Icon name="arrowDown" className="size-6" />
+              {newBelow > 0 ? <span className="tg-fab-badge">{newBelow > 99 ? '99+' : newBelow}</span> : null}
+            </button>
+          </div>
+        </div>
+
+        <footer className="relative shrink-0">
+          {canPost ? (
+            <Composer handle={composer} key={projectId} projectId={projectId} projectName={projectName} people={everyone} me={me}
+              replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} offline={!online} />
+          ) : (
+            <div className={cn(COLUMN, 'px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4')}>
+              <p className="tg-input m-0 flex items-center justify-center gap-2 px-4 py-3.5 text-[14px] text-(--tg-in-meta)">
+                <Icon name="eye" className="size-4" />You can read this chat, but you don’t have permission to post.
+              </p>
+            </div>
+          )}
+        </footer>
+      </div>
     </div>
   );
 }

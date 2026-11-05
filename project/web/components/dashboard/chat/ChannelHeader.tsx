@@ -8,7 +8,10 @@ import { cn } from '@/lib/utils';
 import { Avatar } from '../../ui/bits';
 import { Icon } from '../../ui/Icon';
 import { Badge } from '../../ui/kit';
-import { clock, dayLabel, ICON_BUTTON, POPOVER, useDismiss } from './shared';
+import { ChatAvatar, clock, dayLabel, ICON_BUTTON, POPOVER, useDismiss } from './shared';
+
+/** Header icon buttons are round, like the rest of the chat. */
+const ROUND = cn(ICON_BUTTON, 'size-10 rounded-full text-(--tg-in-meta) hover:text-(--tg-text) [&_svg]:size-[20px]');
 
 /** Most results the in-conversation search lists. */
 const SEARCH_RESULTS = 50;
@@ -30,7 +33,8 @@ function highlight(text: string, query: string): ReactNode[] {
 }
 
 /** The channel bar: name, members, and "find in this conversation". */
-export function ChannelHeader({ projectName, people, ownerId, meId, manageHref, onOpenDrawer, messages, hasMore, onLoadOlder, onJump }: {
+export function ChannelHeader({ projectId, projectName, people, ownerId, meId, manageHref, onOpenDrawer, messages, hasMore, onLoadOlder, onJump }: {
+  projectId: string;
   projectName: string;
   people: PersonView[];
   ownerId: string | null;
@@ -68,25 +72,25 @@ export function ChannelHeader({ projectName, people, ownerId, meId, manageHref, 
   }, [deferred, messages]);
 
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-(--content) px-3 md:px-6">
-      <button type="button" onClick={onOpenDrawer} aria-label="Open the menu" title="Menu" className={cn(ICON_BUTTON, 'md:hidden')}>
+    <header className="relative z-30 flex h-14 shrink-0 items-center gap-2.5 border-b border-(--tg-bar-line) bg-(--tg-bar) px-2 md:px-4">
+      <button type="button" onClick={onOpenDrawer} aria-label="Open the menu" title="Menu" className={cn(ROUND, 'md:hidden')}>
         <Icon name="menu" className="size-4.5" />
       </button>
-      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-(--chip) text-fg-2" aria-hidden="true"><Icon name="hash" className="size-4" /></span>
+      <ChatAvatar id={projectId} name={projectName} size={40} />
       <div className="min-w-0 flex-1">
-        <h1 className="m-0 truncate text-[15px] leading-5 font-semibold text-fg">{projectName}</h1>
-        <p className="m-0 truncate text-xs leading-4 text-muted" title="Everyone with access to this project can read this conversation">
-          Project chat{people.length > 0 ? ` · ${people.length} ${people.length === 1 ? 'member' : 'members'}` : ''}
+        <h1 className="m-0 truncate text-[16px] leading-5 font-medium text-(--tg-text)">{projectName}</h1>
+        <p className="m-0 mt-0.5 truncate text-[14px] leading-4 text-(--tg-in-meta)" title="Everyone with access to this project can read this conversation">
+          {people.length > 0 ? `${people.length} ${people.length === 1 ? 'member' : 'members'}` : 'project chat'}
         </p>
       </div>
 
       <div ref={searchWrap} className="relative">
-        <button ref={searchButton} type="button" className={ICON_BUTTON} aria-label="Search this conversation" title="Search this conversation" aria-expanded={searchOpen}
+        <button ref={searchButton} type="button" className={ROUND} aria-label="Search this conversation" title="Search this conversation" aria-expanded={searchOpen}
           onClick={() => setSearchOpen((o) => !o)}>
           <Icon name="search" className="size-4" />
         </button>
         {searchOpen ? (
-          <div className={cn(POPOVER, 'absolute top-full right-0 mt-2 w-[min(420px,calc(100vw-24px))] overflow-hidden max-sm:-right-12')} role="dialog" aria-label="Search this conversation">
+          <div className={cn(POPOVER, 'rounded-2xl text-fg ', 'absolute top-full right-0 mt-2 w-[min(420px,calc(100vw-24px))] overflow-hidden max-sm:-right-12')} role="dialog" aria-label="Search this conversation">
             <div className="flex items-center gap-2 border-b border-line px-3">
               <Icon name="search" className="size-4 shrink-0 text-muted" />
               <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find messages, people or issues" aria-label="Search messages"
@@ -131,14 +135,14 @@ export function ChannelHeader({ projectName, people, ownerId, meId, manageHref, 
       <div ref={membersWrap} className="relative">
         <button ref={membersButton} type="button" onClick={() => setMembersOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={membersOpen}
           aria-label={`${people.length} ${people.length === 1 ? 'member' : 'members'}`} title="Members"
-          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-transparent py-0 pr-2.5 pl-1 text-xs font-medium text-fg-2 shadow-none hover:bg-(--hover) hover:text-fg aria-expanded:bg-(--chip)">
-          <span className="flex -space-x-1.5 [&_.avatar]:size-6 [&_.avatar]:text-[10px] [&_.avatar]:ring-2 [&_.avatar]:ring-(--content)">
+          className="flex h-10 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent py-0 pr-3 pl-1.5 text-[13px] font-medium text-(--tg-in-meta) shadow-none hover:bg-(--hover) hover:text-(--tg-text) aria-expanded:bg-(--chip)">
+          <span className="flex -space-x-1.5 [&_.avatar]:size-6 [&_.avatar]:text-[10px] [&_.avatar]:ring-2 [&_.avatar]:ring-(--tg-bar)">
             {people.slice(0, STACKED_AVATARS).map((p) => <Avatar key={p.id} name={p.name} />)}
           </span>
           <span className="tabular-nums">{people.length || ''}</span>
         </button>
         {membersOpen ? (
-          <div role="dialog" aria-label="Project members" className={cn(POPOVER, 'absolute top-full right-0 mt-2 w-72 max-w-[calc(100vw-24px)] overflow-hidden')}>
+          <div role="dialog" aria-label="Project members" className={cn(POPOVER, 'rounded-2xl text-fg ', 'absolute top-full right-0 mt-2 w-72 max-w-[calc(100vw-24px)] overflow-hidden')}>
             <div className="px-3.5 pt-3 pb-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase">{people.length} {people.length === 1 ? 'member' : 'members'}</div>
             <ul className="m-0 max-h-72 list-none overflow-y-auto p-1.5">
               {people.map((p) => (

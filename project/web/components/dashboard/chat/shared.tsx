@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
 import type { ChatIssueView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
@@ -19,6 +19,28 @@ export function dayLabel(iso: string): string {
 export const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 /** Full date and time, for tooltips. */
 export const fullDate = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' });
+
+/** How many sender colours chat.css defines (`--peer-0` … `--peer-6`). */
+const PEER_COLORS = 7;
+
+/** A person's (or project's) colour: always the same for the same id, readable in both themes. */
+export function peerColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return `var(--peer-${Math.abs(hash) % PEER_COLORS})`;
+}
+
+/** Round avatar with a soft gradient in the person's colour and their initials. */
+export function ChatAvatar({ id, name, size = 40, className }: { id: string; name: string; size?: number; className?: string }) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const initials = ((words[0]?.[0] ?? '?') + (words.length > 1 ? (words[words.length - 1][0] ?? '') : '')).toUpperCase();
+  return (
+    <span className={cn('tg-avatar', className)} aria-hidden="true"
+      style={{ '--peer': peerColor(id), width: size, height: size, fontSize: Math.round(size * 0.4) } as CSSProperties}>
+      {initials}
+    </span>
+  );
+}
 
 /** "smooth", unless the person asked their system for less motion. */
 export function scrollBehavior(): ScrollBehavior {
@@ -91,7 +113,7 @@ export const issueIcon = (issue: Pick<ChatIssueView, 'errorType' | 'eventType'>)
 export const issueTile = (eventType: string) => ISSUE_TILE[eventType] ?? ISSUE_TILE.error;
 
 /** An attached issue: a one-row card that opens the issue, or (in the composer) can be removed. */
-export function IssueCard({ issue, onRemove }: { issue: ChatIssueView; onRemove?: () => void }) {
+export function IssueCard({ issue, onRemove, inBubble }: { issue: ChatIssueView; onRemove?: () => void; inBubble?: boolean }) {
   const body = (
     <>
       <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', issueTile(issue.eventType))} aria-hidden="true"><Icon name={issueIcon(issue)} className="size-4" /></span>
@@ -107,7 +129,9 @@ export function IssueCard({ issue, onRemove }: { issue: ChatIssueView; onRemove?
       </span>
     </>
   );
-  const frame = 'flex w-full max-w-md items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2 text-fg no-underline';
+  const frame = inBubble
+    ? 'flex w-full max-w-md items-center gap-2.5 rounded-[10px] border-0 bg-black/[0.045] px-2.5 py-1.5 text-inherit no-underline dark:bg-white/[0.07]'
+    : 'flex w-full max-w-md items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2 text-fg no-underline';
   return onRemove ? (
     <span className={cn(frame, 'pr-2')}>
       {body}

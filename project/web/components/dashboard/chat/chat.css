@@ -1,0 +1,247 @@
+/*
+ * The /chats look: a messenger-style conversation (bubbles on a patterned gradient wallpaper).
+ * Everything is scoped to `.tg` so the rest of the dashboard keeps its neutral palette.
+ * Original styles and assets (public/chat/*.svg) written for this project.
+ */
+@layer components {
+  .tg {
+    /* surfaces */
+    --tg-bar: #ffffff;
+    --tg-bar-line: rgb(0 0 0 / 0.08);
+    --tg-in: #ffffff;
+    --tg-own: #effddf;
+    --tg-text: #0f1419;
+    --tg-in-meta: #8d99a6;
+    --tg-own-meta: #4aa548;
+    --tg-accent: #3a8ee6;
+    --tg-accent-fg: #ffffff;
+    --tg-own-accent: #3c9a3a;
+    --tg-quote-own: rgb(60 154 58 / 0.12);
+    --tg-pill: rgb(62 86 52 / 0.42);
+    --tg-pill-fg: #ffffff;
+    --tg-shadow: 0 1px 2px rgb(16 35 47 / 0.15);
+    --tg-fab: #ffffff;
+    --tg-fab-fg: #707579;
+    --tg-flash: rgb(58 142 230 / 0.22);
+    --tg-menu: rgb(255 255 255 / 0.86);
+    --tg-menu-hover: rgb(0 0 0 / 0.06);
+    --tg-danger: #e53935;
+    /* wallpaper: four gradient points + doodle ink */
+    --tg-wall-1: #d4e2b4;
+    --tg-wall-2: #8dbf8f;
+    --tg-wall-3: #e4dd9c;
+    --tg-wall-4: #9fcaa6;
+    --tg-wall-ink: rgb(30 60 20 / 0.12);
+    position: relative;
+    color: var(--tg-text);
+    font-family: Roboto, Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  [data-theme=dark] .tg {
+    --tg-bar: #1c1f26;
+    --tg-bar-line: rgb(255 255 255 / 0.06);
+    --tg-in: #20242c;
+    --tg-own: #7766d2;
+    --tg-text: #f2f4f7;
+    --tg-in-meta: #8a94a3;
+    --tg-own-meta: rgb(255 255 255 / 0.68);
+    --tg-accent: #8f7ff0;
+    --tg-accent-fg: #ffffff;
+    --tg-own-accent: #ffffff;
+    --tg-quote-own: rgb(255 255 255 / 0.12);
+    --tg-pill: rgb(14 16 22 / 0.5);
+    --tg-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+    --tg-fab: #20242c;
+    --tg-fab-fg: #aab2bd;
+    --tg-flash: rgb(143 127 240 / 0.25);
+    --tg-menu: rgb(32 36 44 / 0.88);
+    --tg-menu-hover: rgb(255 255 255 / 0.07);
+    --tg-danger: #ff6b6b;
+    --tg-wall-1: #1b2233;
+    --tg-wall-2: #3a2f5c;
+    --tg-wall-3: #183238;
+    --tg-wall-4: #2f2a4d;
+    --tg-wall-ink: rgb(190 200 255 / 0.07);
+  }
+
+  /* ---- wallpaper: a blurred 4-point gradient (canvas) under a repeating doodle pattern ---- */
+  .tg-wall { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: var(--tg-wall-1); }
+  .tg-wall canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .tg-wall::after {
+    content: ""; position: absolute; inset: 0;
+    background: var(--tg-wall-ink);
+    -webkit-mask: url(/chat/pattern.svg) repeat 0 0 / 360px 360px;
+    mask: url(/chat/pattern.svg) repeat 0 0 / 360px 360px;
+  }
+
+  /* ---- bubbles ---- */
+  .tg-bubble {
+    position: relative; max-width: min(480px, 100%); min-width: 56px;
+    padding: 6px 9px 6px 10px; border-radius: 15px;
+    background: var(--tg-in); color: var(--tg-text); box-shadow: var(--tg-shadow);
+    font-size: 15px; line-height: 21px;
+  }
+  .tg-bubble.is-own { background: var(--tg-own); }
+  /* Grouped bubbles: the corners facing each other get small. */
+  .tg-bubble.is-in:not(.is-first) { border-top-left-radius: 6px; }
+  .tg-bubble.is-in:not(.is-last) { border-bottom-left-radius: 6px; }
+  .tg-bubble.is-own:not(.is-first) { border-top-right-radius: 6px; }
+  .tg-bubble.is-own:not(.is-last) { border-bottom-right-radius: 6px; }
+  /* The tail on a group's last bubble. */
+  .tg-bubble.is-last.is-in { border-bottom-left-radius: 0; }
+  .tg-bubble.is-last.is-own { border-bottom-right-radius: 0; }
+  .tg-bubble.is-last::before {
+    content: ""; position: absolute; bottom: 0; width: 9px; height: 17px; background: inherit;
+    -webkit-mask: url(/chat/tail.svg) no-repeat center / 100% 100%;
+    mask: url(/chat/tail.svg) no-repeat center / 100% 100%;
+  }
+  .tg-bubble.is-last.is-in::before { left: -8.4px; }
+  .tg-bubble.is-last.is-own::before { right: -8.4px; transform: scaleX(-1); }
+  /* The tail must not take the shadow's colour; drop-shadow on the wrapper keeps both in one silhouette. */
+  .tg-bubble.is-last { box-shadow: none; filter: drop-shadow(0 1px 1px rgb(16 35 47 / 0.14)); }
+  [data-theme=dark] .tg-bubble.is-last { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35)); }
+
+  /* Message text inside a bubble reads in the bubble colours. */
+  .tg-bubble .text-fg, .tg-bubble .text-fg-2 { color: inherit; }
+  [data-theme=dark] .tg-bubble.is-own .text-muted { color: rgb(255 255 255 / 0.72); }
+
+  /* Time + status: an invisible copy at the end of the text keeps room, the real one sits in the corner. */
+  .tg-meta { position: absolute; right: 8px; bottom: 4px; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; line-height: 14px; color: var(--tg-in-meta); white-space: nowrap; user-select: none; }
+  .tg-bubble.is-own .tg-meta { color: var(--tg-own-meta); }
+  .tg-meta-spacer { visibility: hidden; display: inline-flex; gap: 3px; padding-left: 10px; font-size: 12px; line-height: 14px; vertical-align: baseline; white-space: nowrap; }
+
+  /* Quote of the message being answered. */
+  .tg-quote {
+    display: flex; flex-direction: column; width: 100%; min-width: 0; margin: 2px 0 4px; padding: 3px 8px 3px 10px;
+    border: 0; border-radius: 6px; text-align: left; cursor: pointer; position: relative; overflow: hidden;
+    background: color-mix(in srgb, var(--peer, var(--tg-accent)) 12%, transparent); color: inherit; box-shadow: none; font-size: 14px; line-height: 18px;
+  }
+  .tg-quote::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--peer, var(--tg-accent)); }
+  .tg-quote:hover { background: color-mix(in srgb, var(--peer, var(--tg-accent)) 20%, transparent); }
+  .tg-bubble.is-own .tg-quote { --peer: var(--tg-own-accent); }
+
+  /* Reaction chips inside a bubble. */
+  .tg-reaction {
+    display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px 0 6px; border: 0; border-radius: 13px; cursor: pointer;
+    background: color-mix(in srgb, var(--tg-accent) 14%, transparent); color: var(--tg-accent); font-size: 13px; font-weight: 500; box-shadow: none;
+    transition: background-color .15s, transform .15s;
+  }
+  .tg-reaction:hover { background: color-mix(in srgb, var(--tg-accent) 22%, transparent); }
+  .tg-reaction:active { transform: scale(.94); }
+  .tg-reaction[aria-pressed=true] { background: var(--tg-accent); color: var(--tg-accent-fg); }
+  .tg-bubble.is-own .tg-reaction { --tg-accent: var(--tg-own-accent); }
+  [data-theme=dark] .tg-bubble.is-own .tg-reaction[aria-pressed=true] { color: var(--tg-own); }
+  .tg-reaction:disabled { cursor: default; }
+
+  /* Sender name colours (7, readable on the bubble in each theme). */
+  .tg { --peer-0: #d14b52; --peer-1: #c4740f; --peer-2: #8a5fd1; --peer-3: #3a9a3a; --peer-4: #1f8fb5; --peer-5: #3a7fd6; --peer-6: #c4527f; }
+  [data-theme=dark] .tg { --peer-0: #ff8a8f; --peer-1: #ffb35c; --peer-2: #b9a0ff; --peer-3: #73d06e; --peer-4: #5fcbe8; --peer-5: #78acff; --peer-6: #f285b5; }
+
+  /* Round avatars with a soft vertical gradient. */
+  .tg-avatar {
+    display: grid; place-items: center; flex-shrink: 0; border-radius: 9999px; color: #fff; font-weight: 500; user-select: none;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--peer) 70%, #fff), var(--peer));
+  }
+
+  /* Date pill and the unread bar. */
+  .tg-pill {
+    display: inline-block; padding: 3px 9px; border-radius: 14px; font-size: 14px; font-weight: 500; line-height: 20px;
+    background: var(--tg-pill); color: var(--tg-pill-fg); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    transition: opacity .3s ease;
+  }
+  .tg-scroll:not(.is-scrolling) .tg-day.is-stuck .tg-pill { opacity: 0; }
+  .tg-unread { margin: 8px -100vmax; padding-inline: 100vmax; padding: 4px 0; text-align: center; font-size: 14px; font-weight: 500; background: var(--tg-pill); color: var(--tg-pill-fg); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+
+  /* The row behind a bubble: a highlight after jumping to a message. */
+  .tg-row { position: relative; }
+  .tg-row::after { content: ""; position: absolute; inset: -2px -100vmax; pointer-events: none; background: var(--tg-flash); opacity: 0; }
+  .tg-row[data-flash]::after { animation: tg-flash 1.6s ease-out; }
+  .tg-row:focus-visible .tg-bubble { outline: 2px solid var(--tg-accent); outline-offset: 2px; }
+
+  /* Floating round buttons (jump to latest, send). */
+  .tg-fab {
+    display: grid; place-items: center; border: 0; border-radius: 9999px; cursor: pointer; padding: 0;
+    background: var(--tg-fab); color: var(--tg-fab-fg); box-shadow: 0 1px 4px rgb(0 0 0 / 0.16);
+    transition: transform .2s cubic-bezier(.2, .8, .3, 1), opacity .2s, color .15s, background-color .15s;
+  }
+  .tg-fab:hover { color: var(--tg-accent); }
+  .tg-fab:active { transform: scale(.92); }
+  .tg-fab-badge {
+    position: absolute; top: -6px; right: -4px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+    background: var(--tg-accent); color: var(--tg-accent-fg); font-size: 12px; font-weight: 500; line-height: 22px; text-align: center;
+  }
+
+  /* The message box: a bubble-like card with its own tail. */
+  .tg-input { position: relative; background: var(--tg-bar); border-radius: 16px; box-shadow: 0 1px 2px rgb(16 35 47 / 0.15); }
+  .tg-input.has-tail { border-bottom-right-radius: 0; }
+  .tg-input.has-tail::before {
+    content: ""; position: absolute; bottom: 0; right: -8.4px; width: 9px; height: 17px; background: inherit; transform: scaleX(-1);
+    -webkit-mask: url(/chat/tail.svg) no-repeat center / 100% 100%; mask: url(/chat/tail.svg) no-repeat center / 100% 100%;
+  }
+  .tg-send {
+    width: 54px; height: 54px; flex-shrink: 0; color: var(--tg-accent);
+  }
+  .tg-send:disabled { cursor: default; color: var(--tg-in-meta); opacity: 1; }
+  .tg-send:disabled:active { transform: none; }
+  .tg-send svg { transition: transform .22s cubic-bezier(.2, .8, .3, 1), opacity .22s; }
+  .tg-send:disabled svg { transform: scale(.82) rotate(-12deg); opacity: .6; }
+
+  /* Context menu: frosted glass, grows from where it was opened. */
+  .tg-menu {
+    position: fixed; z-index: 60; min-width: 200px; padding: 6px 0; border-radius: 12px;
+    background: var(--tg-menu); color: var(--tg-text); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.2), 0 0 0 1px rgb(0 0 0 / 0.04);
+    animation: tg-menu-in .18s cubic-bezier(.2, .8, .3, 1);
+  }
+  .tg-menu-item {
+    display: flex; width: calc(100% - 12px); margin: 0 6px; align-items: center; gap: 14px; padding: 7px 12px; border: 0; border-radius: 8px; cursor: pointer;
+    background: transparent; color: inherit; text-align: left; font-size: 14px; font-weight: 500; line-height: 20px; box-shadow: none;
+  }
+  .tg-menu-item:hover, .tg-menu-item:focus-visible { background: var(--tg-menu-hover); outline: none; }
+  .tg-menu-item.is-danger { color: var(--tg-danger); }
+  .tg-menu-reactions {
+    position: fixed; z-index: 61; display: flex; gap: 2px; padding: 4px 6px; border-radius: 26px;
+    background: var(--tg-menu); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.2), 0 0 0 1px rgb(0 0 0 / 0.04);
+    animation: tg-menu-in .2s cubic-bezier(.2, .8, .3, 1);
+  }
+  .tg-menu-reactions button {
+    display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 9999px; padding: 0; cursor: pointer;
+    background: transparent; font-size: 24px; line-height: 1; box-shadow: none; transition: transform .15s cubic-bezier(.2, .8, .3, 1);
+  }
+  .tg-menu-reactions button:hover, .tg-menu-reactions button:focus-visible { transform: scale(1.22); outline: none; }
+  .tg-menu-reactions button[aria-checked=true] { background: color-mix(in srgb, var(--tg-accent) 18%, transparent); }
+  .tg-menu-reactions button:nth-child(1) { animation: tg-pop .3s .02s both; }
+  .tg-menu-reactions button:nth-child(2) { animation: tg-pop .3s .05s both; }
+  .tg-menu-reactions button:nth-child(3) { animation: tg-pop .3s .08s both; }
+  .tg-menu-reactions button:nth-child(4) { animation: tg-pop .3s .11s both; }
+  .tg-menu-reactions button:nth-child(5) { animation: tg-pop .3s .14s both; }
+  .tg-menu-reactions button:nth-child(6) { animation: tg-pop .3s .17s both; }
+
+  /* Swipe to reply (touch). */
+  .tg-swipe-icon {
+    position: absolute; right: 8px; top: 50%; width: 32px; height: 32px; margin-top: -16px; border-radius: 9999px;
+    display: grid; place-items: center; background: var(--tg-pill); color: var(--tg-pill-fg); pointer-events: none;
+  }
+
+  /* ---- motion ---- */
+  .tg-enter { animation: tg-in .26s cubic-bezier(.2, .8, .3, 1) both; }
+  .tg-bubble.is-in.tg-enter { transform-origin: 0 100%; }
+  .tg-bubble.is-own.tg-enter { transform-origin: 100% 100%; animation-name: tg-in-own; }
+  .tg-fade-in { animation: tg-fade .2s ease-out both; }
+
+  @keyframes tg-in { from { opacity: 0; transform: translateY(14px) scale(.94); } to { opacity: 1; transform: none; } }
+  @keyframes tg-in-own { from { opacity: 0; transform: translate(10px, 26px) scale(.9); } to { opacity: 1; transform: none; } }
+  @keyframes tg-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes tg-flash { 0%, 30% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes tg-menu-in { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: none; } }
+  @keyframes tg-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tg-enter, .tg-menu, .tg-menu-reactions, .tg-menu-reactions button, .tg-fade-in { animation: none; }
+    .tg-row[data-flash]::after { animation-duration: .01s; opacity: 0; }
+  }
+  @media (forced-colors: active) {
+    .tg-bubble { border: 1px solid CanvasText; }
+    .tg-wall { display: none; }
+  }
+}

@@ -19,6 +19,8 @@ export interface ChatIssueView {
 /** The message a reply quotes. */
 export interface ChatReplyView {
   id: string;
+  /** Who wrote the quoted message (the quote is drawn in their colour). */
+  userId: string;
   userName: string | null;
   /** First characters of the quoted text (empty when deleted or issue-only). */
   text: string;
@@ -120,6 +122,7 @@ export async function messageViews(db: Db, messages: ChatMessageDoc[], viewerId:
       }),
       replyTo: m.deletedAt || !original ? null : {
         id: String(original._id),
+        userId: String(original.userId),
         userName: nameOf(original.userId),
         text: original.deletedAt ? '' : original.text.slice(0, REPLY_SNIPPET_LENGTH),
         deleted: Boolean(original.deletedAt),

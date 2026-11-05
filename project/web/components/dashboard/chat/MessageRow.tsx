@@ -1,14 +1,14 @@
 'use client';
 
-import { memo, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { CHAT_REACTIONS } from '@/lib/chat';
 import { plainText } from '@/lib/chatText';
 import type { ChatMessageView, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { Avatar } from '../../ui/bits';
 import { Icon } from '../../ui/Icon';
+import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { MessageBody } from './MessageBody';
-import { clock, fullDate, ICON_BUTTON, IssueCard, MENU_ITEM, onMenuKeyDown, POPOVER, useDismiss, useFocusFirst } from './shared';
+import { clock, fullDate, IssueCard, peerColor } from './shared';
 
 /** One line of the conversation: a stored message, or one still being sent / that failed. */
 export type Row = { key: string; msg: ChatMessageView; status: 'sent' | 'sending' | 'failed'; clientId?: string; error?: string | null };
@@ -23,33 +23,46 @@ export interface RowActions {
   jumpTo: (id: string) => void;
   retry: (clientId: string) => void;
   discard: (clientId: string) => void;
-  /** Touch screens have no hover: tapping a message selects it, which shows its toolbar. */
-  select: (key: string | null) => void;
-  /** Pixels between `el` and the bottom of the message list (a popup with less room opens upwards). */
-  roomBelow: (el: HTMLElement) => number;
 }
 
-/** The reactions the toolbar offers in one click (the full set is behind "Add reaction"). */
-const QUICK_REACTIONS = ['👍', '✅', '👀'] as const;
 const REACTION_NAMES: Record<string, string> = { '👍': 'thumbs up', '❤️': 'heart', '😂': 'laughing', '🎉': 'party', '👀': 'eyes', '✅': 'done' };
-/** Room a popup needs below the toolbar before it flips upwards. */
-const POPUP_ROOM_PX = 170;
-
 const reactionLabel = (emoji: string) => REACTION_NAMES[emoji] ?? emoji;
+
+/** Touch: how long a press must last to open the menu. */
+const LONG_PRESS_MS = 420;
+/** Touch: movement that turns a press into a scroll or a swipe. */
+const DRAG_START_PX = 8;
+/** Swipe-to-reply: how far the bubble follows the finger, and the distance that triggers a reply. */
+const SWIPE_MAX_PX = 84;
+const SWIPE_REPLY_PX = 56;
 
 /** Snippet of a quoted message. */
 export const snippetOf = (m: { text: string; issues?: unknown[]; hasIssues?: boolean; deleted?: boolean }) =>
   m.deleted ? 'Message deleted' : plainText(m.text) || (m.hasIssues || (m.issues && m.issues.length > 0) ? 'Shared an issue' : '');
 
-export const MessageRow = memo(function MessageRow({ row, groupStart, me, people, canPost, canDelete, selected, actions }: {
+/** Whether the person has text selected inside `el` (then right-click keeps the browser's own menu, for copying). */
+function hasSelectionIn(el: HTMLElement): boolean {
+  const s = window.getSelection();
+  return Boolean(s && !s.isCollapsed && s.toString().trim() && s.anchorNode && el.contains(s.anchorNode));
+}
+
+/**
+ * One message as a bubble: others' on the left, yours on the right; the last bubble of a group has a tail.
+ * Right-click or long-press opens the menu (reactions + actions), double-click or swipe left replies,
+ * and from the keyboard Enter / the Menu key / Shift+F10 open the menu of the focused message.
+ */
+export const MessageRow = memo(function MessageRow({ row, first, last, animate, me, people, canPost, canDelete, actions }: {
   row: Row;
-  /** First message of a group: shows the avatar and the name. */
-  groupStart: boolean;
+  /** First bubble of a group (shows the sender's name). */
+  first: boolean;
+  /** Last bubble of a group (has the tail). */
+  last: boolean;
+  /** Arrived after the chat opened: slides in. */
+  animate: boolean;
   me: { id: string; name: string };
   people: Map<string, PersonView>;
   canPost: boolean;
   canDelete: boolean;
-  selected: boolean;
   actions: RowActions;
 }) {
   const m = row.msg;
@@ -58,175 +71,186 @@ export const MessageRow = memo(function MessageRow({ row, groupStart, me, people
   const mentionsMe = !own && !m.deleted && m.mentions.includes(me.id);
   const names = useMemo(() => m.mentions.map((id) => people.get(id)?.name).filter((n): n is string => Boolean(n)), [m.mentions, people]);
   const sent = row.status === 'sent' && !m.deleted;
+  const hasMenu = sent || row.status === 'failed';
 
-  const [popup, setPopup] = useState<'react' | 'more' | null>(null);
-  const [up, setUp] = useState(false);
-  const toolbar = useRef<HTMLDivElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement | null>(null);
-  useDismiss(popup !== null, toolbar, () => setPopup(null), trigger);
-  useFocusFirst(popup !== null, popupRef);
+  const article = useRef<HTMLElement>(null);
+  const bubble = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
 
-  const open = (which: 'react' | 'more', e: MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    trigger.current = e.currentTarget;
-    setUp(actions.roomBelow(e.currentTarget) < POPUP_ROOM_PX);
-    setPopup((p) => (p === which ? null : which));
+  // ---- touch: long-press opens the menu, a sideways drag to the left replies
+  const press = useRef<{ x: number; y: number; mode: 'wait' | 'swipe' | 'scroll' | 'done'; timer: number } | null>(null);
+  const [swipe, setSwipe] = useState(0);
+  const endPress = () => { if (press.current) clearTimeout(press.current.timer); press.current = null; };
+
+  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+    if (e.pointerType !== 'touch' || !hasMenu) return;
+    const { clientX: x, clientY: y } = e;
+    press.current = {
+      x, y, mode: 'wait',
+      timer: window.setTimeout(() => {
+        if (!press.current || press.current.mode !== 'wait') return;
+        press.current.mode = 'done';
+        navigator.vibrate?.(8);
+        setMenu({ x, y });
+      }, LONG_PRESS_MS),
+    };
   };
-  const run = (fn: () => void) => () => { setPopup(null); fn(); };
+  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
+    const p = press.current;
+    if (!p || p.mode === 'done' || p.mode === 'scroll') return;
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    if (p.mode === 'wait') {
+      if (Math.abs(dx) < DRAG_START_PX && Math.abs(dy) < DRAG_START_PX) return;
+      clearTimeout(p.timer);
+      p.mode = canPost && sent && dx < 0 && Math.abs(dx) > Math.abs(dy) ? 'swipe' : 'scroll';
+      if (p.mode === 'swipe') e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    if (p.mode === 'swipe') setSwipe(Math.max(-SWIPE_MAX_PX, Math.min(0, dx)));
+  };
+  const onPointerUp = () => {
+    if (press.current?.mode === 'swipe' && swipe <= -SWIPE_REPLY_PX) { navigator.vibrate?.(8); actions.reply(m); }
+    endPress();
+    setSwipe(0);
+  };
 
-  const time = <time dateTime={m.createdAt} title={fullDate(m.createdAt)}>{clock(m.createdAt)}</time>;
+  // ---- mouse and keyboard
+  const onContextMenu = (e: MouseEvent<HTMLElement>) => {
+    if (!hasMenu) return;
+    const target = e.target as HTMLElement;
+    // Links and selected text keep the browser's menu (open in new tab, copy selection).
+    if (target.closest('a') || (bubble.current && hasSelectionIn(bubble.current))) return;
+    e.preventDefault();
+    endPress();
+    setMenu({ x: e.clientX, y: e.clientY });
+  };
+  const onDoubleClick = (e: MouseEvent<HTMLElement>) => {
+    if (!canPost || !sent || (e.target as HTMLElement).closest('a,button,pre,input')) return;
+    window.getSelection()?.removeAllRanges();
+    actions.reply(m);
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget || !hasMenu) return;
+    if (e.key === 'Enter' || e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault();
+      const r = bubble.current?.getBoundingClientRect();
+      if (r) setMenu({ x: own ? r.right - 220 : r.left + 12, y: r.bottom + 4 });
+    }
+  };
+
+  const entries: MenuEntry[] = row.status === 'failed' && row.clientId
+    ? [
+      { label: 'Try again', icon: 'retry', onSelect: () => actions.retry(row.clientId as string) },
+      ...(m.text ? [{ label: 'Copy text', icon: 'copy' as const, onSelect: () => actions.copyText(m) }] : []),
+      { label: 'Discard', icon: 'trash', danger: true, onSelect: () => actions.discard(row.clientId as string) },
+    ]
+    : [
+      ...(canPost ? [{ label: 'Reply', icon: 'reply' as const, onSelect: () => actions.reply(m) }] : []),
+      ...(m.text ? [{ label: 'Copy text', icon: 'copy' as const, onSelect: () => actions.copyText(m) }] : []),
+      { label: 'Copy link', icon: 'link', onSelect: () => actions.copyLink(m) },
+      ...(canDelete ? [{ label: 'Delete', icon: 'trash' as const, danger: true, onSelect: () => actions.remove(m) }] : []),
+    ];
+  const reactions = canPost && sent
+    ? CHAT_REACTIONS.map((emoji) => ({ emoji, label: reactionLabel(emoji), mine: m.reactions.some((r) => r.emoji === emoji && r.mine), onSelect: () => actions.react(m.id, emoji) }))
+    : undefined;
+
+  // ---- the time and delivery state, drawn in the bubble's corner (an invisible copy keeps room for it)
+  const status = !own ? null
+    : row.status === 'sending' ? <Icon name="clock" className="size-3.5" />
+    : row.status === 'failed' ? <Icon name="alert" className="size-3.5 text-(--tg-danger)" />
+    : m.deleted ? null : <Icon name="check" className="size-[15px]" />;
+  const metaContent = <><time dateTime={m.createdAt} title={fullDate(m.createdAt)}>{clock(m.createdAt)}</time>{status}</>;
+  const spacer = <span className="tg-meta-spacer" aria-hidden="true">{metaContent}</span>;
+  const textLast = Boolean(m.text) && m.issues.length === 0 && m.reactions.length === 0;
+
+  const label = `${own ? 'You' : author}, ${clock(m.createdAt)}${mentionsMe ? ', mentions you' : ''}${row.status === 'failed' ? ', not sent' : row.status === 'sending' ? ', sending' : ''}`;
 
   return (
     <article
+      ref={article}
       id={`m-${m.id}`}
       data-row=""
       tabIndex={-1}
-      aria-label={`${own ? 'You' : author}, ${clock(m.createdAt)}${mentionsMe ? ', mentions you' : ''}${row.status === 'failed' ? ', not sent' : row.status === 'sending' ? ', sending' : ''}`}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest('a,button,pre')) return;
-        if (window.matchMedia?.('(hover: none)').matches) actions.select(selected ? null : row.key);
-      }}
-      className={cn(
-        'group/row relative flex gap-3 px-4 py-1 outline-none transition-colors md:px-6',
-        'hover:bg-(--hover) focus-visible:bg-(--hover) focus-visible:shadow-[inset_0_0_0_2px_var(--mention)]',
-        'data-[flash]:bg-(--mention-bg)',
-        groupStart ? 'mt-2 pt-1.5' : '',
-        mentionsMe && 'bg-(--mention-me) shadow-[inset_3px_0_0_var(--mention-me-line)] hover:bg-(--mention-me)',
-        (selected || popup) && 'bg-(--hover)',
-      )}
+      aria-label={label}
+      aria-haspopup={hasMenu ? 'menu' : undefined}
+      onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
+      onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => { endPress(); setSwipe(0); }}
+      className={cn('tg-row isolate flex touch-pan-y outline-none', own ? 'justify-end pr-[9px]' : 'justify-start pl-[9px]', last ? 'pb-1.5' : 'pb-[3px]')}
     >
-      {/* Gutter: the avatar on a group's first message, the time (on hover) on the others. */}
-      <div className="w-9 shrink-0 [&>.avatar]:size-9 [&>.avatar]:text-sm">
-        {groupStart ? <Avatar name={author} /> : (
-          <span className="block pt-[3px] text-right text-[11px] leading-4 text-muted tabular-nums opacity-0 group-hover/row:opacity-100 group-focus-visible/row:opacity-100" aria-hidden="true">{clock(m.createdAt)}</span>
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        {groupStart ? (
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className={cn('truncate text-[14px] leading-5 font-semibold', m.userName ? 'text-fg' : 'text-muted italic')}>{author}</span>
-            {own ? <span className="shrink-0 text-[11px] font-medium text-muted">You</span> : null}
-            <span className="shrink-0 text-xs text-muted tabular-nums">{time}</span>
-          </div>
-        ) : null}
-
-        {m.replyTo ? (
-          <button type="button" onClick={() => m.replyTo && actions.jumpTo(m.replyTo.id)} title="Go to the original message"
-            className="mt-0.5 mb-1 flex w-fit max-w-full min-w-0 cursor-pointer overflow-hidden sm:max-w-xl items-center gap-1.5 rounded-md border-0 bg-transparent p-0 text-left text-[12.5px] leading-5 text-muted shadow-none hover:text-fg focus-visible:outline-2 focus-visible:outline-(--mention)">
-            <Icon name="reply" className="size-3.5 shrink-0" />
-            <span className="shrink-0 font-semibold text-fg-2">{m.replyTo.userName ?? 'Deleted user'}</span>
-            <span className={cn('truncate', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo) || 'Message'}</span>
-          </button>
-        ) : null}
-
-        {m.deleted ? (
-          <p className="m-0 text-[13px] leading-[22px] text-muted italic">This message was deleted.</p>
-        ) : (
-          <div className={cn(row.status !== 'sent' && 'opacity-70')}>
-            {m.text ? <MessageBody text={m.text} names={names} myName={me.name} /> : null}
-            {m.issues.length > 0 ? (
-              <div className={cn('grid gap-1.5', m.text ? 'mt-1.5' : 'mt-0.5')}>
-                {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} />)}
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        {row.status === 'sending' ? <p className="m-0 mt-0.5 text-[11px] text-muted" role="status">Sending…</p> : null}
-        {row.status === 'failed' && row.clientId ? (
-          <p className="m-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-danger" role="alert">
-            <Icon name="alert" className="size-3.5" />
-            <span>Not sent{row.error ? ` · ${row.error}` : ''}</span>
-            <button type="button" onClick={() => actions.retry(row.clientId as string)} className="inline-flex cursor-pointer items-center gap-1 rounded border-0 bg-transparent p-0 font-semibold text-danger underline underline-offset-2 shadow-none">Retry</button>
-            <button type="button" onClick={() => actions.discard(row.clientId as string)} className="cursor-pointer rounded border-0 bg-transparent p-0 text-muted underline underline-offset-2 shadow-none hover:text-fg">Discard</button>
-          </p>
-        ) : null}
-
-        {m.reactions.length > 0 ? (
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            {m.reactions.map((r) => {
-              const who = r.names.length > 0 ? r.names.join(', ') : `${r.count}`;
-              return (
-                <button key={r.emoji} type="button" disabled={!canPost} aria-pressed={r.mine}
-                  aria-label={`${reactionLabel(r.emoji)}: ${r.count}, ${who}${r.mine ? '. Click to remove yours' : ''}`}
-                  title={`${who} reacted with ${reactionLabel(r.emoji)}`}
-                  onClick={() => actions.react(m.id, r.emoji)}
-                  className={cn(
-                    'inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-xs shadow-none transition-colors disabled:cursor-default',
-                    r.mine ? 'border-(--mention)/60 bg-(--mention-bg) text-(--mention-fg)' : 'border-line bg-panel text-fg-2 hover:border-line-strong',
-                  )}>
-                  <span className="text-[13px] leading-none">{r.emoji}</span><span className="font-medium tabular-nums">{r.count}</span>
-                </button>
-              );
-            })}
-            {canPost && sent ? (
-              <button type="button" aria-label="Add reaction" title="Add reaction" onClick={(e) => open('react', e)}
-                className="grid h-6 w-7 cursor-pointer place-items-center rounded-full border border-line bg-panel p-0 text-muted shadow-none hover:border-line-strong hover:text-fg">
-                <Icon name="smilePlus" className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Hover / focus toolbar, Slack-style, over the top-right corner. */}
-      {sent ? (
-        <div ref={toolbar}
-          className={cn(
-            'absolute -top-3.5 right-3 z-20 items-center gap-0.5 rounded-lg border border-line bg-panel p-0.5 shadow-(--menu-shadow) md:right-5',
-            'hidden group-hover/row:flex group-focus-within/row:flex',
-            (selected || popup) && 'flex',
-          )}
-          role="toolbar" aria-label="Message actions">
-          {canPost ? (
-            <>
-              {QUICK_REACTIONS.map((emoji) => (
-                <button key={emoji} type="button" className={cn(ICON_BUTTON, 'text-[15px]')} title={`React with ${reactionLabel(emoji)}`} aria-label={`React with ${reactionLabel(emoji)}`}
-                  onClick={(e) => { e.stopPropagation(); actions.react(m.id, emoji); }}>{emoji}</button>
-              ))}
-              <button type="button" className={ICON_BUTTON} title="Add reaction" aria-label="Add reaction" aria-haspopup="menu" aria-expanded={popup === 'react'} onClick={(e) => open('react', e)}>
-                <Icon name="smilePlus" className="size-4" />
-              </button>
-              <button type="button" className={ICON_BUTTON} title="Reply" aria-label="Reply" onClick={(e) => { e.stopPropagation(); actions.reply(m); }}>
-                <Icon name="reply" className="size-4" />
-              </button>
-            </>
-          ) : null}
-          <button type="button" className={ICON_BUTTON} title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded={popup === 'more'} onClick={(e) => open('more', e)}>
-            <Icon name="more" className="size-4" />
-          </button>
-
-          {popup === 'react' ? (
-            <div ref={popupRef} role="menu" aria-label="Add reaction" onKeyDown={onMenuKeyDown}
-              className={cn(POPOVER, 'absolute right-0 flex gap-0.5 p-1', up ? 'bottom-full mb-1.5' : 'top-full mt-1.5')}>
-              {CHAT_REACTIONS.map((emoji) => {
-                const mine = m.reactions.some((r) => r.emoji === emoji && r.mine);
-                return (
-                  <button key={emoji} type="button" role="menuitemradio" aria-checked={mine} aria-label={reactionLabel(emoji)} title={reactionLabel(emoji)}
-                    onClick={run(() => actions.react(m.id, emoji))}
-                    className={cn(ICON_BUTTON, 'size-9 text-lg', mine && 'bg-(--mention-bg)')}>{emoji}</button>
-                );
-              })}
-            </div>
-          ) : null}
-          {popup === 'more' ? (
-            <div ref={popupRef} role="menu" aria-label="More actions" onKeyDown={onMenuKeyDown}
-              className={cn(POPOVER, 'absolute right-0 w-48 p-1', up ? 'bottom-full mb-1.5' : 'top-full mt-1.5')}>
-              {canPost ? <button type="button" role="menuitem" className={MENU_ITEM} onClick={run(() => actions.reply(m))}><Icon name="reply" className="size-4 text-muted" />Reply</button> : null}
-              {m.text ? <button type="button" role="menuitem" className={MENU_ITEM} onClick={run(() => actions.copyText(m))}><Icon name="copy" className="size-4 text-muted" />Copy text</button> : null}
-              <button type="button" role="menuitem" className={MENU_ITEM} onClick={run(() => actions.copyLink(m))}><Icon name="link" className="size-4 text-muted" />Copy link</button>
-              {canDelete ? (
-                <>
-                  <div className="my-1 h-px bg-line" role="separator" />
-                  <button type="button" role="menuitem" className={cn(MENU_ITEM, 'text-danger')} onClick={run(() => actions.remove(m))}><Icon name="trash" className="size-4" />Delete message</button>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+      {row.status === 'failed' ? (
+        <button type="button" title={row.error ? `Not sent: ${row.error}` : 'Not sent'} aria-label="Not sent. Show options"
+          onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left - 200, y: r.bottom + 4 }); }}
+          className="tg-fade-in mr-2 grid size-[22px] shrink-0 cursor-pointer place-items-center self-end rounded-full border-0 bg-(--tg-danger) p-0 text-[13px] font-bold text-white shadow-none">!</button>
       ) : null}
+      <div className="relative min-w-0 max-w-[min(480px,calc(100%-48px))]"
+        style={{ transform: swipe ? `translateX(${swipe}px)` : undefined, transition: swipe ? 'none' : 'transform .22s cubic-bezier(.2,.8,.3,1)' }}>
+        <div
+          ref={bubble}
+          className={cn('tg-bubble [-webkit-touch-callout:none] [@media(hover:none)]:select-none', own ? 'is-own' : 'is-in', first && 'is-first', last && 'is-last', animate && 'tg-enter')}
+          style={{ '--peer': peerColor(m.userId) } as CSSProperties}
+        >
+          {first && !own ? (
+            <div className="mb-0.5 truncate text-[14px] leading-[18px] font-medium" style={{ color: 'var(--peer)' }}>{author}</div>
+          ) : null}
+
+          {m.replyTo ? (
+            <button type="button" className="tg-quote" style={{ '--peer': peerColor(m.replyTo.userId) } as CSSProperties}
+              onClick={() => m.replyTo && actions.jumpTo(m.replyTo.id)} title="Go to the original message">
+              <span className="truncate font-medium" style={{ color: 'var(--peer)' }}>{m.replyTo.userName ?? 'Deleted user'}</span>
+              <span className={cn('truncate font-normal opacity-90', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo) || 'Message'}</span>
+            </button>
+          ) : null}
+
+          {m.deleted ? (
+            <p className="m-0 text-[15px] leading-[21px] italic opacity-70">Message deleted{spacer}</p>
+          ) : (
+            <div className={cn(row.status === 'sending' && 'opacity-80')}>
+              {m.text ? <MessageBody text={m.text} names={names} myName={me.name} bubble trailing={textLast ? spacer : undefined} /> : null}
+              {m.issues.length > 0 ? (
+                <div className={cn('grid gap-1', m.text ? 'mt-1.5' : 'mt-0.5')}>
+                  {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} inBubble />)}
+                </div>
+              ) : null}
+              {m.reactions.length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  {m.reactions.map((r) => {
+                    const who = r.names.length > 0 ? r.names.join(', ') : `${r.count}`;
+                    return (
+                      <button key={r.emoji} type="button" className="tg-reaction" disabled={!canPost} aria-pressed={r.mine}
+                        aria-label={`${reactionLabel(r.emoji)}: ${r.count}, ${who}${r.mine ? '. Click to remove yours' : ''}`}
+                        title={`${who} reacted with ${reactionLabel(r.emoji)}`}
+                        onClick={() => actions.react(m.id, r.emoji)}>
+                        <span className="text-[15px] leading-none">{r.emoji}</span><span className="tabular-nums">{r.count}</span>
+                      </button>
+                    );
+                  })}
+                  {spacer}
+                </div>
+              ) : !textLast ? <div className="h-3.5">{spacer}</div> : null}
+            </div>
+          )}
+
+          <span className="tg-meta">{metaContent}</span>
+        </div>
+
+        {swipe < 0 ? (
+          <span className="tg-swipe-icon" style={{ right: swipe - 40, opacity: Math.min(1, -swipe / SWIPE_REPLY_PX), transform: `scale(${-swipe >= SWIPE_REPLY_PX ? 1.1 : 0.85})` }} aria-hidden="true">
+            <Icon name="reply" className="size-4" />
+          </span>
+        ) : null}
+      </div>
+
+      {row.status === 'failed' ? (
+        <span className="sr-only" role="alert">Not sent{row.error ? `: ${row.error}` : ''}. Open the message menu to try again.</span>
+      ) : null}
+
+      {menu ? <ContextMenu x={menu.x} y={menu.y} items={entries} reactions={reactions} onClose={closeMenu} returnFocus={article.current} /> : null}
     </article>
   );
 });

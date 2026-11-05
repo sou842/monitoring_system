@@ -96,6 +96,7 @@ export interface ChatIssueView {
 
 export interface ChatReplyView {
   id: string;
+  userId: string;
   userName: string | null;
   text: string;
   deleted: boolean;

@@ -61,11 +61,20 @@ function CodeBlock({ lang, text }: { lang: string | null; text: string }) {
  * as HTML, so nothing a sender types can run or style the page. `dir="auto"` lets right-to-left text
  * (Arabic, Hebrew) read correctly.
  */
-export const MessageBody = memo(function MessageBody({ text, names, myName }: { text: string; names: readonly string[]; myName: string | null }) {
+export const MessageBody = memo(function MessageBody({ text, names, myName, trailing, bubble }: {
+  text: string; names: readonly string[]; myName: string | null;
+  /** Inline content put at the end of the last line (a bubble's time); on its own line after a code block. */
+  trailing?: ReactNode;
+  /** Inside a chat bubble: bubble text size, colour from the bubble. */
+  bubble?: boolean;
+}) {
   const blocks = parseBlocks(text);
+  const lastIndex = blocks.length - 1;
+  const endsInline = lastIndex >= 0 && blocks[lastIndex].kind !== 'code';
   return (
-    <div className="min-w-0 text-[14px] leading-[22px] text-fg [overflow-wrap:anywhere]">
+    <div className={cn('min-w-0 [overflow-wrap:anywhere]', bubble ? 'text-[15px] leading-[21px]' : 'text-[14px] leading-[22px] text-fg')}>
       {blocks.map((block, i) => {
+        const tail = i === lastIndex && endsInline ? trailing : null;
         if (block.kind === 'code') return <CodeBlock key={i} lang={block.lang} text={block.text} />;
         if (block.kind === 'list') {
           // One flat list with indentation per level: simple to read, and screen readers still hear a list of N items.
@@ -74,17 +83,18 @@ export const MessageBody = memo(function MessageBody({ text, names, myName }: { 
               {block.items.map((item, j) => (
                 <li key={j} className="flex gap-2" style={{ paddingInlineStart: `${item.level * 20}px` }}>
                   <span className="min-w-4 shrink-0 text-right text-fg-2 tabular-nums select-none" aria-hidden="true">{item.ordered ? `${item.number}.` : item.level % 2 === 0 ? '•' : '◦'}</span>
-                  <span className="min-w-0">{renderInline(parseInline(item.text, names), myName)}</span>
+                  <span className="min-w-0">{renderInline(parseInline(item.text, names), myName)}{j === block.items.length - 1 ? tail : null}</span>
                 </li>
               ))}
             </ul>
           );
         }
         if (block.kind === 'quote') {
-          return <blockquote key={i} dir="auto" className="my-1 border-0 border-l-[3px] border-solid border-line-strong py-0.5 pl-3 whitespace-pre-wrap text-fg-2">{renderInline(parseInline(block.text, names), myName)}</blockquote>;
+          return <blockquote key={i} dir="auto" className="my-1 border-0 border-l-[3px] border-solid border-line-strong py-0.5 pl-3 whitespace-pre-wrap text-fg-2">{renderInline(parseInline(block.text, names), myName)}{tail}</blockquote>;
         }
-        return <p key={i} dir="auto" className="m-0 whitespace-pre-wrap">{renderInline(parseInline(block.text, names), myName)}</p>;
+        return <p key={i} dir="auto" className="m-0 whitespace-pre-wrap">{renderInline(parseInline(block.text, names), myName)}{tail}</p>;
       })}
+      {trailing && !endsInline ? <div className="text-right leading-[14px]">{trailing}</div> : null}
     </div>
   );
 });
