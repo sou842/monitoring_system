@@ -122,7 +122,6 @@
     --bubble-own: oklch(0.32 0.075 255);
     --bubble-own-fg: oklch(0.94 0.01 255);
     --bubble-own-fg-dim: oklch(0.94 0.01 255 / 62%);
-    --chat-wallpaper-dot: rgba(255, 255, 255, 0.035);
     --av-bg-s: 32%;
     --av-bg-l: 30%;
     --av-fg-l: 88%;
@@ -185,7 +184,6 @@
     --bubble-own: oklch(0.9 0.035 255);
     --bubble-own-fg: oklch(0.27 0.05 260);
     --bubble-own-fg-dim: oklch(0.27 0.05 260 / 60%);
-    --chat-wallpaper-dot: rgba(0, 0, 0, 0.045);
     --av-bg-s: 75%;
     --av-bg-l: 88%;
     --av-fg-l: 28%;
@@ -887,11 +885,6 @@
   }
 
   /* ---------- Chat (WhatsApp-style bubbles, docs/MEMBERS_AND_CHAT.md "Chat v2") ---------- */
-  /* A faint dotted wallpaper behind the message list, instead of a flat panel. */
-  .chat-wallpaper {
-    background-image: radial-gradient(circle at 1px 1px, var(--chat-wallpaper-dot) 1px, transparent 0);
-    background-size: 22px 22px;
-  }
 }
 
 /* The Markdown renderer in AI answers (streamdown, in node_modules) uses shadcn's bg-muted, which here would be the

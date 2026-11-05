@@ -544,6 +544,11 @@ export function EventDetail({ event, insightSettings }: { event: ClientEvent; in
       {/* Rows in the other tabs (breadcrumbs, stack frames, the error) jump to their item here. */}
       {tab === 'json' ? (
         <div ref={rawJsonRef} className="raw-json">
+          {/* Stays at the top of the scrolling page while the (long) JSON scrolls underneath. */}
+          <div className="sticky top-2 z-10 mb-2 flex items-center justify-between gap-3 rounded-full border border-line bg-panel/95 py-1.5 pr-1.5 pl-4 shadow-sm backdrop-blur">
+            <span className="text-xs font-medium text-muted">Raw event JSON</span>
+            <CopyButton className={pillButton('primary', 'h-8 px-4 text-xs')} label="Copy JSON" text={JSON.stringify(p, null, 2)} />
+          </div>
           <pre>{jsonNodes(p)}</pre>
         </div>
       ) : null}

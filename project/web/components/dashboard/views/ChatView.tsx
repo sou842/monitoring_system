@@ -445,7 +445,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
       items.push(
         <div key={`h-${row.key}`} className="mt-3 flex items-center gap-2 pl-0.5">
           <Avatar name={author} size="sm" />
-          <span className="truncate text-[13px] font-semibold dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</span>
+          <span className="truncate text-xs font-normal dark:brightness-[1.7]" style={{ color: nameColor(author) }}>{author}</span>
         </div>,
       );
     }
@@ -531,7 +531,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         <div className="relative min-h-0 flex-1">
           <div
             ref={scroller}
-            className="chat-wallpaper h-full overflow-y-auto bg-panel-2"
+            className="h-full overflow-y-auto bg-panel-2"
             onScroll={(e) => {
               const el = e.currentTarget;
               const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
