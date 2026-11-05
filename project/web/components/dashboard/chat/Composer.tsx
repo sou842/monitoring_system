@@ -331,7 +331,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   const sendable = (length > 0 || attached.length > 0) && length <= MAX_LENGTH;
 
   // The box: emoji on the left, the editor, format + issue on the right; the round send button sits outside it.
-  const side = cn(ICON_BUTTON, 'size-10 rounded-full text-(--tg-in-meta) hover:bg-transparent hover:text-(--tg-accent) aria-pressed:bg-transparent aria-pressed:text-(--tg-accent) aria-expanded:bg-transparent aria-expanded:text-(--tg-accent) [&_svg]:size-[22px]');
+  const side = cn(ICON_BUTTON, 'size-9 rounded-full text-(--tg-in-meta) transition-colors hover:bg-(--tg-menu-hover) hover:text-(--tg-text) aria-pressed:bg-(--tg-menu-hover) aria-pressed:text-(--tg-accent) aria-expanded:bg-(--tg-menu-hover) aria-expanded:text-(--tg-accent) sm:size-10 [&_svg]:size-5');
 
   const emoji: ReactNode = (
     <div ref={emojiWrap} className="relative shrink-0 self-end">
@@ -371,7 +371,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   );
 
   return (
-    <div className="relative mx-auto flex w-full max-w-185 items-end gap-2 px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4">
+    <div className="relative mx-auto flex w-full max-w-185 items-end gap-2 px-2.5 pt-1.5 pb-[max(10px,env(safe-area-inset-bottom))] sm:gap-2.5 md:px-4 md:pb-[max(14px,env(safe-area-inset-bottom))]">
       {shown ? (
         <ul id={listId} role="listbox" aria-label={suggest.kind === 'mention' ? 'People in this project' : 'Issues in this project'}
           className="tg-fade-in absolute right-18 bottom-full left-2 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto rounded-2xl bg-(--tg-menu) p-1.5 text-(--tg-text) shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl md:left-4">
@@ -404,7 +404,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         </ul>
       ) : null}
 
-      <div className="tg-input has-tail min-w-0 flex-1">
+      <div className="tg-input min-w-0 flex-1">
         {replyTo ? (
           <div className="tg-fade-in flex items-center gap-1 pt-1.5 pr-1 pl-1">
             <span className="grid size-10 shrink-0 place-items-center text-(--tg-accent)"><Icon name="reply" className="size-5.5" /></span>
@@ -443,9 +443,9 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
           </div>
         ) : null}
 
-        <div className="flex items-end gap-0.5 px-1.5 py-1.75">
+        <div className="flex items-end gap-0.5 px-1 py-1 sm:px-1.5">
           {emoji}
-          <div className={cn('min-w-0 flex-1 cursor-text overflow-y-auto px-1 py-2', expanded ? 'max-h-[min(360px,45vh)] min-h-24' : 'max-h-[min(260px,38vh)]')}
+          <div className={cn('min-w-0 flex-1 cursor-text overflow-y-auto px-1 py-1.5 sm:py-2', expanded ? 'max-h-[min(360px,45vh)] min-h-24' : 'max-h-[min(260px,38vh)]')}
             onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); editor?.commands.focus('end'); } }}>
             {editor ? <EditorContent editor={editor} /> : <div className="text-[16px] leading-6 text-(--tg-in-meta)">{placeholder.current}</div>}
           </div>
@@ -454,8 +454,8 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       </div>
 
       <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
-        className="tg-fab tg-send ml-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
-        <Icon name="send" className="size-6" />
+        className="tg-fab tg-sendfocus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
+        <Icon name="send" className="size-5.5" />
       </button>
       {!expanded ? <span id={`${listId}-hint`} className="sr-only">Enter to send, Shift+Enter for a new line. Type @ to mention someone and / to share an issue.</span> : null}
     </div>

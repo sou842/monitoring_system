@@ -180,17 +180,22 @@
     background: var(--tg-accent); color: var(--tg-accent-fg); font-size: 12px; font-weight: 500; line-height: 22px; text-align: center;
   }
 
-  /* The message box: a bubble-like card with its own tail. */
-  .tg-input { position: relative; background: var(--tg-bar); border-radius: 16px; box-shadow: 0 1px 2px rgb(16 35 47 / 0.15); }
-  .tg-input.has-tail { border-bottom-right-radius: 0; }
-  .tg-input.has-tail::before {
-    content: ""; position: absolute; bottom: 0; right: -8.4px; width: 9px; height: 17px; background: inherit; transform: scaleX(-1);
-    -webkit-mask: url(/chat/tail.svg) no-repeat center / 100% 100%; mask: url(/chat/tail.svg) no-repeat center / 100% 100%;
+  /* The message box: a rounded card with a hairline border and a soft shadow; the border darkens while typing. */
+  .tg-input {
+    position: relative; background: var(--tg-bar); border: 1px solid var(--tg-bar-line); border-radius: 24px;
+    box-shadow: 0 2px 12px rgb(16 35 47 / 0.10), 0 1px 2px rgb(16 35 47 / 0.06);
+    transition: border-color .15s, box-shadow .15s;
   }
+  .tg-input:focus-within { border-color: color-mix(in srgb, var(--tg-accent) 45%, var(--tg-bar-line)); box-shadow: 0 2px 14px rgb(16 35 47 / 0.14), 0 0 0 3px color-mix(in srgb, var(--tg-accent) 14%, transparent); }
+  [data-theme=dark] .tg-input { box-shadow: 0 2px 12px rgb(0 0 0 / 0.35); }
+  /* Send: a solid accent circle; grey and quiet until there is something to send. */
   .tg-send {
-    width: 54px; height: 54px; flex-shrink: 0; color: var(--tg-accent);
+    width: 50px; height: 50px; flex-shrink: 0; background: var(--tg-accent); color: var(--tg-accent-fg);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--tg-accent) 40%, transparent);
   }
-  .tg-send:disabled { cursor: default; color: var(--tg-in-meta); opacity: 1; }
+  .tg-send:hover { color: var(--tg-accent-fg); filter: brightness(1.06); }
+  .tg-send:disabled { cursor: default; background: var(--tg-bar); color: var(--tg-in-meta); opacity: 1; box-shadow: 0 1px 4px rgb(0 0 0 / 0.12); filter: none; }
+  @media (max-width: 640px) { .tg-send { width: 46px; height: 46px; } .tg-input { border-radius: 22px; } }
   .tg-send:disabled:active { transform: none; }
   .tg-send svg { transition: transform .22s cubic-bezier(.2, .8, .3, 1), opacity .22s; }
   .tg-send:disabled svg { transform: scale(.82) rotate(-12deg); opacity: .6; }
