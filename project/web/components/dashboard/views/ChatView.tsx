@@ -65,7 +65,7 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
   const dot = issue.eventType === 'crash' ? 'bg-fg' : issue.eventType === 'performance' ? 'bg-amber-500' : issue.eventType === 'message' ? 'bg-muted' : 'bg-red-500';
   const body = (
     <>
-      <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', dot)} aria-hidden="true" />
+      {/* <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', dot)} aria-hidden="true" /> */}
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold">
           {issue.errorType}
@@ -91,6 +91,51 @@ function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; 
     </span>
   ) : (
     <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:bg-black/[.08] hover:no-underline dark:hover:bg-white/[.12]')}>{body}</Link>
+  );
+}
+
+/** The floating "N members" button at the top right; opens a dropdown listing everyone with access to the project. */
+function MembersDropdown({ people, ownerId, meId, live, manageHref }: { people: PersonView[]; ownerId: string | null; meId: string; live: boolean; manageHref: string }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onPointer); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  return (
+    <div ref={wrap} className="absolute top-3 right-3 z-20 md:right-6">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="true" aria-expanded={open} title="Members"
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border-0 bg-panel/95 px-3 py-1.5 text-xs font-medium text-fg-2 shadow-sm backdrop-blur hover:text-fg">
+        <Icon name="users" className="size-3.5" />{people.length > 0 ? people.length : 'Members'}
+        {live ? <span className="size-1.5 rounded-full bg-green-500" title="Live" aria-label="Live" /> : null}
+        <Icon name="chevron" className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open ? (
+        <div role="menu" aria-label="Project members" className="absolute top-full right-0 mt-2 w-72 max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-line bg-panel shadow-(--menu-shadow)">
+          <div className="px-3.5 pt-3 pb-1.5 text-xs font-medium text-muted">{people.length} {people.length === 1 ? 'member' : 'members'}</div>
+          <ul className="m-0 max-h-72 list-none overflow-y-auto p-1.5">
+            {people.map((p) => (
+              <li key={p.id} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
+                <Avatar name={p.name} size="sm" />
+                <span className="min-w-0 flex-1">
+                  <b className="block truncate text-[13px] font-medium text-fg">{p.name}{p.id === meId ? ' (you)' : ''}</b>
+                  <span className="block truncate text-xs text-muted">{p.email}</span>
+                </span>
+                {p.id === ownerId ? <Badge tone="neutral">Owner</Badge> : null}
+              </li>
+            ))}
+            {people.length === 0 ? <li className="px-2 py-2 text-[13px] text-muted">No members to show.</li> : null}
+          </ul>
+          <Link href={manageHref} className="block border-t border-line px-3.5 py-2.5 text-[13px] font-medium text-fg no-underline hover:bg-(--hover) hover:no-underline">Manage members</Link>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -139,6 +184,7 @@ function toRow(p: PendingMessage, me: { id: string; name: string }, projectId: s
 function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
   projectId: string; projectName: string; canPost: boolean; isOwner: boolean; me: { id: string; name: string }; crumbs: Array<{ label: string }>;
 }) {
+  const { openDrawer } = useSession();
   const chat = useChat(projectId, me);
   const people = useApi<MembersResponse>(`/api/projects/members?projectId=${projectId}`);
   const openDialog = useDialog();
@@ -526,7 +572,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
   const sendable = text.trim().length > 0 || attached.length > 0;
 
   return (
-    <Page crumbs={crumbs} fill>
+    <Page crumbs={crumbs} fill hideBar>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-panel-2">
         <div className="relative min-h-0 flex-1">
           <div
@@ -565,10 +611,15 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             </div>
           </div>
 
-          <Link href={`/projects/${projectId}?tab=members`} className="absolute top-3 right-4 z-10 inline-flex items-center max-sm:hidden gap-1.5 rounded-full bg-panel/95 px-3 py-1.5 text-xs font-medium text-fg-2 no-underline shadow-sm backdrop-blur hover:text-fg hover:no-underline">
-            <Icon name="users" className="size-3.5" />{everyone.length > 0 ? `${everyone.length}` : 'Members'}
-            {chat.live ? <span className="size-1.5 rounded-full bg-green-500" title="Live" aria-label="Live" /> : null}
-          </Link>
+          <div className="absolute top-3 left-3 z-10 flex items-center gap-2 md:left-6">
+            <button type="button" onClick={openDrawer} aria-label="Open the menu" title="Menu"
+              className="grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-panel/95 p-0 text-fg-2 shadow-sm hover:text-fg md:hidden">
+              <Icon name="menu" className="size-4" />
+            </button>
+            <span className="max-w-[50vw] truncate rounded-full bg-panel/95 px-3 py-1.5 text-xs font-medium text-fg-2 shadow-sm backdrop-blur"># {projectName}</span>
+          </div>
+
+          <MembersDropdown people={everyone} ownerId={people.data?.owner?.id ?? null} meId={me.id} live={chat.live} manageHref={`/projects/${projectId}?tab=members`} />
 
           {showJump ? (
             <button type="button" onClick={jumpToLatest} aria-label="Jump to the latest message" title="Jump to the latest message"

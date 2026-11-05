@@ -179,7 +179,7 @@ Main = the conversation; right panel = chat history.
 - Header: `Assistant` and a scope chip, for example `Project: Assistant app · Last 7 days ▾`. The chip shows exactly what the AI can see.
 - Messages centred at ~720 px. Reasoning and tool steps are folded (same AI Elements components as the issue panel).
 - Composer (pill-shaped box): text on top; below it `📎 Attach context`, `⚙ Options` on the left; round black send button on the right. Placeholder: `Ask about your projects, issues or performance…`
-- Hint under the composer: `Enter to send · Shift+Enter for a new line`.
+- Hint under the composer: `Press Enter to send`.
 
 **Right panel: `Chat history`**
 ```

@@ -112,7 +112,7 @@ function AssistantChat({ chatId, userId, onSaved, onStarted }: { chatId: string;
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
-              <span className="muted small">Enter to send · Shift+Enter for a new line</span>
+              <span className="muted small">Press Enter to send</span>
             </PromptInputTools>
             <PromptInputSubmit status={status} onStop={() => void stop()} />
           </PromptInputFooter>

@@ -42,11 +42,11 @@ function RefreshButton() {
 }
 
 /** One dashboard page: the top bar (menu on phones, breadcrumbs, refresh) and the scrolling content. */
-export function Page({ crumbs, children, fill = false, barLeft }: { crumbs: Crumb[]; children: ReactNode; /** Replaces the breadcrumbs in the top bar (the Assistant page puts its chat picker there). */ barLeft?: ReactNode; /** The content uses the whole area below the top bar and scrolls itself (chat), instead of a padded, scrolling page. */ fill?: boolean }) {
+export function Page({ crumbs, children, fill = false, barLeft, hideBar = false }: { crumbs: Crumb[]; children: ReactNode; /** No top bar at all (the page brings its own menu button for phones). */ hideBar?: boolean; /** Replaces the breadcrumbs in the top bar (the Assistant page puts its chat picker there). */ barLeft?: ReactNode; /** The content uses the whole area below the top bar and scrolls itself (chat), instead of a padded, scrolling page. */ fill?: boolean }) {
   const { openDrawer } = useSession();
   return (
     <>
-      <header className="page-bar">
+      {hideBar ? null : <header className="page-bar">
         <button type="button" className="bar-menu" onClick={openDrawer} aria-label="Open the menu" title="Menu">
           <Icon name="menu" />
         </button>
@@ -59,7 +59,7 @@ export function Page({ crumbs, children, fill = false, barLeft }: { crumbs: Crum
           ))}
         </nav>}
         <RefreshButton />
-      </header>
+      </header>}
       {fill ? (
         <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       ) : (
