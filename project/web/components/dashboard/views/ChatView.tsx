@@ -53,6 +53,15 @@ const dayLabel = (iso: string) => {
   const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
   return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 };
+/** "just now", "5m ago", "3h ago", "2d ago"; older than a week shows the date. */
+const ago = (iso: string) => {
+  const sec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  if (sec < 7 * 86400) return `${Math.floor(sec / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+};
 const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -74,33 +83,35 @@ function withMentions(text: string, names: string[], wrap: (part: string, key: n
 const snippetOf = (m: { text: string; issues?: unknown[]; hasIssues?: boolean; deleted?: boolean }) =>
   m.deleted ? 'Message deleted' : m.text || (m.hasIssues || (m.issues && m.issues.length > 0) ? 'Issue' : '');
 
-/** An attached issue: a compact one-row card that opens the issue (or, in the composer, can be removed). */
+/** An attached issue: a bordered card with a kind icon, title, message and a "Quick view" button (in the composer: a remove button). */
 function IssueCard({ issue, onRemove }: { issue: ChatIssueView; onRemove?: () => void }) {
   const glyph = ISSUE_ICON_BY_TYPE[issue.errorType] ?? ISSUE_ICON_BY_EVENT[issue.eventType] ?? 'bug';
   const body = (
     <>
-      <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', ISSUE_TILE[issue.eventType] ?? ISSUE_TILE.error)} aria-hidden="true"><Icon name={glyph} className="size-4" /></span>
+      <span className={cn('grid size-10 shrink-0 place-items-center rounded-lg', ISSUE_TILE[issue.eventType] ?? ISSUE_TILE.error)} aria-hidden="true"><Icon name={glyph} className="size-5" /></span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[13px] leading-5 font-semibold">
+        <span className="flex items-center gap-1.5 text-sm leading-5 font-semibold">
           <span className="truncate">{issue.errorType}</span>
           {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue?.status] ?? 'muted'}>{issue.status}</Badge> : null}
         </span>
-        <span className="block truncate text-xs leading-4 text-muted">{issue.message || '(no message)'}</span>
+        <span className="block truncate text-[13px] leading-5 text-muted">{issue.message || '(no message)'} · {issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
       </span>
-      <span className="shrink-0 rounded-full bg-(--chip) px-2 py-0.5 text-[11px] font-medium text-fg-2 tabular-nums" title={`${issue.count.toLocaleString()} ${issue.count === 1 ? 'event' : 'events'}`}>{issue.count > 999 ? '999+' : issue.count.toLocaleString()}</span>
     </>
   );
-  const frame = 'flex w-full max-w-sm items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-1.5 text-fg no-underline';
+  const frame = 'flex w-full max-w-xl items-center gap-3 rounded-xl border border-line bg-panel px-3 py-2.5 text-fg no-underline';
   return onRemove ? (
-    <span className={cn(frame, 'relative pr-2')}>
+    <span className={frame}>
       {body}
       <button type="button" onClick={onRemove} aria-label={`Remove ${issue.errorType}`} title="Remove"
-        className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--chip) hover:text-fg">
-        <Icon name="close" className="size-3.5" />
+        className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--chip) hover:text-fg">
+        <Icon name="close" className="size-4" />
       </button>
     </span>
   ) : (
-    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:border-(--fg)/25 hover:no-underline')}>{body}</Link>
+    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:border-(--fg)/25 hover:no-underline')}>
+      {body}
+      <span className="shrink-0 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-semibold shadow-sm max-sm:hidden">Quick view</span>
+    </Link>
   );
 }
 
@@ -406,6 +417,17 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
   const copyText = (m: ChatMessageView) => {
     navigator.clipboard.writeText(m.text).then(() => toast('Copied'), () => toast('Could not copy', 'error'));
   };
+  /** Shares a message through the device's share sheet when there is one, else copies "Name: text" with the issue links. */
+  const shareMessage = async (m: ChatMessageView) => {
+    const lines = [`${m.userName ?? 'Deleted user'}: ${m.text}`.trim(), ...m.issues.map((i) => `${window.location.origin}/issues/${i.id}`)];
+    const text = lines.join('\n');
+    try {
+      if (typeof navigator.share === 'function') { await navigator.share({ text }); return; }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return; // the person closed the share sheet
+    }
+    navigator.clipboard.writeText(text).then(() => toast('Copied to share'), () => toast('Could not copy', 'error'));
+  };
   const startReply = (m: ChatMessageView) => {
     setReplyTo(m);
     setOpenMenu(null);
@@ -449,8 +471,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
     const menuOpen = openMenu === m.id;
     const reactOpen = openReact === m.id;
     const stamp = (
-      <span className="inline-flex items-center gap-1 text-[11px] leading-none whitespace-nowrap text-muted select-none" title={new Date(m.createdAt).toLocaleString()}>
-        {clock(m.createdAt)}
+      <span className="inline-flex items-center gap-1 text-[13px] leading-none whitespace-nowrap text-muted select-none" title={new Date(m.createdAt).toLocaleString()}>
+        {ago(m.createdAt)}
         {own && row.status !== 'sent' ? <Icon name={row.status === 'sending' ? 'clock' : 'alert'} className={cn('size-3', row.status === 'failed' && 'text-danger')} /> : null}
       </span>
     );
@@ -458,23 +480,6 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
     const toolBtn = 'grid size-7 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg';
     const tools = showTools ? (
       <div className={cn('absolute -top-3.5 right-2 z-20 hidden items-center gap-0.5 rounded-xl border border-line bg-panel p-0.5 shadow-(--menu-shadow) group-hover/row:flex max-sm:flex', (menuOpen || reactOpen) && 'flex')}>
-        {!own ? (
-          <div className="relative">
-            <button type="button" title="React" aria-label="React" onClick={(e) => { e.stopPropagation(); decidePlacement(e.currentTarget, POPUP_REACT_PX); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }} className={toolBtn}>
-              <Icon name="smile" className="size-4" />
-            </button>
-            {reactOpen ? (
-              <div role="menu" aria-label="React" className={cn('absolute right-0 z-30 flex items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)', popUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5')}>
-                {CHAT_REACTIONS.map((e) => (
-                  <button key={e} type="button" title={e} aria-label={`React with ${e}`} onClick={(ev) => { ev.stopPropagation(); chat.react(m.id, e); setOpenReact(null); }}
-                    className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg">
-                    <Icon name={REACTION_ICON_MAP[e] ?? 'smile'} className="size-4" />
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
         <button type="button" title="Reply" aria-label="Reply" onClick={(e) => { e.stopPropagation(); startReply(m); }} className={toolBtn}><Icon name="reply" className="size-4" /></button>
         <div className="relative">
           <button type="button" title="More" aria-label="More options" onClick={(e) => { e.stopPropagation(); decidePlacement(e.currentTarget, POPUP_MENU_PX); setOpenReact(null); setOpenMenu(menuOpen ? null : m.id); }} className={toolBtn}>
@@ -495,18 +500,54 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         </div>
       </div>
     ) : null;
+    // Under the message: reactions, "add reaction" and "share" (shown on hover when the message has no reactions yet).
+    const canReact = canPost && !own && row.status === 'sent' && !m.deleted;
+    const canShare = row.status === 'sent' && !m.deleted && (m.text !== '' || m.issues.length > 0);
+    const roundBtn = 'grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-(--chip) p-0 text-muted shadow-none transition-colors hover:text-fg';
+    const actions = !m.deleted && (m.reactions.length > 0 || canReact || canShare) ? (
+      <div className={cn('mt-2.5 flex flex-wrap items-center gap-1.5', m.reactions.length === 0 && !reactOpen && 'hidden group-hover/row:flex max-sm:flex')}>
+        {m.reactions.map((r) => (
+          <button key={r.emoji} type="button" title={r.names.join(', ')} onClick={(e) => { e.stopPropagation(); if (canReact) chat.react(m.id, r.emoji); }}
+            className={cn('inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-sm shadow-none', canReact ? 'cursor-pointer' : 'cursor-default', r.mine ? 'border-(--mention)/35 bg-(--mention)/12' : 'border-transparent bg-(--chip)')}>
+            <span>{r.emoji}</span>{r.count > 1 ? <span className="text-xs font-medium tabular-nums">{r.count}</span> : null}
+          </button>
+        ))}
+        {canReact ? (
+          <div className="relative">
+            <button type="button" title="Add reaction" aria-label="Add reaction" onClick={(e) => { e.stopPropagation(); decidePlacement(e.currentTarget, POPUP_REACT_PX); setOpenMenu(null); setOpenReact(reactOpen ? null : m.id); }} className={roundBtn}>
+              <Icon name="smilePlus" className="size-4" />
+            </button>
+            {reactOpen ? (
+              <div role="menu" aria-label="React" className={cn('absolute left-0 z-30 flex items-center gap-0.5 rounded-full border border-line bg-panel p-1 shadow-(--menu-shadow)', popUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5')}>
+                {CHAT_REACTIONS.map((e) => (
+                  <button key={e} type="button" title={e} aria-label={`React with ${e}`} onClick={(ev) => { ev.stopPropagation(); chat.react(m.id, e); setOpenReact(null); }}
+                    className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--hover) hover:text-fg">
+                    <Icon name={REACTION_ICON_MAP[e] ?? 'smile'} className="size-4" />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {canShare ? (
+          <button type="button" title="Share" aria-label="Share message" onClick={(e) => { e.stopPropagation(); void shareMessage(m); }} className={roundBtn}>
+            <Icon name="share" className="size-4" />
+          </button>
+        ) : null}
+      </div>
+    ) : null;
     items.push(
-      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-3 rounded-xl px-2 py-1 transition-colors data-[flash]:bg-amber-400/25', continued ? 'mt-0' : 'mt-4', row.status === 'sending' && 'opacity-70')}>
+      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-3.5 rounded-xl px-2 py-1 transition-colors data-[flash]:bg-amber-400/25', continued ? 'mt-0' : 'mt-6', row.status === 'sending' && 'opacity-70')}>
         {/* Avatar on the first message of a run; later ones show their time in the same column when hovered. */}
-        <div className="w-[34px] shrink-0 pt-0.5">
+        <div className="w-10 shrink-0 pt-0.5">
           {continued ? (
             <span className="hidden w-full pt-1.5 text-center text-[10px] leading-none whitespace-nowrap text-muted group-hover/row:block" title={new Date(m.createdAt).toLocaleString()}>{clock(m.createdAt)}</span>
-          ) : <Avatar name={author} />}
+          ) : <Avatar name={author} size="lg" />}
         </div>
         <div className="min-w-0 flex-1">
           {!continued ? (
-            <div className="flex items-baseline gap-2">
-              <span className="truncate text-sm font-semibold text-fg">{author}{own ? <span className="font-normal text-muted"> (you)</span> : null}</span>
+            <div className="flex items-baseline gap-2.5">
+              <span className="truncate text-[15px] font-semibold text-fg">{author}{own ? <span className="font-normal text-muted"> (you)</span> : null}</span>
               {stamp}
             </div>
           ) : null}
@@ -526,28 +567,19 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : (
             <>
               {m.text ? (
-                <p className="m-0 mt-0.5 text-[14.5px] leading-[1.6] wrap-break-word whitespace-pre-wrap text-fg">
-                  {withMentions(m.text, names, (part, i) => <span key={i} className="rounded bg-(--mention)/12 text-(--mention)">{part}</span>)}
+                <p className="m-0 mt-1 text-[15px] leading-[1.65] wrap-break-word whitespace-pre-wrap text-fg">
+                  {withMentions(m.text, names, (part, i) => <span key={i} className="text-(--mention)">{part}</span>)}
                 </p>
               ) : null}
               {m.issues.length > 0 ? (
-                <div className="mt-1.5 grid max-w-md gap-1.5">
+                <div className="mt-3 grid gap-2">
                   {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} />)}
                 </div>
               ) : null}
             </>
           )}
 
-          {m.reactions.length > 0 ? (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {m.reactions.map((r) => (
-                <button key={r.emoji} type="button" title={r.names.join(', ')} onClick={(e) => { e.stopPropagation(); if (canPost && !own) chat.react(m.id, r.emoji); }}
-                  className={cn('inline-flex h-6 items-center gap-1 rounded-full border px-1.5 text-xs shadow-none', own ? 'cursor-default' : 'cursor-pointer', r.mine ? 'border-(--mention)/40 bg-(--mention)/12' : 'border-line bg-panel')}>
-                  <span>{r.emoji}</span>{r.count > 1 ? <span className="font-medium tabular-nums">{r.count}</span> : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          {actions}
 
           {row.status === 'failed' && row.clientId ? (
             <div className="mt-1 flex items-center gap-2 text-[11px] text-danger" role="status" title={row.error ?? undefined}>
@@ -568,7 +600,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
 
   return (
     <Page crumbs={crumbs} fill hideBar>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-(--content)">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-3 md:px-6">
           <button type="button" onClick={openDrawer} aria-label="Open the menu" title="Menu"
             className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-fg-2 shadow-none hover:bg-(--hover) hover:text-fg md:hidden">
@@ -584,7 +616,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
         <div className="relative min-h-0 flex-1">
           <div
             ref={scroller}
-            className="h-full overflow-y-auto bg-panel"
+            className="h-full overflow-y-auto bg-(--content)"
             onScroll={(e) => {
               const el = e.currentTarget;
               const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
@@ -627,7 +659,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
           ) : null}
         </div>
 
-        <footer className="relative mx-auto flex w-full max-w-4xl shrink-0 flex-col items-center justify-center bg-panel px-3 pt-1 pb-3 md:px-6">
+        <footer className="relative mx-auto flex w-full max-w-4xl shrink-0 flex-col items-center justify-center bg-(--content) px-3 pt-1 pb-3 md:px-6">
           {canPost ? (
             <>
               {picker && (options.length > 0 || (picker.kind === 'issue' && !searching)) ? (

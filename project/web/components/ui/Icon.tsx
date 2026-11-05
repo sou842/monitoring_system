@@ -1,6 +1,6 @@
 import {
   Activity, ArrowDown, ArrowUp, Bell, Check, CheckCheck, ChevronDown, Eye, Folder, Ghost, Heart, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
-  Bomb, Bug, Cpu, FileJson, FileSearch, Gauge, Globe, Hourglass, ImageOff, MemoryStick, MessageSquare, OctagonPause, ServerCrash, ShieldAlert, SquareDashed, Terminal, Timer, WifiOff,
+  Share2, SmilePlus, Bomb, Bug, Cpu, FileJson, FileSearch, Gauge, Globe, Hourglass, ImageOff, MemoryStick, MessageSquare, OctagonPause, ServerCrash, ShieldAlert, SquareDashed, Terminal, Timer, WifiOff,
   PartyPopper, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Smile, Sparkles, Sun, ThumbsUp, Trash2, User, Users, X, LayoutDashboard, Clock, Copy, CircleAlert, Reply, RotateCw,
   type LucideIcon,
 } from 'lucide-react';
@@ -46,6 +46,8 @@ export const ICONS = {
   heart: Heart,
   party: PartyPopper,
   eye: Eye,
+  share: Share2,
+  smilePlus: SmilePlus,
   // Issue kinds (chat issue cards)
   bug: Bug,
   bomb: Bomb,
