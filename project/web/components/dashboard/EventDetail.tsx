@@ -227,7 +227,7 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
       {look ? (
         <section aria-label="Where to look">
           <GroupTitle>Where to look</GroupTitle>
-          <div className="overflow-hidden rounded-2xl border border-line bg-panel shadow-[inset_3px_0_0_var(--accent)]">
+          <div className="overflow-hidden rounded-2xl border border-line bg-panel">
             <div {...jumpProps(`stacktrace.${payload.stacktrace.indexOf(look.frame)}`, jump, 'flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 hover:bg-(--hover)')}>
               <div className="min-w-0 flex-1 basis-64">
                 <div className="flex flex-wrap items-center gap-2">
@@ -242,7 +242,7 @@ function OverviewTab({ insight, payload, receivedAt, jump, showTrail, showStack 
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                <CopyButton text={locationOf(look.frame)} />
+                <CopyButton className={pillButton('secondary', 'h-8 px-3 text-xs')} text={locationOf(look.frame)} />
                 {payload.stacktrace.length > 0 ? <button type="button" onClick={showStack} className={pillButton('secondary', 'h-8 px-3 text-xs')}>Stack trace</button> : null}
               </div>
             </div>
