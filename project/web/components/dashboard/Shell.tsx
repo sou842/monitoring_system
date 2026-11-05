@@ -252,7 +252,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
                 {shown.map((p) => {
                   const active = isUnder(pathname, '/chats') && p.id === projectId;
                   return (
-                    <Link key={p.id} href="/chats" onClick={() => setProjectId(p.id)} className={`nav-item${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} title={collapsed ? p.name : undefined}>
+                    <Link key={p.id} href="/chats" onClick={() => setProjectId(p.id)} className={`nav-item${active ? ' active' : ''} shadow-none`} aria-current={active ? 'page' : undefined} title={collapsed ? p.name : undefined}>
                       <Avatar name={p.name} size="sm" shape="square" />
                       <span className="nav-text">{p.name}</span>
                       {p.unreadMessages > 0 ? <span className="nav-count">{p.unreadMessages > 99 ? '99+' : p.unreadMessages}</span> : null}
