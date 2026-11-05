@@ -60,37 +60,33 @@ function withMentions(text: string, names: string[], wrap: (part: string, key: n
 const snippetOf = (m: { text: string; issues?: unknown[]; hasIssues?: boolean; deleted?: boolean }) =>
   m.deleted ? 'Message deleted' : m.text || (m.hasIssues || (m.issues && m.issues.length > 0) ? 'Issue' : '');
 
-/** An attached issue: a compact card that opens the issue (or, in the composer, can be removed). */
-function IssueCard({ issue, onRemove, tone = 'panel' }: { issue: ChatIssueView; onRemove?: () => void; tone?: 'panel' | 'bubble' | 'own' }) {
+/** An attached issue: a compact one-row card that opens the issue (or, in the composer, can be removed). */
+function IssueCard({ issue, onRemove }: { issue: ChatIssueView; onRemove?: () => void }) {
   const dot = issue.eventType === 'crash' ? 'bg-fg' : issue.eventType === 'performance' ? 'bg-amber-500' : issue.eventType === 'message' ? 'bg-muted' : 'bg-red-500';
   const body = (
     <>
-      {/* <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', dot)} aria-hidden="true" /> */}
+      <span className={cn('size-2 shrink-0 rounded-full', dot)} aria-hidden="true" />
       <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold">
-          {issue.errorType}
+        <span className="flex items-center gap-1.5 text-[13px] leading-5 font-semibold">
+          <span className="truncate">{issue.errorType}</span>
           {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue?.status] ?? 'muted'}>{issue.status}</Badge> : null}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-fg-2">{issue.message || '(no message)'}</span>
-        <span className="mt-0.5 block text-xs text-muted">{issue.count.toLocaleString()} {issue.count === 1 ? 'event' : 'events'}</span>
+        <span className="block truncate text-xs leading-4 text-muted">{issue.message || '(no message)'}</span>
       </span>
+      <span className="shrink-0 rounded-full bg-(--chip) px-2 py-0.5 text-[11px] font-medium text-fg-2 tabular-nums" title={`${issue.count.toLocaleString()} ${issue.count === 1 ? 'event' : 'events'}`}>{issue.count > 999 ? '999+' : issue.count.toLocaleString()}</span>
     </>
   );
-  const frame = cn(
-    'w-[calc(100%-26px)] flex items-start gap-2.5 rounded-xl px-3 py-2 no-underline',
-    tone === 'bubble' || tone === 'own' ? 'bg-black/[.045] dark:bg-white/[.07] text-fg' :
-    'border border-line bg-panel text-fg',
-  );
+  const frame = 'flex w-full max-w-sm items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-1.5 text-fg no-underline';
   return onRemove ? (
-    <span className={cn(frame, 'relative pr-9')}>
+    <span className={cn(frame, 'relative pr-2')}>
       {body}
       <button type="button" onClick={onRemove} aria-label={`Remove ${issue.errorType}`} title="Remove"
-        className="absolute top-1.5 right-1.5 grid size-6 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--chip) hover:text-fg">
+        className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--chip) hover:text-fg">
         <Icon name="close" className="size-3.5" />
       </button>
     </span>
   ) : (
-    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:bg-black/[.08] hover:no-underline dark:hover:bg-white/[.12]')}>{body}</Link>
+    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:border-(--fg)/25 hover:no-underline')}>{body}</Link>
   );
 }
 
@@ -433,7 +429,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
     const menuOpen = openMenu === m.id;
     const reactOpen = openReact === m.id;
     const stamp = (
-      <span className="inline-flex items-center gap-1 text-[11px] leading-none text-muted select-none" title={new Date(m.createdAt).toLocaleString()}>
+      <span className="inline-flex items-center gap-1 text-[11px] leading-none whitespace-nowrap text-muted select-none" title={new Date(m.createdAt).toLocaleString()}>
         {clock(m.createdAt)}
         {own && row.status !== 'sent' ? <Icon name={row.status === 'sending' ? 'clock' : 'alert'} className={cn('size-3', row.status === 'failed' && 'text-danger')} /> : null}
       </span>
@@ -480,11 +476,11 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
       </div>
     ) : null;
     items.push(
-      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-3 rounded-xl px-2 py-1 transition-colors hover:bg-(--hover) data-[flash]:bg-amber-400/25', continued ? 'mt-0' : 'mt-4', row.status === 'sending' && 'opacity-70')}>
+      <div key={row.key} id={`m-${m.id}`} className={cn('group/row relative flex gap-3 rounded-xl px-2 py-1 transition-colors data-[flash]:bg-amber-400/25', continued ? 'mt-0' : 'mt-4', row.status === 'sending' && 'opacity-70')}>
         {/* Avatar on the first message of a run; later ones show their time in the same column when hovered. */}
         <div className="w-[34px] shrink-0 pt-0.5">
           {continued ? (
-            <span className="hidden pt-1 text-center text-[10px] leading-none text-muted group-hover/row:block" title={new Date(m.createdAt).toLocaleString()}>{clock(m.createdAt)}</span>
+            <span className="hidden w-full pt-1.5 text-center text-[10px] leading-none whitespace-nowrap text-muted group-hover/row:block" title={new Date(m.createdAt).toLocaleString()}>{clock(m.createdAt)}</span>
           ) : <Avatar name={author} />}
         </div>
         <div className="min-w-0 flex-1">
@@ -495,11 +491,11 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
             </div>
           ) : null}
           {m.replyTo ? (
-            <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }}
-              className="mt-1 mb-1 block w-full max-w-lg cursor-pointer rounded-lg border-0 border-l-4 bg-(--hover) px-2.5 py-1.5 text-left shadow-none"
-              style={{ borderLeftColor: nameColor(m.replyTo.userName ?? 'Deleted user') }}>
-              <span className="block truncate text-xs font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
-              <span className={cn('block truncate text-xs text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
+            <button type="button" onClick={(e) => { e.stopPropagation(); if (m.replyTo) jumpTo(m.replyTo.id); }} title="Go to the original message"
+              className="mb-1 flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent p-0 text-left text-xs shadow-none">
+              <Icon name="reply" className="size-3.5 shrink-0 text-muted" />
+              <span className="shrink-0 font-semibold" style={{ color: nameColor(m.replyTo.userName ?? 'Deleted user') }}>{m.replyTo.userName ?? 'Deleted user'}</span>
+              <span className={cn('min-w-0 truncate text-muted hover:text-fg-2', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo)}</span>
             </button>
           ) : null}
           {m.deleted ? (
@@ -650,10 +646,12 @@ function Channel({ projectId, projectName, canPost, isOwner, me, crumbs }: {
               ) : null}
 
               {replyTo ? (
-                <div className="w-full mb-2 flex items-start gap-2 rounded-xl border-l-4 bg-panel-2 py-1.5 pr-1.5 pl-3" style={{ borderLeftColor: nameColor(replyTo.userName ?? 'Deleted user') }}>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-semibold" style={{ color: nameColor(replyTo.userName ?? 'Deleted user') }}>Replying to {replyTo.userId === me.id ? 'yourself' : (replyTo.userName ?? 'Deleted user')}</div>
-                    <div className="truncate text-xs text-fg-2">{snippetOf(replyTo)}</div>
+                <div className="mb-2 flex w-full items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2">
+                  <Icon name="reply" className="size-4 shrink-0 text-muted" />
+                  <div className="min-w-0 flex-1 text-xs leading-4">
+                    <span className="text-muted">Replying to </span>
+                    <span className="font-semibold" style={{ color: nameColor(replyTo.userName ?? 'Deleted user') }}>{replyTo.userId === me.id ? 'yourself' : (replyTo.userName ?? 'Deleted user')}</span>
+                    <div className="truncate text-fg-2">{snippetOf(replyTo)}</div>
                   </div>
                   <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply" title="Cancel reply" className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted shadow-none hover:bg-(--chip) hover:text-fg"><Icon name="close" className="size-3.5" /></button>
                 </div>
