@@ -156,13 +156,13 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
     ? [
       { label: 'Try again', icon: 'retry', onSelect: () => actions.retry(row.clientId as string) },
       ...(m.text ? [{ label: 'Copy text', icon: 'copy' as const, onSelect: () => actions.copyText(m) }] : []),
-      { label: 'Discard', icon: 'trash', danger: true, onSelect: () => actions.discard(row.clientId as string) },
+      { label: 'Discard', icon: 'trashPlain', danger: true, onSelect: () => actions.discard(row.clientId as string) },
     ]
     : [
       ...(canPost ? [{ label: 'Reply', icon: 'reply' as const, onSelect: () => actions.reply(m) }] : []),
       ...(m.text ? [{ label: 'Copy text', icon: 'copy' as const, onSelect: () => actions.copyText(m) }] : []),
       { label: 'Copy link', icon: 'link', onSelect: () => actions.copyLink(m) },
-      ...(canDelete ? [{ label: 'Delete', icon: 'trash' as const, danger: true, onSelect: () => actions.remove(m) }] : []),
+      ...(canDelete ? [{ label: 'Delete', icon: 'trashPlain' as const, danger: true, onSelect: () => actions.remove(m) }] : []),
     ];
   const reactions = canPost && sent
     ? CHAT_REACTIONS.map((emoji) => ({ emoji, label: reactionLabel(emoji), mine: m.reactions.some((r) => r.emoji === emoji && r.mine), onSelect: () => actions.react(m.id, emoji) }))

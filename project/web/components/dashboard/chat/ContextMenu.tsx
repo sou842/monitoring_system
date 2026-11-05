@@ -12,7 +12,7 @@ export interface MenuEntry { label: string; icon: IconName; onSelect: () => void
 /** Gap between the menu and the screen edge. */
 const EDGE_PX = 8;
 /** Gap between the reaction bar and the menu. */
-const BAR_GAP_PX = 8;
+const BAR_GAP_PX = 22;
 
 /**
  * The message menu: a strip of reactions above a list of actions, opened at the pointer (right-click,
@@ -93,7 +93,7 @@ export function ContextMenu({ x, y, items, reactions, onClose, returnFocus }: {
       <div ref={menu} className="tg-menu" style={place?.menu ?? hidden} role="menu" aria-label="Message actions">
         {items.map((item) => (
           <button key={item.label} type="button" role="menuitem" className={cn('tg-menu-item', item.danger && 'is-danger')} onClick={choose(item.onSelect)}>
-            <Icon name={item.icon} className="size-[18px] shrink-0 opacity-80" />{item.label}
+            <Icon name={item.icon} className="size-5.5 shrink-0" />{item.label}
           </button>
         ))}
       </div>

@@ -1,7 +1,7 @@
 import {
   Activity, ArrowDown, ArrowUp, Bell, Check, CheckCheck, ChevronDown, Eye, Folder, Ghost, Heart, House, Inbox, LayoutGrid, LogOut, Menu, MessageCircle, Moon, PanelLeft,
   Bomb, Bug, Cpu, FileJson, FileSearch, Gauge, Globe, Hourglass, ImageOff, MemoryStick, MessageSquare, OctagonPause, ServerCrash, ShieldAlert, SquareDashed, Terminal, Timer, WifiOff,
-  PartyPopper, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Smile, Sparkles, Sun, ThumbsUp, Trash2, User, Users, X, LayoutDashboard, Clock, Copy, CircleAlert, Reply, RotateCw,
+  PartyPopper, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Smile, Sparkles, Sun, ThumbsUp, Trash, Trash2, User, Users, X, LayoutDashboard, Clock, Copy, CircleAlert, Reply, RotateCw,
   Bold, Italic, Strikethrough, Code, SquareCode, SmilePlus, Hash, AtSign, Ellipsis, Link, Quote, List, ListOrdered, Type, RemoveFormatting,
   type LucideIcon,
 } from 'lucide-react';
@@ -43,6 +43,7 @@ export const ICONS = {
   retry: RotateCw,
   smile: Smile,
   trash: Trash2,
+  trashPlain: Trash,
   thumbsUp: ThumbsUp,
   heart: Heart,
   party: PartyPopper,
