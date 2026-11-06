@@ -38,31 +38,33 @@
     font-family: Roboto, Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   [data-theme=dark] .tg {
-    --tg-bar: #1c1f26;
-    --tg-bar-line: rgb(255 255 255 / 0.06);
-    --tg-in: #20242c;
-    --tg-own: #7766d2;
-    --tg-text: #f2f4f7;
-    --tg-in-meta: #8a94a3;
-    --tg-own-meta: rgb(255 255 255 / 0.68);
-    --tg-accent: #8f7ff0;
+    /* Telegram Desktop "Night" theme (tdesktop Resources/night.tdesktop-theme, colors.tdesktop-theme). */
+    --tg-bar: #17212b;            /* historyComposeAreaBg, windowBg */
+    --tg-bar-line: #0e1621;
+    --tg-in: #182533;             /* msgInBg */
+    --tg-own: #2b5278;            /* msgOutBg */
+    --tg-text: #f5f5f5;           /* historyTextInFg */
+    --tg-in-meta: #6d7f8f;        /* msgInDateFg */
+    --tg-own-meta: #7da8d3;       /* msgOutDateFg */
+    --tg-accent: #429bdb;         /* msgInReplyBarColor */
     --tg-accent-fg: #ffffff;
-    --tg-own-accent: #ffffff;
-    --tg-quote-own: rgb(255 255 255 / 0.12);
-    --tg-pill: rgb(14 16 22 / 0.5);
-    --tg-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
-    --tg-fab: #20242c;
-    --tg-fab-fg: #aab2bd;
-    --tg-flash: rgb(143 127 240 / 0.25);
-    --tg-menu: rgb(32 36 44 / 0.88);
-    --tg-menu-solid: #252a33;
-    --tg-menu-hover: rgb(255 255 255 / 0.07);
-    --tg-danger: #ff6b6b;
-    --tg-wall-1: #1b2233;
-    --tg-wall-2: #3a2f5c;
-    --tg-wall-3: #183238;
-    --tg-wall-4: #2f2a4d;
-    --tg-wall-ink: rgb(190 200 255 / 0.07);
+    --tg-own-accent: #65b9f4;     /* msgOutReplyBarColor */
+    --tg-quote-own: rgb(101 185 244 / 0.12);
+    --tg-pill: rgb(33 48 64 / 0.84); /* msgServiceBg #213040d5 */
+    --tg-shadow: none;
+    --tg-fab: #1d2b3a;            /* historyToDownBg */
+    --tg-fab-fg: #adb4ba;         /* historyToDownFg */
+    --tg-flash: rgb(53 133 212 / 0.3); /* msgSelectOverlay */
+    --tg-menu: rgb(23 33 43 / 0.92);
+    --tg-menu-solid: #17212b;     /* menuBg */
+    --tg-menu-hover: #202b36;     /* dialogsBgOver */
+    --tg-danger: #ec3942;         /* attentionButtonFg */
+    /* Chat background is the theme's solid tile #0e1621 (background.png); no gradient or doodles. */
+    --tg-wall-1: #0e1621;
+    --tg-wall-2: #0e1621;
+    --tg-wall-3: #0e1621;
+    --tg-wall-4: #0e1621;
+    --tg-wall-ink: transparent;
   }
 
   /* ---- wallpaper: a blurred 4-point gradient (canvas) under a repeating doodle pattern ---- */
@@ -74,6 +76,10 @@
     -webkit-mask: url(/chat/pattern.svg) repeat 0 0 / 360px 360px;
     mask: url(/chat/pattern.svg) repeat 0 0 / 360px 360px;
   }
+
+  [data-theme=dark] .tg-wall { background: #0e1621; }
+  [data-theme=dark] .tg-wall::after { display: none; }
+  [data-theme=dark] .tg-wall canvas { display: none; }
 
   /* ---- bubbles ---- */
   .tg-bubble {
@@ -100,7 +106,8 @@
   .tg-bubble.is-last.is-own::before { right: -8.4px; transform: scaleX(-1); }
   /* The tail must not take the shadow's colour; drop-shadow on the wrapper keeps both in one silhouette. */
   .tg-bubble.is-last { box-shadow: none; filter: drop-shadow(0 1px 1px rgb(16 35 47 / 0.14)); }
-  [data-theme=dark] .tg-bubble.is-last { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35)); }
+  [data-theme=dark] .tg-bubble.is-last { filter: none; }
+  [data-theme=dark] .tg-bubble.is-own { color: #e4ecf2; } /* historyTextOutFg */
 
   /* Message text inside a bubble reads in the bubble colours. */
   .tg-bubble .text-fg, .tg-bubble .text-fg-2 { color: inherit; }
@@ -140,6 +147,13 @@
     /* box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tg-accent) 45%, transparent); */
   }
   .tg-bubble.is-own .tg-reaction { --tg-accent: var(--tg-own-accent); }
+  /* Dark reaction chips: Desktop derives them from the service/link colours (not in the palette), tinted 15%. */
+  [data-theme=dark] .tg-reaction { background: rgb(113 186 250 / 0.15); color: #71bafa; }
+  [data-theme=dark] .tg-reaction:hover { background: rgb(113 186 250 / 0.25); }
+  [data-theme=dark] .tg-reaction[aria-pressed=true] { background: #5288c1; color: #fff; }
+  [data-theme=dark] .tg-bubble.is-own .tg-reaction { background: rgb(144 202 255 / 0.15); color: #90caff; }
+  [data-theme=dark] .tg-bubble.is-own .tg-reaction:hover { background: rgb(144 202 255 / 0.25); }
+  [data-theme=dark] .tg-bubble.is-own .tg-reaction[aria-pressed=true] { background: #90caff; color: #2b5278; }
   .tg-reaction:disabled { cursor: default; }
 
   /* "edited" next to the time, and the inline editor of your own message. */
@@ -152,7 +166,10 @@
 
   /* Sender name colours (7, readable on the bubble in each theme). */
   .tg { --peer-0: #d14b52; --peer-1: #c4740f; --peer-2: #8a5fd1; --peer-3: #3a9a3a; --peer-4: #1f8fb5; --peer-5: #3a7fd6; --peer-6: #c4527f; }
-  [data-theme=dark] .tg { --peer-0: #ff8a8f; --peer-1: #ffb35c; --peer-2: #b9a0ff; --peer-3: #73d06e; --peer-4: #5fcbe8; --peer-5: #78acff; --peer-6: #f285b5; }
+  /* Desktop historyPeer1..8NameFg: red, orange, purple, green, sea, blue, pink. */
+  [data-theme=dark] .tg { --peer-0: #fb6169; --peer-1: #faa357; --peer-2: #b48bf2; --peer-3: #85de85; --peer-4: #62d4e3; --peer-5: #65bdf3; --peer-6: #ff5694; }
+  /* The send button is Desktop's windowBgActive blue. */
+  [data-theme=dark] .tg-send { background: #5288c1; }
 
   /* Round avatars with a soft vertical gradient. */
   .tg-avatar {
