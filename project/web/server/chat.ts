@@ -1,5 +1,5 @@
 import { ObjectId, type Db, type Filter } from 'mongodb';
-import { isChatReaction, REPLY_SNIPPET_LENGTH } from '../lib/chat.ts';
+import { isReactionEmoji, MAX_REACTION_KINDS, REPLY_SNIPPET_LENGTH } from '../lib/chat.ts';
 import { CHAT_CATCH_UP_LIMIT, CHAT_CHANGES_LIMIT, CHAT_PAGE_SIZE, MAX_CHAT_CLIENT_ID_LENGTH, MAX_CHAT_ISSUES, MAX_CHAT_MENTIONS, MAX_CHAT_MESSAGE_LENGTH, MAX_UNREAD_COUNT } from './constants.ts';
 import { collections } from './db.ts';
 import { escapeRegex } from './http.ts';
@@ -234,9 +234,12 @@ export async function deleteMessage(db: Db, id: ObjectId, now = new Date()): Pro
   await collections(db).chatMessages.updateOne({ _id: id }, { $set: { deletedAt: now, updatedAt: now, text: '', mentions: [] }, $unset: { reactions: '', issueIds: '', editedAt: '' } });
 }
 
-/** Adds `userId`'s `emoji` to a message, or takes it away when it is already there. Returns false for an unknown emoji or a deleted message. */
+/** Adds `userId`'s `emoji` to a message, or takes it away when it is already there. Returns false for something that is not an emoji, a message with too many different reactions, or a deleted message. */
 export async function toggleReaction(db: Db, message: ChatMessageDoc, userId: ObjectId, emoji: unknown, now = new Date()): Promise<boolean> {
-  if (!isChatReaction(emoji) || message.deletedAt) return false;
+  if (!isReactionEmoji(emoji) || message.deletedAt) return false;
+  // One message carries a bounded number of different reactions (taking one away is always allowed).
+  const used = Object.entries(message.reactions ?? {}).filter(([, users]) => users.length > 0).map(([key]) => key);
+  if (!used.includes(emoji) && used.length >= MAX_REACTION_KINDS) return false;
   const c = collections(db);
   const key = `reactions.${emoji}`;
   const removed = await c.chatMessages.updateOne({ _id: message._id, [key]: userId }, { $pull: { [key]: userId }, $set: { updatedAt: now } });

@@ -9,6 +9,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Suggestion, { exitSuggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion';
 import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import type { Draft } from '@/lib/client/chat';
+import { EMOJI_PALETTE } from '@/lib/chat';
 import { docToMarkdown, markdownToDoc } from '@/lib/chatText';
 import type { ChatIssueView, ChatMessageView, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -36,18 +37,9 @@ const COUNTER_FROM = 3600;
 const ISSUE_LOAD_MORE_PX = 96;
 /** Placeholder rows shown while the first page of the "/" list loads. */
 const ISSUE_SKELETON_ROWS = 4;
-const MENTION_RESULTS = 6;
 /** Unsent text is kept per project for this tab only (sessionStorage: gone when the tab closes, never shared). */
 const DRAFT_KEY = (projectId: string) => `et_chat_draft:${projectId}`;
 const DRAFT_SAVE_DELAY_MS = 400;
-
-/** Common reactions and work emoji, with names for screen readers. */
-const EMOJI: Array<[string, string]> = [
-  ['👍', 'thumbs up'], ['👎', 'thumbs down'], ['👏', 'clap'], ['🙏', 'thanks'], ['🙌', 'raised hands'], ['💪', 'strong'], ['👀', 'eyes'], ['🤝', 'handshake'],
-  ['😀', 'grin'], ['😂', 'laughing'], ['🙂', 'smile'], ['😉', 'wink'], ['🤔', 'thinking'], ['😅', 'sweat smile'], ['😬', 'grimace'], ['😢', 'sad'],
-  ['✅', 'done'], ['❌', 'no'], ['⚠️', 'warning'], ['❗', 'important'], ['❓', 'question'], ['🔥', 'fire'], ['🚀', 'ship it'], ['🎉', 'party'],
-  ['🐛', 'bug'], ['🛠️', 'fixing'], ['🔍', 'investigating'], ['📌', 'pin'], ['📈', 'up'], ['📉', 'down'], ['⏳', 'waiting'], ['💡', 'idea'],
-];
 
 type Mark = 'bold' | 'italic' | 'strike' | 'code' | 'bulletList' | 'orderedList' | 'blockquote' | 'codeBlock' | 'link';
 const TOOLBAR: Array<{ id: Mark; icon: IconName; label: string; keys?: string; run: (e: Editor) => void } | 'sep'> = [
@@ -287,16 +279,19 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   // scrolling to the end of the list loads the next page.
   useEffect(() => { prefetchIssues(projectId); }, [projectId]);
   const issueQuery = suggest?.kind === 'issue' ? pickerText : null;
-  useEffect(() => { if (suggest?.kind === 'issue') setPickerText(suggest.query); }, [suggest?.kind, suggest?.query]);
+  useEffect(() => { if (suggest) setPickerText(suggest.query); }, [suggest?.kind, suggest?.query]);
   const picker = useIssuePicker(projectId, issueQuery);
   const issueResults = picker.items;
   useEffect(() => setIndex(0), [suggest?.kind, suggest?.query, pickerText]);
 
+  // Everyone else in the project; the search box filters by name or email (the list scrolls, it is not cut short).
+  const others = people.filter((p) => p.id !== me.id);
+  const needle = pickerText.trim().toLowerCase();
   const mentionOptions = suggest?.kind === 'mention'
-    ? people.filter((p) => p.id !== me.id && p.name.toLowerCase().includes(suggest.query.toLowerCase())).slice(0, MENTION_RESULTS)
+    ? others.filter((p) => !needle || p.name.toLowerCase().includes(needle) || p.email.toLowerCase().includes(needle))
     : [];
   const options: Array<PersonView | ChatIssueView> = suggest?.kind === 'mention' ? mentionOptions : suggest?.kind === 'issue' ? issueResults : [];
-  const shown = suggest !== null && (suggest.kind === 'issue' || options.length > 0 || suggest.query.length > 0);
+  const shown = suggest !== null;
   // Keep the highlighted option in view, and fetch more issues when the highlight nears the end of what is loaded.
   const { hasMore: moreIssues, loadMore: loadMoreIssues } = picker;
   useEffect(() => {
@@ -317,7 +312,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
     if (e.key === 'Escape') { if (editor) exitSuggestion(editor.view); setSuggest(null); return true; }
     if (options.length === 0) {
       if (e.key !== 'Enter' || e.shiftKey) return false;
-      if (suggest?.kind === 'issue') return true; // nothing to attach: don't send "/query"
+      if (suggest?.kind === 'issue' || e.target instanceof HTMLInputElement) return true; // nothing to attach: don't send "/query" (or send the message from the search box)
       // "@word" that matches nobody: Enter does what it does anywhere else.
       if (latest.current.expanded || isTouch() || editor?.isActive('listItem') || editor?.isActive('codeBlock')) return false;
       submit();
@@ -384,7 +379,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       {emojiOpen ? (
         <div ref={emojiPanel} role="menu" aria-label="Emoji" onKeyDown={onMenuKeyDown}
           className="tg-fade-in absolute bottom-full left-0 z-30 mb-3 grid w-81 max-w-[calc(100vw-24px)] grid-cols-8 gap-0.5 rounded-2xl bg-(--tg-menu) p-2 shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl">
-          {EMOJI.map(([e, name]) => (
+          {EMOJI_PALETTE.map(([e, name]) => (
             <button key={e} type="button" role="menuitem" aria-label={name} title={name} onMouseDown={(ev) => ev.preventDefault()}
               onClick={() => { insert(e); setEmojiOpen(false); }}
               className="grid size-9 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-[22px] shadow-none transition-transform hover:scale-115 hover:bg-(--tg-menu-hover) focus-visible:bg-(--tg-menu-hover) focus-visible:outline-none"><Emoji emoji={e} size={26} /></button>
@@ -422,16 +417,14 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         <ul id={listId} role="listbox" aria-label={suggest.kind === 'mention' ? 'People in this project' : 'Issues in this project'}
           onScroll={(e) => { const el = e.currentTarget; if (suggest.kind === 'issue' && el.scrollHeight - el.scrollTop - el.clientHeight < ISSUE_LOAD_MORE_PX) loadMoreIssues(); }}
           className="tg-fade-in absolute right-18 bottom-full left-2 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-2xl bg-(--tg-menu) p-1.5 text-(--tg-text) shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl md:left-4">
-          {suggest.kind === 'mention' ? (
-            <li className="px-2.5 pt-1 pb-1.5 text-[12px] font-medium text-(--tg-in-meta)" role="presentation">People in this project</li>
-          ) : (
+          {(
             <li role="presentation" className="sticky top-0 z-10 -mx-1.5 -mt-1.5 mb-1 flex items-center gap-2 rounded-t-2xl border-0 border-b border-solid border-(--tg-bar-line) bg-(--tg-menu-solid) px-3.5 py-2.5 text-[14px]">
               <Icon name="search" className="size-4 shrink-0 text-(--tg-in-meta)" />
-              <input type="text" value={pickerText} onChange={(e) => setPickerText(e.target.value)} placeholder="Search issues by type, message or id" aria-label="Search issues" autoComplete="off" spellCheck={false}
+              <input type="text" value={pickerText} onChange={(e) => setPickerText(e.target.value)} placeholder={suggest.kind === 'mention' ? 'Search people by name or email' : 'Search issues by type, message or id'} aria-label={suggest.kind === 'mention' ? 'Search people' : 'Search issues'} autoComplete="off" spellCheck={false}
                 role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={listId} aria-activedescendant={options[index] ? `${listId}-${options[index].id}` : undefined}
                 onKeyDown={(e) => { if (suggestKey.current(e.nativeEvent)) { e.preventDefault(); if (e.key === 'Escape') editor?.commands.focus(); } }}
                 className="min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-(--tg-text) shadow-none outline-none placeholder:text-(--tg-in-meta)" />
-              <span className="shrink-0 text-[12px] text-(--tg-in-meta) tabular-nums" aria-live="polite">{picker.loading ? 'Searching…' : picker.total > 0 ? `${options.length} of ${picker.total.toLocaleString()}` : ''}</span>
+              <span className="shrink-0 text-[12px] text-(--tg-in-meta) tabular-nums" aria-live="polite">{suggest.kind === 'mention' ? (others.length > 0 ? `${options.length} of ${others.length}` : '') : picker.loading ? 'Searching…' : picker.total > 0 ? `${options.length} of ${picker.total.toLocaleString()}` : ''}</span>
             </li>
           )}
           {options.length === 0 && suggest.kind === 'issue' && picker.loading ? (
@@ -443,7 +436,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
             ))
           ) : options.length === 0 ? (
             <li className="px-2.5 py-2 text-[14px] text-(--tg-in-meta)" role="presentation">
-              {suggest.kind === 'mention' ? `Nobody called “${suggest.query}” is in this project.` : picker.failed ? 'Couldn’t load issues. Type again to retry.' : pickerText ? `No issues match “${pickerText}”.` : 'This project has no issues yet.'}
+              {suggest.kind === 'mention' ? (pickerText ? `Nobody matches “${pickerText}”.` : 'No one else is in this project yet.') : picker.failed ? 'Couldn’t load issues. Type again to retry.' : pickerText ? `No issues match “${pickerText}”.` : 'This project has no issues yet.'}
             </li>
           ) : null}
           {options.map((option, i) => (

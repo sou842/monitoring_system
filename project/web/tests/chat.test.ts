@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { ObjectId } from 'mongodb';
+import { CHAT_REACTIONS, EMOJI_PALETTE, isReactionEmoji } from '../lib/chat.ts';
 import { cleanClientId, mentionsInText } from '../server/chat.ts';
 
 describe('mentionsInText', () => {
@@ -35,5 +36,31 @@ describe('cleanClientId', () => {
     assert.equal(cleanClientId('a b'), null);
     assert.equal(cleanClientId({ $gt: '' }), null);
     assert.equal(cleanClientId(12), null);
+  });
+});
+
+describe('reaction emoji', () => {
+  it('accepts any single emoji, with skin tone or joiners', () => {
+    for (const e of ['👍', '👎', '❤️', '😂', '🔥', '👏', '🎉', '👏🏽', '👨‍💻', '🏳️‍🌈', '✅']) assert.equal(isReactionEmoji(e), true, e);
+  });
+
+  it('refuses text, several emoji, markup, empty and non-strings', () => {
+    for (const e of ['', 'a', '1', '<b>', '👍👍', '👍 ', 'like', '.', '$ne', 'x'.repeat(40)]) assert.equal(isReactionEmoji(e), false, JSON.stringify(e));
+    for (const e of [null, undefined, 5, {}, ['👍']]) assert.equal(isReactionEmoji(e), false);
+  });
+
+  it('offers like, dislike, heart, laugh, fire and clap first', () => {
+    assert.deepEqual([...CHAT_REACTIONS], ['👍', '👎', '❤️', '😂', '🔥', '👏']);
+    for (const e of CHAT_REACTIONS) assert.equal(isReactionEmoji(e), true);
+  });
+
+  it('has a palette of valid, unique emoji', () => {
+    const seen = new Set<string>();
+    for (const [e, name] of EMOJI_PALETTE) {
+      assert.equal(isReactionEmoji(e), true, e);
+      assert.ok(name);
+      assert.equal(seen.has(e), false, `duplicate ${e}`);
+      seen.add(e);
+    }
   });
 });

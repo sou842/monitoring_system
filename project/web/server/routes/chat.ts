@@ -100,7 +100,7 @@ export const POST = handle(async (request) => {
     if (!access.can('chat.post')) return forbidden('chat.post');
     const limited = await actionBudget(db, user._id);
     if (limited) return limited;
-    if (!(await toggleReaction(db, message, user._id, input.emoji))) return errorResponse(400, 'invalid_reaction', 'Unknown reaction, or the message was deleted');
+    if (!(await toggleReaction(db, message, user._id, input.emoji))) return errorResponse(400, 'invalid_reaction', 'Not an emoji, too many different reactions on this message, or the message was deleted');
     const updated = await getMessage(db, message.projectId, id);
     const [view] = updated ? await messageViews(db, [updated], user._id) : [];
     await publish(String(message.projectId), 'message-updated', { id: String(id), projectId: String(message.projectId) });

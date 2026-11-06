@@ -266,6 +266,17 @@
   }
   .tg-menu-reactions button:hover, .tg-menu-reactions button:focus-visible { transform: scale(1.22); outline: none; }
   .tg-menu-reactions button[aria-checked=true] { background: color-mix(in srgb, var(--tg-accent) 18%, transparent); }
+  /* The "+" at the end of the strip and the palette it opens. */
+  .tg-menu-reactions button.is-more { width: 34px; height: 34px; margin-left: 4px; background: var(--tg-menu-hover); color: var(--tg-in-meta); animation: tg-pop .3s .2s both; }
+  .tg-menu-reactions button.is-more:hover, .tg-menu-reactions button.is-more:focus-visible { color: var(--tg-text); }
+  .tg-menu-emoji {
+    position: fixed; z-index: 62; display: grid; grid-template-columns: repeat(8, 36px); padding: 8px; border-radius: 16px;
+    background: var(--tg-menu-solid); box-shadow: 0 4px 18px rgb(0 0 0 / 0.16), 0 1px 3px rgb(0 0 0 / 0.08);
+    animation: tg-menu-in .18s cubic-bezier(.2, .8, .3, 1);
+  }
+  .tg-menu-emoji button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 10px; padding: 0; background: transparent; box-shadow: none; cursor: pointer; transition: transform .12s; }
+  .tg-menu-emoji button:hover, .tg-menu-emoji button:focus-visible { background: var(--tg-menu-hover); transform: scale(1.12); outline: none; }
+  .tg-menu-emoji button[aria-checked=true] { background: color-mix(in srgb, var(--tg-accent) 18%, transparent); }
   .tg-menu-reactions button:nth-child(1) { animation: tg-pop .3s .02s both; }
   .tg-menu-reactions button:nth-child(2) { animation: tg-pop .3s .05s both; }
   .tg-menu-reactions button:nth-child(3) { animation: tg-pop .3s .08s both; }
@@ -293,7 +304,7 @@
   @keyframes tg-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
 
   @media (prefers-reduced-motion: reduce) {
-    .tg-enter, .tg-menu, .tg-menu-reactions, .tg-menu-reactions button, .tg-fade-in { animation: none; }
+    .tg-enter, .tg-menu, .tg-menu-reactions, .tg-menu-reactions button, .tg-menu-emoji, .tg-fade-in { animation: none; }
     .tg-row[data-flash]::after { animation-duration: .01s; opacity: 0; }
   }
   @media (forced-colors: active) {

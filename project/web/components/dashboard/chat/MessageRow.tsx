@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
-import { CHAT_REACTIONS } from '@/lib/chat';
+import { CHAT_REACTIONS, EMOJI_PALETTE } from '@/lib/chat';
 import { plainText } from '@/lib/chatText';
 import type { ChatMessageView, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -27,8 +27,9 @@ export interface RowActions {
   discard: (clientId: string) => void;
 }
 
-const REACTION_NAMES: Record<string, string> = { '👍': 'thumbs up', '❤️': 'heart', '😂': 'laughing', '🎉': 'party', '👀': 'eyes', '✅': 'done' };
-const reactionLabel = (emoji: string) => REACTION_NAMES[emoji] ?? emoji;
+const REACTION_NAMES: Record<string, string> = { '👍': 'like', '👎': 'dislike', '❤️': 'heart', '😂': 'laughing', '🔥': 'fire', '👏': 'clap' };
+const PALETTE_NAMES = new Map(EMOJI_PALETTE);
+const reactionLabel = (emoji: string) => REACTION_NAMES[emoji] ?? PALETTE_NAMES.get(emoji) ?? emoji;
 
 /** Touch: how long a press must last to open the menu. */
 const LONG_PRESS_MS = 420;
@@ -174,6 +175,9 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
   const reactions = canPost && sent
     ? CHAT_REACTIONS.map((emoji) => ({ emoji, label: reactionLabel(emoji), mine: m.reactions.some((r) => r.emoji === emoji && r.mine), onSelect: () => actions.react(m.id, emoji) }))
     : undefined;
+  const moreReactions = canPost && sent
+    ? { emojis: EMOJI_PALETTE, mine: m.reactions.filter((r) => r.mine).map((r) => r.emoji), onSelect: (emoji: string) => actions.react(m.id, emoji) }
+    : undefined;
 
   // ---- the time and delivery state, drawn in the bubble's corner (an invisible copy keeps room for it)
   const status = !own ? null
@@ -275,7 +279,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
         <span className="sr-only" role="alert">Not sent{row.error ? `: ${row.error}` : ''}. Open the message menu to try again.</span>
       ) : null}
 
-      {menu ? <ContextMenu x={menu.x} y={menu.y} items={entries} reactions={reactions} onClose={closeMenu} returnFocus={article.current} /> : null}
+      {menu ? <ContextMenu x={menu.x} y={menu.y} items={entries} reactions={reactions} more={moreReactions} onClose={closeMenu} returnFocus={article.current} /> : null}
     </article>
   );
 });

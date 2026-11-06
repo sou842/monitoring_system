@@ -168,7 +168,7 @@ export interface ChatMessageDoc {
   issueIds?: ObjectId[];
   /** The message this one answers. */
   replyToId?: ObjectId;
-  /** Reactions: emoji (one of lib/chat.ts CHAT_REACTIONS) → the users who reacted with it. */
+  /** Reactions: emoji (any single emoji, lib/chat.ts isReactionEmoji) → the users who reacted with it. */
   reactions?: Record<string, ObjectId[]>;
   createdAt: Date;
   /** Last time the text was edited by its author (shown as "edited"). */
