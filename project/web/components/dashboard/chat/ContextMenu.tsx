@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
+import { EmojiPicker, PICKER_HEIGHT_PX, PICKER_WIDTH_PX } from './EmojiPicker';
 import { Emoji, onMenuKeyDown, useDismiss } from './shared';
 
 /** One line of the menu. */
@@ -13,10 +14,7 @@ export interface MenuEntry { label: string; icon: IconName; onSelect: () => void
 const EDGE_PX = 8;
 /** Gap between the reaction bar and the menu. */
 const BAR_GAP_PX = 22;
-/** The emoji palette opened by "+": columns, cell size, padding and gap to the bar (match `.tg-menu-emoji` in chat.css). */
-const PICKER_COLUMNS = 8;
-const PICKER_CELL_PX = 36;
-const PICKER_PAD_PX = 8;
+/** Gap between the reaction bar and the emoji picker opened by "+". */
 const PICKER_GAP_PX = 10;
 
 /**
@@ -32,7 +30,7 @@ export function ContextMenu({ x, y, items, reactions, more, onClose, returnFocus
   /** Emoji strip; omitted when the person can't react. */
   reactions?: { emoji: string; label: string; mine: boolean; onSelect: () => void }[];
   /** The "+" at the end of the strip: opens a palette so people can react with any emoji. */
-  more?: { emojis: ReadonlyArray<readonly [string, string]>; mine: string[]; onSelect: (emoji: string) => void };
+  more?: { mine: string[]; onSelect: (emoji: string) => void };
   onClose: () => void;
   returnFocus?: HTMLElement | null;
 }) {
@@ -95,13 +93,12 @@ export function ContextMenu({ x, y, items, reactions, more, onClose, returnFocus
     const b = bar.current?.getBoundingClientRect();
     const m = menu.current?.getBoundingClientRect();
     if (!b || !m) return;
-    const w = PICKER_COLUMNS * PICKER_CELL_PX + PICKER_PAD_PX * 2;
-    const h = Math.ceil(more.emojis.length / PICKER_COLUMNS) * PICKER_CELL_PX + PICKER_PAD_PX * 2;
+    const w = PICKER_WIDTH_PX;
+    const h = PICKER_HEIGHT_PX;
     const left = Math.max(EDGE_PX, Math.min(b.left, window.innerWidth - w - EDGE_PX));
     const above = b.top - h - PICKER_GAP_PX;
     const top = above >= EDGE_PX ? above : Math.min(m.bottom + PICKER_GAP_PX, window.innerHeight - h - EDGE_PX);
     setPicker({ left, top });
-    requestAnimationFrame(() => wrap.current?.querySelector<HTMLElement>('.tg-menu-emoji [role=menuitemradio]')?.focus());
   };
 
   return createPortal(
@@ -127,11 +124,7 @@ export function ContextMenu({ x, y, items, reactions, more, onClose, returnFocus
       </div>
       {picker && more ? (
         <div className="tg-menu-emoji" style={picker} role="menu" aria-label="Choose an emoji">
-          {more.emojis.map(([emoji, name]) => (
-            <button key={emoji} type="button" role="menuitemradio" aria-checked={more.mine.includes(emoji)} aria-label={name} title={name} onClick={choose(() => more.onSelect(emoji))}>
-              <Emoji emoji={emoji} size={24} />
-            </button>
-          ))}
+          <EmojiPicker mine={more.mine} onPick={(emoji) => choose(() => more.onSelect(emoji))()} />
         </div>
       ) : null}
     </div>,

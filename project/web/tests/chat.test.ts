@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { ObjectId } from 'mongodb';
 import { CHAT_REACTIONS, EMOJI_PALETTE, isReactionEmoji } from '../lib/chat.ts';
+import { EMOJI_GROUPS } from '../lib/emojiData.ts';
 import { cleanClientId, mentionsInText } from '../server/chat.ts';
 
 describe('mentionsInText', () => {
@@ -62,5 +63,30 @@ describe('reaction emoji', () => {
       assert.equal(seen.has(e), false, `duplicate ${e}`);
       seen.add(e);
     }
+  });
+});
+
+describe('emoji picker data', () => {
+  it('only offers emoji the server accepts as reactions', () => {
+    let total = 0;
+    for (const group of EMOJI_GROUPS) {
+      for (const [emoji, name] of group.emojis) {
+        total++;
+        assert.equal(isReactionEmoji(emoji), true, `${group.name}: ${name} ${emoji}`);
+        assert.ok(name.length > 0);
+      }
+    }
+    assert.ok(total > 1500, `only ${total} emoji`);
+  });
+
+  it('has no duplicates and the nine usual groups', () => {
+    const all = EMOJI_GROUPS.flatMap((g) => g.emojis.map(([e]) => e));
+    assert.equal(new Set(all).size, all.length);
+    assert.deepEqual(EMOJI_GROUPS.map((g) => g.name), ['Smileys & Emotion', 'People & Body', 'Animals & Nature', 'Food & Drink', 'Travel & Places', 'Activities', 'Objects', 'Symbols', 'Flags']);
+  });
+
+  it('accepts country and region flags and refuses half a flag', () => {
+    for (const e of ['🇺🇸', '🇮🇳', '🏴󠁧󠁢󠁥󠁮󠁧󠁿', '🏳️‍🌈', '🏴‍☠️']) assert.equal(isReactionEmoji(e), true, e);
+    for (const e of ['🇺', '🇺🇸🇮🇳']) assert.equal(isReactionEmoji(e), false, e);
   });
 });

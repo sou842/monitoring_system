@@ -10,9 +10,14 @@ export const MAX_REACTION_KINDS = 20;
 const MAX_REACTION_LENGTH = 16;
 const REACTION = /^\p{Extended_Pictographic}[\u{1F3FB}-\u{1F3FF}]?\uFE0F?(?:\u200D\p{Extended_Pictographic}[\u{1F3FB}-\u{1F3FF}]?\uFE0F?)*$/u;
 
+/** A country flag (two regional indicators) and a region flag such as England (a black flag, tag letters, a cancel tag). */
+const COUNTRY_FLAG = /^[\u{1F1E6}-\u{1F1FF}]{2}$/u;
+const REGION_FLAG = /^\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F}$/u;
+
 /** Whether `value` is one emoji (any, not only the quick ones): what a person can react with. */
 export function isReactionEmoji(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= MAX_REACTION_LENGTH && REACTION.test(value);
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_REACTION_LENGTH) return false;
+  return REACTION.test(value) || COUNTRY_FLAG.test(value) || REGION_FLAG.test(value);
 }
 
 /** Emoji offered by the reaction bar's "+" and the message box, with names for screen readers. */

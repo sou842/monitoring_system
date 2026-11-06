@@ -176,7 +176,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
     ? CHAT_REACTIONS.map((emoji) => ({ emoji, label: reactionLabel(emoji), mine: m.reactions.some((r) => r.emoji === emoji && r.mine), onSelect: () => actions.react(m.id, emoji) }))
     : undefined;
   const moreReactions = canPost && sent
-    ? { emojis: EMOJI_PALETTE, mine: m.reactions.filter((r) => r.mine).map((r) => r.emoji), onSelect: (emoji: string) => actions.react(m.id, emoji) }
+    ? { mine: m.reactions.filter((r) => r.mine).map((r) => r.emoji), onSelect: (emoji: string) => actions.react(m.id, emoji) }
     : undefined;
 
   // ---- the time and delivery state, drawn in the bubble's corner (an invisible copy keeps room for it)

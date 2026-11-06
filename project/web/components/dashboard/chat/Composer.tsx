@@ -9,13 +9,13 @@ import StarterKit from '@tiptap/starter-kit';
 import Suggestion, { exitSuggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion';
 import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import type { Draft } from '@/lib/client/chat';
-import { EMOJI_PALETTE } from '@/lib/chat';
 import { docToMarkdown, markdownToDoc } from '@/lib/chatText';
 import type { ChatIssueView, ChatMessageView, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
 import { snippetOf } from './MessageRow';
-import { ChatAvatar, Emoji, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, SendIcon, useDismiss, useFocusFirst } from './shared';
+import { ChatAvatar, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, SendIcon, useDismiss } from './shared';
+import { EmojiPicker } from './EmojiPicker';
 import { prefetchIssues, useIssuePicker } from './useIssuePicker';
 
 /*
@@ -123,7 +123,6 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   const emojiButton = useRef<HTMLButtonElement>(null);
   const listId = `chat-picker-${projectId}`;
   useDismiss(emojiOpen, emojiWrap, () => setEmojiOpen(false), emojiButton);
-  useFocusFirst(emojiOpen, emojiPanel);
 
   // The editor is created once; it reads the latest React state through these refs.
   const latest = useRef({ expanded, replyTo, attached, onCancelReply, editing, onCancelEdit, submit: () => {} });
@@ -378,12 +377,8 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       </button>
       {emojiOpen ? (
         <div ref={emojiPanel} role="menu" aria-label="Emoji" onKeyDown={onMenuKeyDown}
-          className="tg-fade-in absolute bottom-full left-0 z-30 mb-3 grid w-81 max-w-[calc(100vw-24px)] grid-cols-8 gap-0.5 rounded-2xl bg-(--tg-menu) p-2 shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl">
-          {EMOJI_PALETTE.map(([e, name]) => (
-            <button key={e} type="button" role="menuitem" aria-label={name} title={name} onMouseDown={(ev) => ev.preventDefault()}
-              onClick={() => { insert(e); setEmojiOpen(false); }}
-              className="grid size-9 cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-[22px] shadow-none transition-transform hover:scale-115 hover:bg-(--tg-menu-hover) focus-visible:bg-(--tg-menu-hover) focus-visible:outline-none"><Emoji emoji={e} size={26} /></button>
-          ))}
+          className="tg-fade-in absolute bottom-full left-0 z-30 mb-3 max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl bg-(--tg-menu-solid) shadow-[0_6px_24px_rgb(0_0_0/0.2)]">
+          <EmojiPicker onPick={(e) => { insert(e); setEmojiOpen(false); }} />
         </div>
       ) : null}
     </div>

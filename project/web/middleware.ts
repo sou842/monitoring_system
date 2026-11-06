@@ -41,7 +41,8 @@ function contentSecurityPolicy(nonce: string): string {
     // 'strict-dynamic': scripts loaded by the nonce'd Next.js runtime are trusted too. React needs eval in development only.
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
+    // fonts.gstatic.com: Google's Noto emoji pictures for emoji that are not stored in the app (chat emoji picker).
+    "img-src 'self' data: https://fonts.gstatic.com",
     `connect-src 'self'${sdkEndpointOrigin()}${pusherOrigins()}`,
     "font-src 'self'",
     "object-src 'none'",

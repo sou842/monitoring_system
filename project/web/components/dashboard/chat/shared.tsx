@@ -123,10 +123,25 @@ function notoCode(emoji: string): string | null {
 
 const prefersStill = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
 
-/** One emoji as Noto art (falls back to the system glyph). `play` shows the animated version where one exists. */
+/** Google's public host for the full Noto set (static SVGs); used for emoji that have no local file. */
+const CDN_EMOJI_URL = 'https://fonts.gstatic.com/s/e/notoemoji/latest';
+const codeOf = (emoji: string) => [...emoji].map((c) => (c.codePointAt(0) ?? 0).toString(16)).join('_');
+
+/**
+ * One emoji as Noto art: the local file when there is one, otherwise the same art from Google's host, and the
+ * system glyph when that fails too (offline, blocked, too new). `play` shows the animated version where one exists locally.
+ */
 export function Emoji({ emoji, size = 20, play = false, className }: { emoji: string; size?: number; play?: boolean; className?: string }) {
   const code = notoCode(emoji);
-  if (!code) return <span className={className} style={{ fontSize: size * 0.9, lineHeight: 1 }} aria-hidden="true">{emoji}</span>;
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  if (!code) {
+    if (remoteFailed) return <span className={className} style={{ fontSize: size * 0.9, lineHeight: 1 }} aria-hidden="true">{emoji}</span>;
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- Noto SVGs from Google's host, no optimisation needed
+      <img src={`${CDN_EMOJI_URL}/${codeOf(emoji)}/emoji.svg`} alt="" aria-hidden="true" width={size} height={size} draggable={false} loading="lazy" decoding="async"
+        onError={() => setRemoteFailed(true)} className={cn('inline-block shrink-0 select-none', className)} style={{ width: size, height: size }} />
+    );
+  }
   const animated = play && hasAnimation(code) && !prefersStill();
   return (
     // eslint-disable-next-line @next/next/no-img-element -- tiny local files, no optimisation needed
@@ -191,6 +206,8 @@ export function useDismiss(open: boolean, ref: RefObject<HTMLElement | null>, cl
 export function onMenuKeyDown(e: ReactKeyboardEvent<HTMLElement>) {
   const keys = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'];
   if (!keys.includes(e.key)) return;
+  // In a search box these keys move the caret; only Up and Down leave it for the list.
+  if (e.target instanceof HTMLInputElement && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role=menuitem]:not([disabled]),[role=menuitemradio]:not([disabled])')];
   if (items.length === 0) return;
   e.preventDefault();
