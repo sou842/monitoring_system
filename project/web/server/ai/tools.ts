@@ -5,6 +5,7 @@ import { AI_LIST_EVENTS_MAX } from '../constants.ts';
 import { collections } from '../db.ts';
 import { parseObjectId } from '../http.ts';
 import type { IssueDoc, ProjectDoc } from '../models.ts';
+import { sdkGuideTools } from './sdkGuide.ts';
 import { cappedJson, EVENT_SUMMARY_PROJECTION, eventAnalysis, eventSummaryLine } from './context.ts';
 
 /**
@@ -14,6 +15,7 @@ import { cappedJson, EVENT_SUMMARY_PROJECTION, eventAnalysis, eventSummaryLine }
 export function issueTools(db: Db, issue: IssueDoc, project: Pick<ProjectDoc, 'insights'> | null) {
   const events = collections(db).events;
   return {
+    ...sdkGuideTools(),
     list_events: tool({
       description: "Lists this issue's stored events, newest first: id, time, screen, page, environment, app version, browser, OS, user id. Use get_event with an id to read one in full.",
       inputSchema: z.object({

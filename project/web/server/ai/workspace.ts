@@ -20,6 +20,7 @@ import { projectPeople } from '../members.ts';
 import type { EventDoc, IssueDoc, UserDoc } from '../models.ts';
 import { computeEndpointDetail, computePageDetail, computePerformance } from '../performanceStats.ts';
 import { computeStats } from '../stats.ts';
+import { sdkGuideTools } from './sdkGuide.ts';
 import { breakdown, cappedJson, EVENT_SUMMARY_PROJECTION, eventAnalysis, eventSummaryLine } from './context.ts';
 
 /**
@@ -127,6 +128,7 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
   const insightSettings = async (projectId: ObjectId) => (await c.projects.findOne({ _id: projectId }, { projection: { insights: 1 } }))?.insights ?? null;
 
   return {
+    ...sdkGuideTools(),
     list_projects: tool({
       description: 'Lists every project the developer can ask about: id, name, role, open/total issues, when the last issue was seen, member count.',
       inputSchema: z.object({}),

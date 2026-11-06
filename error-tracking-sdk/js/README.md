@@ -16,7 +16,7 @@ The SDK captures problems in the page and sends them to the **Error Tracker dash
 2. Go to **Projects → New project**, give it your app's name, and copy the API key (`et_…`). It is shown only once; if you lose it, use **Rotate API key** on the project page.
 3. Install the SDK and call `init()` with that key (below). Errors appear in the dashboard within seconds.
 
-One project per app or website. Each account can have up to 10 projects.
+One project per app or website. There is no limit on projects per account.
 
 ## Installation
 

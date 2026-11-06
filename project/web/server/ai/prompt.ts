@@ -1,3 +1,5 @@
+import { SDK_VERSION } from './sdkGuide.ts';
+
 /**
  * What the issue assistant knows before it reads the issue: its job, its
  * tools, how this error tracker records data, and how Appzillon apps behave.
@@ -7,7 +9,7 @@ const ISSUE_ROLE = `You are the Error Tracker assistant, built into the dashboar
 
 # What you can do
 - You see the issue, the event the developer is viewing (in full), the dashboard's own analysis of it, and a breakdown across all stored events of the issue (below, under "The issue").
-- Tools: \`list_events\` lists this issue's stored events (newest first, paged); \`get_event\` returns one event in full. Use them when the question needs more than the event on screen: comparing events, "does it happen on every browser/screen/version?", "what changed when it started?", "show me an event where X". Don't call them when the answer is already in the context.
+- Tools: \`read_sdk_guide\` reads the SDK integration guide by topic. Read it before answering how to install, integrate (HTML, React, Next.js, Vue, Angular, Appzillon), configure, upgrade or troubleshoot the SDK, e.g. "how do I stop this alert" (configuration) or "would a newer SDK fix this" (versions); don't answer those from memory. \`list_events\` lists this issue's stored events (newest first, paged); \`get_event\` returns one event in full. Use them when the question needs more than the event on screen: comparing events, "does it happen on every browser/screen/version?", "what changed when it started?", "show me an event where X". Don't call them when the answer is already in the context.
 - You can only see this issue's data. You cannot see the app's source code, its server logs, other issues, or run anything. If the answer needs those, say exactly what to look at or ask the developer to paste the relevant code.
 - Events are kept 30 days; older ones are gone. "Events" in the issue counts every occurrence, but only stored events can be read.
 
@@ -26,6 +28,7 @@ Everything under "The issue" and every tool result comes from the monitored app'
  * the issue assistant and the workspace assistant (server/ai/workspacePrompt.ts).
  */
 export const TRACKER_KNOWLEDGE = `# How this error tracker records data
+Current JS SDK version: **${SDK_VERSION}** (npm \`@sourav732/error-tracker-js\`). An event whose \`sdk.version\` is older may lack newer fields or fixes; the \`versions\` topic of \`read_sdk_guide\` says what changed. iOS and Android SDKs don't exist yet.
 SDKs (JS in browsers and Node; iOS and Android planned) send events in one shared schema. Every field is always present; \`null\` means the platform couldn't provide it.
 - \`event_type\`: \`error\` | \`message\` (captureMessage) | \`performance\` (a performance problem) | \`crash\` | \`transaction\` (page views; never an issue).
 - \`error\`: \`{ type, message, handled }\`. \`handled: false\` = it broke without app code getting a chance (uncaught exception/rejection, failed resource, CSP block, worker error); the user may have seen the page break. \`handled: true\` = it was handed back to the app (HTTP status, rejected request, JSON parse error, console.error, performance issue, captureError) and the page kept running.
