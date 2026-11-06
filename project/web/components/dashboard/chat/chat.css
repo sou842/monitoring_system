@@ -135,9 +135,11 @@
   }
   .tg-reaction:hover { background: color-mix(in srgb, var(--tg-accent) 22%, transparent); }
   .tg-reaction:active { transform: scale(.94); }
-  .tg-reaction[aria-pressed=true] { background: var(--tg-accent); color: var(--tg-accent-fg); }
+  .tg-reaction[aria-pressed=true] {
+    background: color-mix(in srgb, var(--tg-accent) 24%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tg-accent) 45%, transparent);
+  }
   .tg-bubble.is-own .tg-reaction { --tg-accent: var(--tg-own-accent); }
-  [data-theme=dark] .tg-bubble.is-own .tg-reaction[aria-pressed=true] { color: var(--tg-own); }
   .tg-reaction:disabled { cursor: default; }
 
   /* Sender name colours (7, readable on the bubble in each theme). */
@@ -188,16 +190,14 @@
   }
   .tg-input:focus-within { border-color: color-mix(in srgb, var(--tg-accent) 45%, var(--tg-bar-line)); box-shadow: 0 2px 14px rgb(16 35 47 / 0.14), 0 0 0 3px color-mix(in srgb, var(--tg-accent) 14%, transparent); }
   [data-theme=dark] .tg-input { box-shadow: 0 2px 12px rgb(0 0 0 / 0.35); }
-  /* Send: a solid accent circle inside the box, the same size as the icon buttons; grey until there is something to send. */
+  /* Send: a solid accent circle; grey and quiet until there is something to send. */
   .tg-send {
-    display: grid; place-items: center; flex-shrink: 0; padding: 0; border: 0; border-radius: 9999px; cursor: pointer;
-    background: var(--tg-accent); color: var(--tg-accent-fg); box-shadow: none;
-    transition: transform .2s cubic-bezier(.2, .8, .3, 1), background-color .15s, color .15s, filter .15s;
+    width: 50px; height: 50px; flex-shrink: 0; background: var(--tg-accent); color: var(--tg-accent-fg);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--tg-accent) 40%, transparent);
   }
-  .tg-send:hover { filter: brightness(1.08); }
-  .tg-send:active { transform: scale(.92); }
-  .tg-send:disabled { cursor: default; background: var(--tg-menu-hover); color: var(--tg-in-meta); opacity: 1; filter: none; }
-  @media (max-width: 640px) { .tg-input { border-radius: 22px; } }
+  .tg-send:hover { color: var(--tg-accent-fg); filter: brightness(1.06); }
+  .tg-send:disabled { cursor: default; background: var(--tg-bar); color: var(--tg-in-meta); opacity: 1; box-shadow: 0 1px 4px rgb(0 0 0 / 0.12); filter: none; }
+  @media (max-width: 640px) { .tg-send { width: 44px; height: 44px; } .tg-input { border-radius: 22px; } }
   .tg-send:disabled:active { transform: none; }
   .tg-send svg { transition: transform .22s cubic-bezier(.2, .8, .3, 1), opacity .22s; }
   .tg-send:disabled svg { transform: scale(.82) rotate(-12deg); opacity: .6; }
