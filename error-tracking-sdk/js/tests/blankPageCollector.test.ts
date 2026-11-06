@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlankPageCollector, BlankPageSample, samplePage } from '../src/collectors/blankPageCollector';
+import { BlankPageCollector, BlankPageDeepCheck, BlankPageSample, deepCheckPage, samplePage } from '../src/collectors/blankPageCollector';
 import { NetworkInterceptor } from '../src/collectors/networkInterceptor';
 import {
   BLANK_PAGE_CONFIRM_MS,
@@ -7,6 +7,7 @@ import {
   BLANK_PAGE_MAX_WAIT_MS,
   BLANK_PAGE_PENDING_MAX_MS,
   BLANK_PAGE_QUIET_MS,
+  BLANK_PAGE_TEXT_VETO_CHARS,
 } from '../src/constants';
 import { Logger } from '../src/core/logger';
 import { JsonObject } from '../src/types';
@@ -107,6 +108,16 @@ describe('samplePage', () => {
     expect(samplePage()).toMatchObject({ blank: false, elementsChecked: 1 });
   });
 
+  it('skips hidden earlier screens so they do not use up the scan budget (Appzillon)', () => {
+    const old = element('<div style="display: none"></div>');
+    // Far more hidden nodes than BLANK_PAGE_MAX_NODES_SCANNED, all before the visible screen.
+    old.innerHTML = new Array(3000).join('<span>old screen</span>');
+    const root = element('<div id="root"></div>');
+    cornerText();
+    drawEverywhere([root]);
+    expect(samplePage()).toMatchObject({ blank: false, elementsChecked: 1 });
+  });
+
   it('ignores visibility:hidden and screen-reader-only (1×1 px) text', () => {
     const root = element('<div id="root"></div>');
     const hidden = cornerText();
@@ -153,6 +164,62 @@ describe('samplePage', () => {
   });
 });
 
+describe('deepCheckPage', () => {
+  const doc = document as unknown as DocWithPoints;
+  const original = doc.elementsFromPoint;
+
+  afterEach(() => {
+    doc.elementsFromPoint = original;
+    document.body.innerHTML = '';
+  });
+
+  /** Gives `el` a box in the top-left of the viewport. */
+  function place(el: Element): Element {
+    el.getBoundingClientRect = () => ({ left: 10, top: 10, width: 80, height: 20, right: 90, bottom: 30, x: 10, y: 10, toJSON: () => ({}) });
+    return el;
+  }
+
+  it('is incomplete without elementsFromPoint, so nothing is reported', () => {
+    doc.elementsFromPoint = undefined;
+    expect(deepCheckPage()).toMatchObject({ complete: false });
+  });
+
+  it('is blank when nothing in the viewport has content', () => {
+    element('<div id="root"></div>');
+    doc.elementsFromPoint = () => [document.body, document.documentElement];
+    expect(deepCheckPage()).toMatchObject({ complete: true, blank: true, elementsChecked: 0 });
+  });
+
+  it('checks every content element, with no node budget, skipping display:none subtrees', () => {
+    const old = element('<div style="display: none"></div>');
+    old.innerHTML = new Array(5000).join('<span>old screen</span>');
+    const label = place(element('<p>Security parameters</p>'));
+    doc.elementsFromPoint = () => [label, document.body, document.documentElement];
+    expect(deepCheckPage()).toMatchObject({ complete: true, blank: false, elementsChecked: 1, seen: label });
+  });
+
+  it('sees text whose only opaque cover is its own panel (pointer-events: none text)', () => {
+    const panel = element('<div style="background-color: rgb(255, 255, 255)"><span>Label</span></div>');
+    place(panel.firstElementChild as Element);
+    doc.elementsFromPoint = () => [panel, document.body, document.documentElement];
+    expect(deepCheckPage()).toMatchObject({ blank: false });
+  });
+
+  it('counts content under a foreign opaque layer as covered', () => {
+    const label = place(element('<p>Hidden</p>'));
+    const overlay = element('<div style="background-color: rgb(255, 255, 255)"></div>');
+    doc.elementsFromPoint = () => [overlay, label, document.body, document.documentElement];
+    expect(deepCheckPage()).toMatchObject({ blank: true, elementsChecked: 1, coveredContent: 1 });
+  });
+
+  it('skips content outside the viewport', () => {
+    const below = element('<p>Far below</p>');
+    below.getBoundingClientRect = () => ({ left: 0, top: 5000, width: 80, height: 20, right: 80, bottom: 5020, x: 0, y: 5000, toJSON: () => ({}) });
+    doc.elementsFromPoint = () => [document.body, document.documentElement];
+    expect(deepCheckPage()).toMatchObject({ blank: true, elementsChecked: 0 });
+  });
+});
+
 describe('BlankPageCollector', () => {
   let network: NetworkInterceptor;
   let collector: BlankPageCollector;
@@ -160,6 +227,7 @@ describe('BlankPageCollector', () => {
   let blank: boolean;
   let coveredContent: number;
   let key: string;
+  let deep: BlankPageDeepCheck;
   let originalFetch: typeof fetch;
 
   function sample(): BlankPageSample {
@@ -178,6 +246,7 @@ describe('BlankPageCollector', () => {
     blank = true;
     coveredContent = 0;
     key = 'screen:Home';
+    deep = { complete: true, blank: true, elementsChecked: 0, coveredContent: 0, ms: 1, seen: null };
     network = new NetworkInterceptor(ENDPOINT, logger);
     collector = new BlankPageCollector(
       (message, context) => reports.push({ message, context }),
@@ -185,6 +254,7 @@ describe('BlankPageCollector', () => {
       () => key,
       logger,
       sample,
+      () => deep,
     );
   });
 
@@ -193,6 +263,8 @@ describe('BlankPageCollector', () => {
     network.uninstall();
     window.fetch = originalFetch;
     delete (document as unknown as Record<string, unknown>).visibilityState;
+    delete (document.body as unknown as Record<string, unknown>).innerText;
+    document.body.innerHTML = '';
     vi.useRealTimers();
   });
 
@@ -379,6 +451,85 @@ describe('BlankPageCollector', () => {
     start();
     await vi.advanceTimersByTimeAsync(SETTLE_MS);
     expect(reports).toHaveLength(0);
+  });
+
+  function setRenderedText(text: string): void {
+    Object.defineProperty(document.body, 'innerText', { configurable: true, get: () => text });
+  }
+
+  it('needs three blank checks spread over the confirmation time', async () => {
+    let checks = 0;
+    collector = new BlankPageCollector((message, context) => reports.push({ message, context }), network, () => key, logger, () => {
+      checks++;
+      return sample();
+    }, () => deep);
+    setRenderedText(' \n ');
+    start();
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(checks).toBe(3);
+    expect(reports).toHaveLength(1);
+    expect(reports[0].context).toMatchObject({ samples: 3, confidence: 'high', deep_check: { elements_checked: 0, covered: 0, ms: 1 } });
+  });
+
+  it('does not report when the full check finds visible content, and remembers it', async () => {
+    const seen = document.body.appendChild(document.createElement('p'));
+    deep = { complete: true, blank: false, elementsChecked: 3, coveredContent: 0, ms: 2, seen: seen };
+    const hints: Array<Element | null> = [];
+    collector = new BlankPageCollector(() => {}, network, () => key, logger, (hint) => {
+      hints.push(hint);
+      return sample();
+    }, () => deep);
+    start();
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    collector.scheduleCheck('dom_change');
+    await vi.advanceTimersByTimeAsync(BLANK_PAGE_QUIET_MS + 100);
+    // The next quick check starts from the element the full check saw.
+    expect(hints[hints.length - 1]).toBe(seen);
+  });
+
+  it('does not report when the full check runs out of time', async () => {
+    deep = { complete: false, blank: true, elementsChecked: 50, coveredContent: 0, ms: 51, seen: null };
+    start();
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(reports).toHaveLength(0);
+  });
+
+  it(`does not report when the browser renders more than ${BLANK_PAGE_TEXT_VETO_CHARS} characters of text`, async () => {
+    setRenderedText('x'.repeat(BLANK_PAGE_TEXT_VETO_CHARS + 1));
+    start();
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(reports).toHaveLength(0);
+  });
+
+  it('still reports text hidden by a proven overlay', async () => {
+    setRenderedText('x'.repeat(BLANK_PAGE_TEXT_VETO_CHARS + 1));
+    deep = { complete: true, blank: true, elementsChecked: 4, coveredContent: 4, ms: 1, seen: null };
+    start();
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(reports[0].context).toMatchObject({ cause: 'covered_by_overlay', confidence: 'high' });
+  });
+
+  it('reports a little text with medium confidence', async () => {
+    setRenderedText('Loading');
+    start();
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(reports[0].context).toMatchObject({ confidence: 'medium', visible_text_chars: 7 });
+  });
+
+  it('does not report while the user clicks real controls, but does after clicks on the empty page', async () => {
+    const button = document.body.appendChild(document.createElement('button'));
+    button.textContent = 'Save';
+    start();
+    await vi.advanceTimersByTimeAsync(BLANK_PAGE_QUIET_MS + 1000);
+    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(reports).toHaveLength(0);
+
+    collector.scheduleCheck('dom_change');
+    await vi.advanceTimersByTimeAsync(BLANK_PAGE_QUIET_MS + 100);
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(reports).toHaveLength(1);
   });
 
   it('stops checking after uninstall', async () => {

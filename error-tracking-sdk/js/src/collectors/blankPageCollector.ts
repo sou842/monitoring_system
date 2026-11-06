@@ -1,7 +1,13 @@
 import {
   BLANK_PAGE_CAUSE_WINDOW_MS,
+  BLANK_PAGE_CONFIRM_INTERVAL_MS,
   BLANK_PAGE_CONFIRM_MS,
+  BLANK_PAGE_CONFIRM_SAMPLES,
+  BLANK_PAGE_DEEP_CHECK_MAX_MS,
+  BLANK_PAGE_DEEP_CHECK_TIME_EVERY,
   BLANK_PAGE_GRID_STEPS,
+  BLANK_PAGE_INTERACTION_ANCESTORS,
+  BLANK_PAGE_TEXT_VETO_CHARS,
   BLANK_PAGE_MAX_ANCESTORS,
   BLANK_PAGE_MAX_CANDIDATES,
   BLANK_PAGE_MAX_COVERED_ELEMENTS,
@@ -106,6 +112,9 @@ const UNSUPPORTED: BlankPageSample = {
 const NON_VISUAL_TAGS = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TITLE'];
 /** `NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT`. */
 const SHOW_ELEMENTS_AND_TEXT = 0x1 | 0x4;
+/** NodeFilter results (the global may be missing in old browsers and tests). */
+const FILTER_ACCEPT = 1;
+const FILTER_REJECT = 2;
 
 type PointResult = 'content' | 'empty' | 'covered' | 'covered_content';
 
@@ -168,7 +177,14 @@ function hasShadowContent(host: Element, win: Window, x: number, y: number, dept
  * content hides everything under it; the walk goes on only to learn whether
  * it is hiding real content (an overlay) or nothing.
  */
-function checkPoint(doc: Document, win: Window, x: number, y: number, found?: { el: Element | null }): PointResult {
+function checkPoint(
+  doc: Document,
+  win: Window,
+  x: number,
+  y: number,
+  found?: { el: Element | null },
+  cover?: { el: Element | null },
+): PointResult {
   const stack = doc.elementsFromPoint(x, y);
   let covered = false;
   for (let i = 0; i < stack.length; i++) {
@@ -179,7 +195,10 @@ function checkPoint(doc: Document, win: Window, x: number, y: number, found?: { 
       if (found !== undefined) found.el = el;
       return covered ? 'covered_content' : 'content';
     }
-    if (!covered && style.opacity !== '0' && !isTransparent(style.backgroundColor)) covered = true;
+    if (!covered && style.opacity !== '0' && !isTransparent(style.backgroundColor)) {
+      covered = true;
+      if (cover !== undefined) cover.el = el;
+    }
   }
   return covered ? 'covered' : 'empty';
 }
@@ -213,7 +232,12 @@ function checkElement(doc: Document, win: Window, el: Element, width: number, he
  * something opaque counts towards `coveredContent` (an overlay hiding the page).
  */
 function checkContentElements(doc: Document, win: Window, width: number, height: number, sample: BlankPageSample): void {
-  const walker = doc.createTreeWalker(doc.body, SHOW_ELEMENTS_AND_TEXT);
+  // Whole `display: none` subtrees are skipped: apps that keep earlier screens hidden in the DOM
+  // (Appzillon) would otherwise use up the node budget before reaching the screen on show.
+  const skipHidden = function acceptNode(node: Node): number {
+    return node.nodeType !== TEXT_NODE && win.getComputedStyle(node as Element).display === 'none' ? FILTER_REJECT : FILTER_ACCEPT;
+  };
+  const walker = doc.createTreeWalker(doc.body, SHOW_ELEMENTS_AND_TEXT, skipHidden);
   let scanned = 0;
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
     if (++scanned > BLANK_PAGE_MAX_NODES_SCANNED || sample.elementsChecked >= BLANK_PAGE_MAX_CANDIDATES) return;
@@ -296,6 +320,131 @@ export function samplePage(hint: Element | null = null): BlankPageSample {
   return sample;
 }
 
+/** The result of the full check made just before a blank page is reported. */
+export interface BlankPageDeepCheck {
+  /** False when the check couldn't finish (time budget, no layout APIs); nothing is reported then. */
+  complete: boolean;
+  /** No content element in the viewport is visible. */
+  blank: boolean;
+  /** Content elements in the viewport that were hit-tested. */
+  elementsChecked: number;
+  /** Of those, the ones hidden under an opaque element without content (an overlay). */
+  coveredContent: number;
+  /** Time the check took. */
+  ms: number;
+  /** An element the user sees, when not blank. */
+  seen: Element | null;
+}
+
+const DEEP_UNSUPPORTED: BlankPageDeepCheck = { complete: false, blank: false, elementsChecked: 0, coveredContent: 0, ms: 0, seen: null };
+
+/** `content` other than none/normal/empty on ::before or ::after: icon fonts, CSS-drawn labels. */
+function hasPseudoContent(el: Element, win: Window): boolean {
+  const pseudos = ['::before', '::after'];
+  for (let i = 0; i < pseudos.length; i++) {
+    const content = win.getComputedStyle(el, pseudos[i]).content;
+    if (content !== '' && content !== 'none' && content !== 'normal' && content !== '""' && content !== "''") return true;
+  }
+  return false;
+}
+
+/**
+ * Checks every content element in the viewport, skipping whole hidden
+ * subtrees, with a time budget instead of a node budget. Run only when the
+ * quick sample has found the page blank several times, just before reporting,
+ * so its cost is paid almost never. Leans towards "not blank": an element is
+ * seen when it's drawn on top at its centre, when hit-testing skips it and
+ * nothing opaque is above it, or when the only opaque thing above it is its
+ * own ancestor (pointer-events: none text on a panel).
+ */
+export function deepCheckPage(): BlankPageDeepCheck {
+  const doc = getDocument();
+  const win = getWindow();
+  if (doc === null || win === null || typeof doc.elementsFromPoint !== 'function' || doc.body === null) return DEEP_UNSUPPORTED;
+  const width = win.innerWidth;
+  const height = win.innerHeight;
+  if (!(width > 0 && height > 0)) return DEEP_UNSUPPORTED;
+
+  const start = nowMs();
+  const result: BlankPageDeepCheck = { complete: true, blank: true, elementsChecked: 0, coveredContent: 0, ms: 0, seen: null };
+  const skipHidden = function acceptNode(node: Node): number {
+    return node.nodeType !== TEXT_NODE && win.getComputedStyle(node as Element).display === 'none' ? FILTER_REJECT : FILTER_ACCEPT;
+  };
+  const walker = doc.createTreeWalker(doc.body, SHOW_ELEMENTS_AND_TEXT, skipHidden);
+  const cover: { el: Element | null } = { el: null };
+  let previous: Element | null = null;
+  let scanned = 0;
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (++scanned % BLANK_PAGE_DEEP_CHECK_TIME_EVERY === 0 && nowMs() - start > BLANK_PAGE_DEEP_CHECK_MAX_MS) {
+      result.complete = false;
+      break;
+    }
+    let el: Element | null = null;
+    // Elements without children are content only through ::before/::after (icons); that costs two
+    // style reads, so it's checked last, once the element has a real box in the viewport.
+    let pseudoOnly = false;
+    if (node.nodeType === TEXT_NODE) {
+      if (node.nodeValue !== null && /\S/.test(node.nodeValue)) el = node.parentElement;
+    } else {
+      const element = node as Element;
+      if (CONTENT_TAGS.indexOf(element.tagName.toUpperCase()) !== -1) {
+        el = element;
+      } else if (element.firstElementChild === null) {
+        el = element;
+        pseudoOnly = true;
+      }
+    }
+    // Several text nodes in one element are checked once.
+    if (el === null || el === previous || NON_VISUAL_TAGS.indexOf(el.tagName.toUpperCase()) !== -1) continue;
+
+    const rect = el.getBoundingClientRect();
+    if (!(rect.width >= BLANK_PAGE_MIN_CONTENT_PX && rect.height >= BLANK_PAGE_MIN_CONTENT_PX)) continue;
+    const left = Math.max(0, rect.left);
+    const top = Math.max(0, rect.top);
+    const right = Math.min(width, rect.right);
+    const bottom = Math.min(height, rect.bottom);
+    if (right - left < BLANK_PAGE_MIN_CONTENT_PX || bottom - top < BLANK_PAGE_MIN_CONTENT_PX) continue;
+    if (pseudoOnly && !hasPseudoContent(el, win)) continue;
+    previous = el;
+    if (win.getComputedStyle(el).visibility !== 'visible' || hiddenByOpacity(el, win)) continue;
+
+    result.elementsChecked++;
+    cover.el = null;
+    const point = checkPoint(doc, win, (left + right) / 2, (top + bottom) / 2, undefined, cover);
+    // checkPoint fills `cover`; TypeScript can't see that through the call.
+    const coverEl = cover.el as Element | null;
+    const underOwnAncestor = coverEl !== null && coverEl.contains(el);
+    if (point === 'content' || point === 'empty' || underOwnAncestor) {
+      result.blank = false;
+      result.seen = el;
+      break;
+    }
+    result.coveredContent++;
+    // Enough to prove an overlay; going on would only spend the time budget on a big page.
+    if (result.coveredContent >= BLANK_PAGE_MAX_COVERED_ELEMENTS) break;
+  }
+  result.ms = Math.round(nowMs() - start);
+  return result;
+}
+
+/** Non-space characters the browser renders as text (skips display:none and visibility:hidden), or null. */
+function renderedTextChars(doc: Document | null): number | null {
+  const body = doc !== null ? doc.body : null;
+  return body !== null && typeof body.innerText === 'string' ? body.innerText.replace(/\s+/g, '').length : null;
+}
+
+/** Whether a click or key press landed on something the user could see: a control, a link, or text. */
+function isRealTarget(target: EventTarget | null, doc: Document): boolean {
+  let el = target !== null && (target as Node).nodeType === 1 ? (target as Element) : null;
+  for (let depth = 0; el !== null && depth < BLANK_PAGE_INTERACTION_ANCESTORS; depth++) {
+    if (el === doc.body || el === doc.documentElement) return false;
+    const tag = el.tagName.toUpperCase();
+    if (CONTENT_TAGS.indexOf(tag) !== -1 || tag === 'A' || tag === 'LABEL' || hasOwnText(el)) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
 interface ErrorSignal {
   at: number;
   type: string;
@@ -344,8 +493,13 @@ export class BlankPageCollector implements Collector {
   private longTask: { at: number; durationMs: number } | null = null;
   /** The element where content was last seen; dropped as soon as a check no longer sees it. */
   private lastSeen: Element | null = null;
+  /** Checks in a row that found the page blank since `blankSince`. */
+  private blankSamples = 0;
+  /** Last click or key press on real content; a page the user is using is not blank. */
+  private lastInteractionAt = 0;
 
   private readonly handleLoad: () => void;
+  private readonly handleInteraction: (event: Event) => void;
   private readonly handleVisibility: () => void;
   private readonly handleMutations: () => void;
   private readonly onCheckTimer: () => void;
@@ -354,6 +508,7 @@ export class BlankPageCollector implements Collector {
   /**
    * @param currentKey Names the current screen (screen name or path); one report per key.
    * @param sample Reads the page; replaced in tests because jsdom has no layout.
+   * @param deepCheck The full check before reporting; replaced in tests for the same reason.
    */
   constructor(
     private readonly report: BlankPageReporter,
@@ -361,10 +516,18 @@ export class BlankPageCollector implements Collector {
     private readonly currentKey: () => string,
     private readonly logger: Logger,
     private readonly sample: (hint: Element | null) => BlankPageSample = samplePage,
+    private readonly deepCheck: () => BlankPageDeepCheck = deepCheckPage,
   ) {
     const self = this;
     this.handleLoad = guard(logger, 'blank page load handler', function onLoad() {
       self.arm();
+    });
+    this.handleInteraction = guard(logger, 'blank page interaction handler', function onInteraction(event: Event) {
+      const doc = getDocument();
+      if (doc === null) return;
+      // A key press goes to the focused element: an input the user is typing in.
+      const target = event.type === 'keydown' ? doc.activeElement : event.target;
+      if (isRealTarget(target, doc)) self.lastInteractionAt = nowMs();
     });
     this.handleVisibility = guard(logger, 'blank page visibility handler', function onVisibility() {
       if (!isPageVisible() || !self.recheckWhenVisible) return;
@@ -408,6 +571,9 @@ export class BlankPageCollector implements Collector {
       });
     }
     doc.addEventListener('visibilitychange', this.handleVisibility);
+    doc.addEventListener('pointerdown', this.handleInteraction, true);
+    doc.addEventListener('mousedown', this.handleInteraction, true);
+    doc.addEventListener('keydown', this.handleInteraction, true);
     if (doc.readyState === 'complete') {
       this.arm();
     } else {
@@ -429,7 +595,12 @@ export class BlankPageCollector implements Collector {
     const win = getWindow();
     const doc = getDocument();
     if (win !== null) win.removeEventListener('load', this.handleLoad);
-    if (doc !== null) doc.removeEventListener('visibilitychange', this.handleVisibility);
+    if (doc !== null) {
+      doc.removeEventListener('visibilitychange', this.handleVisibility);
+      doc.removeEventListener('pointerdown', this.handleInteraction, true);
+      doc.removeEventListener('mousedown', this.handleInteraction, true);
+      doc.removeEventListener('keydown', this.handleInteraction, true);
+    }
   }
 
   /** Looks at the page once things settle; `trigger` is recorded in the event. */
@@ -516,9 +687,7 @@ export class BlankPageCollector implements Collector {
     );
     this.lastSeen = sample.seen;
     if (!sample.supported || !sample.blank) {
-      this.blankSince = null;
-      if (this.confirmTimer !== null) clearTimeout(this.confirmTimer);
-      this.confirmTimer = null;
+      this.notBlank(null);
       return;
     }
 
@@ -526,17 +695,42 @@ export class BlankPageCollector implements Collector {
     if (this.blankSince === null) {
       this.blankSince = now;
       this.blankTrigger = trigger;
+      this.blankSamples = 0;
+    }
+    this.blankSamples++;
+    // Someone clicking a button or typing in a field is looking at a page, not a white screen.
+    if (this.lastInteractionAt >= this.blankSince) {
+      this.notBlank(null);
+      return;
     }
     const blankFor = now - this.blankSince;
     const pending = this.network.pendingRequests();
     let wait = 0;
-    if (blankFor < BLANK_PAGE_CONFIRM_MS) {
+    if (this.blankSamples < BLANK_PAGE_CONFIRM_SAMPLES) {
+      wait = BLANK_PAGE_CONFIRM_INTERVAL_MS;
+    } else if (blankFor < BLANK_PAGE_CONFIRM_MS) {
       wait = BLANK_PAGE_CONFIRM_MS - blankFor;
     } else if (pending > 0 && blankFor < BLANK_PAGE_PENDING_MAX_MS) {
-      wait = Math.min(BLANK_PAGE_CONFIRM_MS, BLANK_PAGE_PENDING_MAX_MS - blankFor);
+      wait = Math.min(BLANK_PAGE_CONFIRM_INTERVAL_MS, BLANK_PAGE_PENDING_MAX_MS - blankFor);
     }
     if (wait > 0) {
       if (this.confirmTimer === null) this.confirmTimer = setTimeout(this.onConfirmTimer, wait);
+      return;
+    }
+
+    // Last word before reporting: every content element, not a sample.
+    const deep = safely(this.logger, 'blank page deep check', this.deepCheck, DEEP_UNSUPPORTED);
+    if (!deep.complete || !deep.blank) {
+      this.notBlank(deep.seen);
+      return;
+    }
+    // Text the browser renders, unless an overlay is proven to hide it.
+    const textChars = safely(this.logger, 'blank page text', function read() {
+      return renderedTextChars(getDocument());
+    }, null);
+    const overlay = sample.coveredContent > 0 || deep.coveredContent > 0;
+    if (!overlay && textChars !== null && textChars > BLANK_PAGE_TEXT_VETO_CHARS) {
+      this.notBlank(null);
       return;
     }
 
@@ -546,10 +740,26 @@ export class BlankPageCollector implements Collector {
       this.observer.disconnect();
       this.observer = null;
     }
-    this.reportBlank(this.blankSince, blankFor, pending, sample);
+    this.reportBlank(this.blankSince, blankFor, pending, sample, deep, textChars);
   }
 
-  private reportBlank(blankSince: number, blankFor: number, pending: number, sample: BlankPageSample): void {
+  /** The page shows something: forget the blank streak. */
+  private notBlank(seen: Element | null): void {
+    this.blankSince = null;
+    this.blankSamples = 0;
+    if (seen !== null) this.lastSeen = seen;
+    if (this.confirmTimer !== null) clearTimeout(this.confirmTimer);
+    this.confirmTimer = null;
+  }
+
+  private reportBlank(
+    blankSince: number,
+    blankFor: number,
+    pending: number,
+    sample: BlankPageSample,
+    deep: BlankPageDeepCheck,
+    textChars: number | null,
+  ): void {
     const from = blankSince - BLANK_PAGE_CAUSE_WINDOW_MS;
     const errors = this.errors.filter(function recent(signal) {
       return signal.at >= from;
@@ -586,7 +796,7 @@ export class BlankPageCollector implements Collector {
       cause = 'api_pending';
     } else if (longTask !== null) {
       cause = 'main_thread_blocked';
-    } else if (sample.coveredContent > 0) {
+    } else if (sample.coveredContent > 0 || deep.coveredContent > 0) {
       cause = 'covered_by_overlay';
     }
     // Show the nearest error and failed call even when they weren't picked as the cause.
@@ -596,19 +806,23 @@ export class BlankPageCollector implements Collector {
     const win = getWindow();
     const doc = getDocument();
     const body = doc !== null ? doc.body : null;
-    const visibleText = body !== null && typeof body.innerText === 'string' ? body.innerText.replace(/\s+/g, '').length : null;
 
     this.report(CAUSE_MESSAGES[cause], {
       cause: cause,
+      // high: no rendered text at all, or an overlay proven to hide the content. medium: a little text
+      // (≤ BLANK_PAGE_TEXT_VETO_CHARS) exists but nothing in the viewport was found visible.
+      confidence: textChars === 0 || cause === 'covered_by_overlay' ? 'high' : 'medium',
       trigger: this.blankTrigger,
       blank_for_ms: Math.round(blankFor),
+      samples: this.blankSamples,
+      deep_check: { elements_checked: deep.elementsChecked, covered: deep.coveredContent, ms: deep.ms },
       url: win !== null ? stripQuery(win.location.href) : null,
       page_status: pageStatus,
       points_sampled: sample.points,
       points_covered: sample.covered,
       points_covering_content: sample.coveredContent,
       elements_checked: sample.elementsChecked,
-      visible_text_chars: visibleText,
+      visible_text_chars: textChars,
       dom_elements: body !== null ? body.getElementsByTagName('*').length : null,
       pending_requests: pending,
       main_thread_blocked_ms: longTask !== null ? Math.round(longTask.durationMs) : null,

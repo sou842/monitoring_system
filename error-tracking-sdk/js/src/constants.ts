@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.11.0';
+export const SDK_VERSION = '0.11.1';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -228,7 +228,22 @@ export const BLANK_PAGE_QUIET_MS = 1000;
 /** A page whose DOM never stops changing is still checked this long after the first change. */
 export const BLANK_PAGE_MAX_WAIT_MS = 5000;
 /** A page must stay blank this long before it is reported, so a screen that is about to render is not. */
-export const BLANK_PAGE_CONFIRM_MS = 2000;
+export const BLANK_PAGE_CONFIRM_MS = 3000;
+/** Checks that must all find the page blank before it is reported (spread over BLANK_PAGE_CONFIRM_MS). */
+export const BLANK_PAGE_CONFIRM_SAMPLES = 3;
+/** Time between those checks. */
+export const BLANK_PAGE_CONFIRM_INTERVAL_MS = 1500;
+/** Time budget of the full check run just before reporting; a check that runs out reports nothing. */
+export const BLANK_PAGE_DEEP_CHECK_MAX_MS = 50;
+/** The time budget is looked at every this many DOM nodes. */
+export const BLANK_PAGE_DEEP_CHECK_TIME_EVERY = 64;
+/**
+ * More rendered text than this (non-space characters of `body.innerText`, which skips
+ * display:none and visibility:hidden) means the page is not blank, unless an overlay is proven to hide it.
+ */
+export const BLANK_PAGE_TEXT_VETO_CHARS = 100;
+/** Ancestors of a clicked or focused element looked at to decide it was real content. */
+export const BLANK_PAGE_INTERACTION_ANCESTORS = 5;
 /** While API calls are still running, a blank page is given up to this long (from going blank) before it is reported. */
 export const BLANK_PAGE_PENDING_MAX_MS = 10000;
 /** Errors, failed requests and freezes this long before the page went blank are considered as its cause. */
