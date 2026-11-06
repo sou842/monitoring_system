@@ -18,11 +18,8 @@ export interface RowActions {
   reply: (m: ChatMessageView) => void;
   react: (id: string, emoji: string) => void;
   remove: (m: ChatMessageView) => void;
-  /** Opens the inline editor on your own message. */
+  /** Opens your own message in the message box for editing. */
   edit: (m: ChatMessageView) => void;
-  /** Saves the edited text; rejects (and the editor stays open) when it could not be saved. */
-  saveEdit: (m: ChatMessageView, text: string) => Promise<void>;
-  cancelEdit: () => void;
   copyText: (m: ChatMessageView) => void;
   copyLink: (m: ChatMessageView) => void;
   jumpTo: (id: string) => void;
@@ -54,73 +51,6 @@ function ReactionChip({ emoji, count, mine, disabled, label, title, onClick }: {
   );
 }
 
-/** Longest message the server accepts (server/constants.ts MAX_CHAT_MESSAGE_LENGTH). */
-const MAX_LENGTH = 4000;
-/** Tallest the inline editor grows before it scrolls. */
-const EDIT_MAX_HEIGHT_PX = 240;
-
-/**
- * Inline editor for your own message, inside the bubble: the message's text (the chat's Markdown, with
- * "@Name" mentions as typed). Enter saves, Shift+Enter adds a line, Escape cancels.
- */
-function EditBox({ message, onSave, onCancel }: { message: ChatMessageView; onSave: (text: string) => Promise<void>; onCancel: () => void }) {
-  const [text, setText] = useState(message.text);
-  const [saving, setSaving] = useState(false);
-  const area = useRef<HTMLTextAreaElement>(null);
-  const trimmed = text.trim();
-  const tooLong = trimmed.length > MAX_LENGTH;
-  const empty = trimmed.length === 0 && message.issues.length === 0;
-
-  // Grow with the text.
-  useLayoutEffect(() => {
-    const el = area.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, EDIT_MAX_HEIGHT_PX)}px`;
-  }, [text]);
-  // Focus with the caret at the end, a frame later: the menu that opened the editor gives focus back to the message as it closes.
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      const el = area.current;
-      if (!el) return;
-      el.focus({ preventScroll: true });
-      el.setSelectionRange(el.value.length, el.value.length);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
-  const save = async () => {
-    if (saving || tooLong || empty) return;
-    if (trimmed === message.text) { onCancel(); return; }
-    setSaving(true);
-    try { await onSave(trimmed); } catch { setSaving(false); area.current?.focus(); }
-  };
-
-  return (
-    <div className="mt-0.5 grid gap-1.5" onDoubleClick={(e) => e.stopPropagation()}>
-      <textarea
-        ref={area}
-        value={text}
-        rows={1}
-        aria-label="Edit message"
-        disabled={saving}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
-          else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void save(); }
-        }}
-        className="tg-edit block w-full min-w-[min(320px,60vw)] resize-none rounded-lg border-0 px-2 py-1.5 text-[15px] leading-[21px] shadow-none outline-none"
-      />
-      <div className="flex items-center justify-end gap-1.5 text-[12px]">
-        {tooLong ? <span className="mr-auto font-semibold text-(--tg-danger)">{trimmed.length} / {MAX_LENGTH}</span> : <span className="mr-auto opacity-70">Enter to save · Esc to cancel</span>}
-        <button type="button" onClick={onCancel} disabled={saving} className="tg-edit-btn">Cancel</button>
-        <button type="button" onClick={() => void save()} disabled={saving || tooLong || empty} className="tg-edit-btn is-primary">{saving ? 'Saving…' : 'Save'}</button>
-      </div>
-    </div>
-  );
-}
-
 /** Snippet of a quoted message. */
 export const snippetOf = (m: { text: string; issues?: unknown[]; hasIssues?: boolean; deleted?: boolean }) =>
   m.deleted ? 'Message deleted' : plainText(m.text) || (m.hasIssues || (m.issues && m.issues.length > 0) ? 'Shared an issue' : '');
@@ -149,6 +79,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
   canPost: boolean;
   canDelete: boolean;
   /** The inline editor is open on this message. */
+  /** This message is open in the message box (it gets an outline). */
   editing: boolean;
   actions: RowActions;
 }) {
@@ -158,8 +89,8 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
   const mentionsMe = !own && !m.deleted && m.mentions.includes(me.id);
   const names = useMemo(() => m.mentions.map((id) => people.get(id)?.name).filter((n): n is string => Boolean(n)), [m.mentions, people]);
   const sent = row.status === 'sent' && !m.deleted;
-  const hasMenu = !editing && (sent || row.status === 'failed');
-  const canEdit = own && sent && canPost && Boolean(m.text);
+  const hasMenu = sent || row.status === 'failed';
+  const canEdit = own && sent && canPost;
 
   const article = useRef<HTMLElement>(null);
   const bubble = useRef<HTMLDivElement>(null);
@@ -214,7 +145,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
     setMenu({ x: e.clientX, y: e.clientY });
   };
   const onDoubleClick = (e: MouseEvent<HTMLElement>) => {
-    if (!canPost || !sent || editing || (e.target as HTMLElement).closest('a,button,pre,input,textarea')) return;
+    if (!canPost || !sent || (e.target as HTMLElement).closest('a,button,pre,input,textarea')) return;
     window.getSelection()?.removeAllRanges();
     actions.reply(m);
   };
@@ -252,9 +183,13 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
   const edited = m.editedAt && !m.deleted ? <span className="tg-edited" title={`Edited ${fullDate(m.editedAt)}`}>edited</span> : null;
   const metaContent = <>{edited}<time dateTime={m.createdAt} title={fullDate(m.createdAt)}>{clock(m.createdAt)}</time>{status}</>;
   const spacer = <span className="tg-meta-spacer" aria-hidden="true">{metaContent}</span>;
-  const textLast = !editing && Boolean(m.text) && m.issues.length === 0 && m.reactions.length === 0;
+  const textLast = Boolean(m.text) && m.reactions.length === 0;
+  // Issue cards come first. With nothing above them (no sender name, no reply quote) they run edge to edge at the top of the bubble.
+  const flushIssues = m.issues.length > 0 && !(first && !own) && !m.replyTo;
+  // The same for the quote of the message being answered.
+  const flushQuote = Boolean(m.replyTo) && !(first && !own);
   // A message of only 1–3 emoji (no reply quote, no issue cards) is drawn big, without a bubble.
-  const big = !editing && !m.deleted && !m.replyTo && m.issues.length === 0 && m.text ? bigEmojiOf(m.text) : null;
+  const big = !m.deleted && !m.replyTo && m.issues.length === 0 && m.text ? bigEmojiOf(m.text) : null;
 
   const label = `${own ? 'You' : author}, ${clock(m.createdAt)}${m.editedAt && !m.deleted ? ', edited' : ''}${mentionsMe ? ', mentions you' : ''}${row.status === 'failed' ? ', not sent' : row.status === 'sending' ? ', sending' : ''}`;
 
@@ -284,7 +219,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
         style={{ transform: swipe ? `translateX(${swipe}px)` : undefined, transition: swipe ? 'none' : 'transform .22s cubic-bezier(.2,.8,.3,1)' }}>
         <div
           ref={bubble}
-          className={cn('tg-bubble [-webkit-touch-callout:none] [@media(hover:none)]:select-none', own ? 'is-own' : 'is-in', first && 'is-first', last && 'is-last', big && 'is-big-emoji', animate && 'tg-enter')}
+          className={cn('tg-bubble [-webkit-touch-callout:none] [@media(hover:none)]:select-none', own ? 'is-own' : 'is-in', first && 'is-first', last && 'is-last', big && 'is-big-emoji', animate && 'tg-enter', editing && 'outline-2 outline-offset-2 outline-(--tg-accent)')}
           style={{ '--peer': peerColor(m.userId) } as CSSProperties}
         >
           {first && !own ? (
@@ -292,7 +227,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
           ) : null}
 
           {m.replyTo ? (
-            <button type="button" className="tg-quote" style={{ '--peer': peerColor(m.replyTo.userId) } as CSSProperties}
+            <button type="button" className={cn('tg-quote', flushQuote && '-mt-1.5 -ml-2.5 mb-1.5 w-[calc(100%+19px)] max-w-none rounded-tl-(--tg-tl) rounded-tr-(--tg-tr) rounded-b-none bg-black/[0.05] py-2 pr-3 pl-3 hover:bg-black/[0.08] dark:bg-white/[0.07] dark:hover:bg-white/10')} style={{ '--peer': peerColor(m.replyTo.userId) } as CSSProperties}
               onClick={() => m.replyTo && actions.jumpTo(m.replyTo.id)} title="Go to the original message">
               <span className="truncate font-medium" style={{ color: 'var(--peer)' }}>{m.replyTo.userName ?? 'Deleted user'}</span>
               <span className={cn('truncate font-normal opacity-90', m.replyTo.deleted && 'italic')}>{snippetOf(m.replyTo) || 'Message'}</span>
@@ -303,13 +238,12 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
             <p className="m-0 text-[15px] leading-[21px] italic opacity-70">Message deleted{spacer}</p>
           ) : (
             <div className={cn(row.status === 'sending' && 'opacity-80')}>
-              {editing ? <EditBox message={m} onSave={(text) => actions.saveEdit(m, text)} onCancel={actions.cancelEdit} />
-                : big ? <BigEmoji emoji={big} play={animate} /> : m.text ? <MessageBody text={m.text} names={names} myName={me.name} bubble trailing={textLast ? spacer : undefined} /> : null}
               {m.issues.length > 0 ? (
-                <div className={cn('grid gap-1', m.text ? 'mt-1.5' : 'mt-0.5')}>
-                  {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} inBubble />)}
+                <div className={cn('grid grid-cols-[minmax(0,1fr)]', flushIssues ? '-mt-1.5 -mr-[9px] -ml-2.5 gap-px overflow-hidden rounded-tl-(--tg-tl) rounded-tr-(--tg-tr)' : 'gap-1', m.text && 'mb-1.5')}>
+                  {m.issues.map((issue) => <IssueCard key={issue.id} issue={issue} inBubble flush={flushIssues} />)}
                 </div>
               ) : null}
+              {big ? <BigEmoji emoji={big} play={animate} /> : m.text ? <MessageBody text={m.text} names={names} myName={me.name} bubble trailing={textLast ? spacer : undefined} /> : null}
               {m.reactions.length > 0 ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">
                   {m.reactions.map((r) => {

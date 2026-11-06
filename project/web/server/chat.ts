@@ -220,11 +220,11 @@ export async function postMessage(
   return { message, duplicate: false };
 }
 
-/** Saves the author's new text (and who it mentions). Returns false when the message was deleted meanwhile. */
-export async function editMessage(db: Db, message: ChatMessageDoc, text: string, mentions: ObjectId[], now = new Date()): Promise<boolean> {
+/** Saves the author's new text, who it mentions and the attached issues. Returns false when the message was deleted meanwhile. */
+export async function editMessage(db: Db, message: ChatMessageDoc, text: string, mentions: ObjectId[], issueIds: ObjectId[], now = new Date()): Promise<boolean> {
   const result = await collections(db).chatMessages.updateOne(
     { _id: message._id, deletedAt: { $exists: false } },
-    { $set: { text, mentions, editedAt: now, updatedAt: now } },
+    { $set: { text, mentions, issueIds, editedAt: now, updatedAt: now } },
   );
   return result.matchedCount === 1;
 }

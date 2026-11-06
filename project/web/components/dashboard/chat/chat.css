@@ -93,9 +93,10 @@
   }
   .tg-bubble.is-own { background: var(--tg-own); }
   /* Grouped bubbles: the corners facing each other get small. */
-  .tg-bubble.is-in:not(.is-first) { border-top-left-radius: 6px; }
+  .tg-bubble { --tg-tl: 15px; --tg-tr: 15px; }
+  .tg-bubble.is-in:not(.is-first) { border-top-left-radius: 6px; --tg-tl: 6px; }
   .tg-bubble.is-in:not(.is-last) { border-bottom-left-radius: 6px; }
-  .tg-bubble.is-own:not(.is-first) { border-top-right-radius: 6px; }
+  .tg-bubble.is-own:not(.is-first) { border-top-right-radius: 6px; --tg-tr: 6px; }
   .tg-bubble.is-own:not(.is-last) { border-bottom-right-radius: 6px; }
   /* The tail on a group's last bubble. */
   .tg-bubble.is-last.is-in { border-bottom-left-radius: 0; }
@@ -134,6 +135,8 @@
     background: color-mix(in srgb, var(--peer, var(--tg-accent)) 12%, transparent); color: inherit; box-shadow: none; font-size: 14px; line-height: 18px;
   }
   .tg-quote::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--peer, var(--tg-accent)); }
+  /* In a bubble the quote is a plain band: no coloured bar on its left edge. */
+  .tg-bubble .tg-quote::before { display: none; }
   .tg-quote:hover { background: color-mix(in srgb, var(--peer, var(--tg-accent)) 20%, transparent); }
   .tg-bubble.is-own .tg-quote { --peer: var(--tg-own-accent); }
 

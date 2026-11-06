@@ -131,8 +131,9 @@ export const POST = handle(async (request) => {
 });
 
 /**
- * PATCH /api/chat `{ id, text }` — edits your own message (`chat.post`). Who is mentioned is worked out again from the
- * new text ("@Name" of people in the project). A message with attached issues may have empty text. Shown as "edited".
+ * PATCH /api/chat `{ id, text, issues? }` — edits your own message (`chat.post`). Who is mentioned is worked out again from the
+ * new text ("@Name" of people in the project). `issues`, when sent, replaces the attached issues (omitted = unchanged).
+ * A message with attached issues may have empty text. Shown as "edited".
  */
 export const PATCH = handle(async (request) => {
   const auth = await requireUser(request);
@@ -149,15 +150,18 @@ export const PATCH = handle(async (request) => {
   if (!message.userId.equals(user._id)) return errorResponse(403, 'forbidden', 'You can only edit your own messages');
   if (!access.can('chat.post')) return forbidden('chat.post');
   if (message.deletedAt) return errorResponse(409, 'deleted', 'This message was deleted');
-  const text = cleanMessageText(input.text, (message.issueIds ?? []).length > 0);
+  const oldIssueIds = message.issueIds ?? [];
+  const issueIds = Array.isArray(input.issues) ? await cleanIssueRefs(db, input.issues, message.projectId) : oldIssueIds;
+  const text = cleanMessageText(input.text, issueIds.length > 0);
   if (text === null) return errorResponse(400, 'invalid_text', `A message is 1 to ${MAX_CHAT_MESSAGE_LENGTH} characters`);
 
-  if (text !== message.text) {
+  const sameIssues = issueIds.length === oldIssueIds.length && issueIds.every((id, i) => id.equals(oldIssueIds[i]));
+  if (text !== message.text || !sameIssues) {
     const limited = await actionBudget(db, user._id);
     if (limited) return limited;
     const peopleIds = await projectUserIds(db, access.project);
     const people = await collections(db).users.find({ _id: { $in: peopleIds } }, { projection: { name: 1 } }).toArray();
-    if (!(await editMessage(db, message, text, mentionsInText(text, people)))) return errorResponse(409, 'deleted', 'This message was deleted');
+    if (!(await editMessage(db, message, text, mentionsInText(text, people), issueIds))) return errorResponse(409, 'deleted', 'This message was deleted');
     await publish(String(message.projectId), 'message-updated', { id: String(id), projectId: String(message.projectId) });
   }
   const updated = await getMessage(db, message.projectId, id);

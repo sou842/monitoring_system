@@ -10,7 +10,7 @@ import Suggestion, { exitSuggestion, type SuggestionKeyDownProps, type Suggestio
 import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { api } from '@/lib/client/api';
 import type { Draft } from '@/lib/client/chat';
-import { docToMarkdown } from '@/lib/chatText';
+import { docToMarkdown, markdownToDoc } from '@/lib/chatText';
 import { queryString } from '@/lib/format';
 import type { ChatIssueView, ChatMessageView, IssuesResponse, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -99,7 +99,7 @@ function bridge(kind: Suggest['kind'], set: (s: Suggest | null) => void, onKey: 
 export interface ComposerHandle { focus: () => void }
 
 /** The message box (see the comment at the top of this file). */
-export function Composer({ handle, projectId, projectName, people, me, replyTo, onCancelReply, onSend, offline }: {
+export function Composer({ handle, projectId, projectName, people, me, replyTo, onCancelReply, onSend, offline, editing, onCancelEdit, onSaveEdit }: {
   handle?: RefObject<ComposerHandle | null>;
   projectId: string;
   projectName: string;
@@ -109,6 +109,11 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   onCancelReply: () => void;
   onSend: (draft: Draft) => void;
   offline: boolean;
+  /** Your own message opened for editing: its text and issues fill the box, and sending saves them instead. */
+  editing: ChatMessageView | null;
+  onCancelEdit: () => void;
+  /** Saves the edit; rejects when it could not be saved (the box keeps the text). */
+  onSaveEdit: (text: string, issues: ChatIssueView[]) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [attached, setAttached] = useState<ChatIssueView[]>([]);
@@ -118,6 +123,9 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   const [searching, setSearching] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [length, setLength] = useState(0);
+  /** The unsent draft (text and issues) set aside while a message is being edited, put back afterwards. */
+  const stash = useRef<{ doc: JSONContent | null; attached: ChatIssueView[] } | null>(null);
+  const saving = useRef(false);
   const emojiWrap = useRef<HTMLDivElement>(null);
   const emojiPanel = useRef<HTMLDivElement>(null);
   const emojiButton = useRef<HTMLButtonElement>(null);
@@ -126,12 +134,12 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   useFocusFirst(emojiOpen, emojiPanel);
 
   // The editor is created once; it reads the latest React state through these refs.
-  const latest = useRef({ expanded, replyTo, attached, onCancelReply, submit: () => {} });
+  const latest = useRef({ expanded, replyTo, attached, onCancelReply, editing, onCancelEdit, submit: () => {} });
   const suggestKey = useRef<(e: KeyboardEvent) => boolean>(() => false);
   const suggestRef = useRef<Suggest | null>(null);
   suggestRef.current = suggest;
   const placeholder = useRef('');
-  placeholder.current = offline ? 'You’re offline. Messages send when you’re back.' : 'Message';
+  placeholder.current = offline ? 'You’re offline. Messages send when you’re back.' : editing ? 'Edit message' : 'Message';
 
   const attachRef = useRef<(issue: ChatIssueView) => void>(() => {});
   attachRef.current = (issue) => setAttached((list) => (list.length >= MAX_ISSUES || list.some((i) => i.id === issue.id) ? list : [...list, issue]));
@@ -191,6 +199,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
             'Mod-Enter': () => { latest.current.submit(); return true; },
             Escape: () => {
               if (suggestRef.current) return false;
+              if (latest.current.editing) { latest.current.onCancelEdit(); return true; }
               if (latest.current.replyTo) { latest.current.onCancelReply(); return true; }
               return false;
             },
@@ -243,13 +252,35 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   useEffect(() => {
     if (!editor) return;
     let timer: ReturnType<typeof setTimeout>;
-    const save = () => { clearTimeout(timer); timer = setTimeout(() => writeDraft(projectId, editor.isEmpty ? null : editor.getJSON()), DRAFT_SAVE_DELAY_MS); };
+    const save = () => { clearTimeout(timer); timer = setTimeout(() => { if (!stash.current) writeDraft(projectId, editor.isEmpty ? null : editor.getJSON()); }, DRAFT_SAVE_DELAY_MS); };
     editor.on('update', save);
     return () => { clearTimeout(timer); editor.off('update', save); };
   }, [editor, projectId]);
 
-  // Placeholder text follows offline / expanded.
-  useEffect(() => { if (editor) editor.view.dispatch(editor.state.tr.setMeta('placeholder', placeholder.current)); }, [editor, offline, expanded]);
+  // Editing a message: it fills the box (your unsent draft waits aside); when the edit ends the draft comes back.
+  const editingId = editing?.id ?? null;
+  useEffect(() => {
+    if (!editor) return;
+    if (editing) {
+      if (!stash.current) stash.current = { doc: editor.isEmpty ? null : editor.getJSON(), attached: latest.current.attached };
+      editor.commands.setContent(markdownToDoc(editing.text, people), { emitUpdate: false });
+      setAttached(editing.issues);
+      setLength(editing.text.length);
+      editor.commands.focus('end');
+    } else if (stash.current) {
+      const back = stash.current;
+      stash.current = null;
+      editor.commands.setContent(back.doc ?? '', { emitUpdate: false });
+      setAttached(back.attached);
+      setLength(back.doc ? docToMarkdown(back.doc).text.length : 0);
+      saving.current = false;
+    }
+    // Only when a different message is opened (or the edit ends), not when its text changes underneath.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editingId]);
+
+  // Placeholder text follows offline / expanded / editing.
+  useEffect(() => { if (editor) editor.view.dispatch(editor.state.tr.setMeta('placeholder', placeholder.current)); }, [editor, offline, expanded, editingId]);
 
   // "/" searches the project's issues as the person types.
   const issueQuery = suggest?.kind === 'issue' ? suggest.query : null;
@@ -311,6 +342,15 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
     const { text, mentions } = docToMarkdown(editor.getJSON());
     if (!text.trim() && attached.length === 0) return;
     if (text.length > MAX_LENGTH) return;
+    if (editing) {
+      const body = text.trim();
+      const unchanged = body === editing.text && attached.length === editing.issues.length && attached.every((a, i) => a.id === editing.issues[i].id);
+      if (unchanged) { onCancelEdit(); return; }
+      if (saving.current) return;
+      saving.current = true;
+      onSaveEdit(body, attached).catch(() => { saving.current = false; });
+      return;
+    }
     onSend({ text: text.trim(), mentions, issues: attached, replyTo });
     editor.commands.clearContent(true);
     writeDraft(projectId, null);
@@ -318,7 +358,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
     setEmojiOpen(false);
     editor.commands.focus();
   }
-  latest.current = { expanded, replyTo, attached, onCancelReply, submit };
+  latest.current = { expanded, replyTo, attached, onCancelReply, editing, onCancelEdit, submit };
 
   /** Types `text` at the caret; a trigger ("@", "/") gets a space before it when it would stick to a word. */
   function insert(text: string, trigger = false) {
@@ -367,9 +407,9 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
         disabled={attached.length >= MAX_ISSUES} onMouseDown={(e) => e.preventDefault()} onClick={() => insert('/', true)}>
         <Icon name="wrench" className="size-4" />
       </button>
-      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
+      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label={editing ? 'Save changes' : 'Send message'} title={`${editing ? 'Save' : 'Send'} (${expanded ? 'Ctrl+Enter' : 'Enter'})`}
         className="tg-fab tg-send ml-0.5 size-9 sm:size-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
-        <SendIcon className="size-5" />
+        {editing ? <Icon name="check" className="size-5" /> : <SendIcon className="size-5" />}
       </button>
     </div>
   );
@@ -409,7 +449,17 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       ) : null}
 
       <div className="tg-input min-w-0 flex-1">
-        {replyTo ? (
+        {editing ? (
+          <div className="tg-fade-in flex items-center gap-1 pt-1.5 pr-1 pl-1">
+            <span className="grid size-10 shrink-0 place-items-center text-(--tg-accent)"><Icon name="pencil" className="size-5" /></span>
+            <button type="button" onClick={() => document.getElementById(`m-${editing.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+              className="tg-quote m-0 flex-1 cursor-pointer" style={{ '--peer': 'var(--tg-accent)' } as CSSProperties} title="Show the message">
+              <span className="truncate font-medium text-(--tg-accent)">Editing message</span>
+              <span className="truncate font-normal opacity-90">{snippetOf(editing) || 'Message'}</span>
+            </button>
+            <button type="button" onClick={onCancelEdit} aria-label="Cancel editing" title="Cancel editing (Esc)" className={side}><Icon name="close" className="size-4" /></button>
+          </div>
+        ) : replyTo ? (
           <div className="tg-fade-in flex items-center gap-1 pt-1.5 pr-1 pl-1">
             <span className="grid size-10 shrink-0 place-items-center text-(--tg-accent)"><Icon name="reply" className="size-5.5" /></span>
             <button type="button" onClick={() => document.getElementById(`m-${replyTo.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}

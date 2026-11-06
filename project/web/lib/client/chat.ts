@@ -96,8 +96,8 @@ export interface ChatState {
   retry: (clientId: string) => void;
   discard: (clientId: string) => void;
   remove: (id: string) => Promise<void>;
-  /** Saves new text for your own message; the screen updates first and goes back on failure (the promise rejects). */
-  edit: (id: string, text: string) => Promise<void>;
+  /** Saves new text and attached issues for your own message; the screen updates first and goes back on failure (the promise rejects). */
+  edit: (id: string, text: string, issues: ChatIssueView[]) => Promise<void>;
   /** Adds your reaction, or takes it away; the screen updates first. */
   react: (id: string, emoji: string) => void;
   loadOlder: () => Promise<void>;
@@ -315,11 +315,11 @@ export function useChat(projectId: string | null, me: { id: string; name: string
     setMessages((list) => list.map((m) => (m.id === id ? { ...m, text: '', mentions: [], issues: [], reactions: [], replyTo: null, deleted: true } : m)));
   }, []);
 
-  const edit = useCallback(async (id: string, text: string) => {
+  const edit = useCallback(async (id: string, text: string, issues: ChatIssueView[]) => {
     const before = messagesRef.current.find((m) => m.id === id);
-    setMessages((list) => list.map((m) => (m.id === id ? { ...m, text, editedAt: new Date().toISOString() } : m)));
+    setMessages((list) => list.map((m) => (m.id === id ? { ...m, text, issues, editedAt: new Date().toISOString() } : m)));
     try {
-      const res = await api<{ message: ChatMessageView | null }>('/api/chat', { method: 'PATCH', body: { id, text } });
+      const res = await api<{ message: ChatMessageView | null }>('/api/chat', { method: 'PATCH', body: { id, text, issues: issues.map((i) => i.id) } });
       if (res.message) setMessages((list) => merge(list, [res.message as ChatMessageView]));
     } catch (e) {
       const original = before;

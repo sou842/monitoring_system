@@ -243,3 +243,72 @@ export function docToMarkdown(doc: DocNode): { text: string; mentions: string[] 
   return { text, mentions };
 }
 
+
+/** A person who can be mentioned: `markdownToDoc` turns "@name" of these into mention chips. */
+export interface MentionTarget { id: string; name: string }
+
+/**
+ * The reverse of `docToMarkdown`: a message's text as the composer's document, so an existing message can be
+ * opened in the box for editing. Formatting the chat can show becomes the same marks and nodes the box
+ * produces; "@name" of a known person becomes a mention chip (anything else stays text).
+ */
+export function markdownToDoc(text: string, people: readonly MentionTarget[] = []): DocNode {
+  const byName = new Map(people.map((p) => [p.name, p.id]));
+  const names = [...byName.keys()];
+  type Marks = NonNullable<DocNode['marks']>;
+
+  /** Text runs with a hard break for each line break (an empty text node is not allowed). */
+  const runs = (value: string, marks: Marks): DocNode[] => value.split('\n').flatMap((line, i): DocNode[] => {
+    const run: DocNode[] = line ? [{ type: 'text', text: line, ...(marks.length ? { marks } : {}) }] : [];
+    return i === 0 ? run : [{ type: 'hardBreak' }, ...run];
+  });
+  const inline = (parts: Inline[], marks: Marks = []): DocNode[] => parts.flatMap((part): DocNode[] => {
+    switch (part.kind) {
+      case 'text': return runs(part.text, marks);
+      case 'code': return [{ type: 'text', text: part.text, marks: [{ type: 'code' }] }]; // code excludes other marks
+      case 'link': return [{ type: 'text', text: part.url, marks: [...marks, { type: 'link', attrs: { href: part.url } }] }];
+      case 'mention': {
+        const id = byName.get(part.name);
+        return id ? [{ type: 'mention', attrs: { id, label: part.name } }] : runs(part.text, marks);
+      }
+      default: return inline(part.children, [...marks, { type: part.kind }]);
+    }
+  });
+  const paragraph = (value: string): DocNode => {
+    const content = inline(parseInline(value, names));
+    return content.length > 0 ? { type: 'paragraph', content } : { type: 'paragraph' };
+  };
+
+  const list = (items: ListItem[]): DocNode[] => {
+    // A nested item can only sit one level below the item before it.
+    const flat = items.map((item, i) => ({ ...item, level: i === 0 ? 0 : item.level }));
+    for (let i = 1; i < flat.length; i++) flat[i].level = Math.min(flat[i].level, flat[i - 1].level + 1);
+    let i = 0;
+    const level = (depth: number): DocNode[] => {
+      const lists: DocNode[] = [];
+      while (i < flat.length && flat[i].level === depth) {
+        const { ordered, number } = flat[i];
+        const listItems: DocNode[] = [];
+        while (i < flat.length && flat[i].level === depth && flat[i].ordered === ordered) {
+          const item = flat[i++];
+          const content: DocNode[] = [paragraph(item.text)];
+          if (i < flat.length && flat[i].level > depth) content.push(...level(depth + 1));
+          listItems.push({ type: 'listItem', content });
+        }
+        lists.push(ordered ? { type: 'orderedList', attrs: { start: number || 1 }, content: listItems } : { type: 'bulletList', content: listItems });
+      }
+      return lists;
+    };
+    return level(0);
+  };
+
+  const content = parseBlocks(text).flatMap((block): DocNode[] => {
+    switch (block.kind) {
+      case 'quote': return [{ type: 'blockquote', content: [paragraph(block.text)] }];
+      case 'code': return [{ type: 'codeBlock', attrs: { language: block.lang }, ...(block.text ? { content: [{ type: 'text', text: block.text }] } : {}) }];
+      case 'list': return list(block.items);
+      default: return [paragraph(block.text)];
+    }
+  });
+  return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] };
+}

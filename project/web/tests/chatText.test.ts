@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { docToMarkdown, GROUP_GAP_MS, parseBlocks, parseInline, plainText, startsGroup } from '../lib/chatText.ts';
+import { docToMarkdown, GROUP_GAP_MS, markdownToDoc, parseBlocks, parseInline, plainText, startsGroup } from '../lib/chatText.ts';
 
 describe('chat blocks', () => {
   it('keeps plain text as one paragraph with its line breaks', () => {
@@ -150,5 +150,44 @@ describe('composer document to Markdown', () => {
   it('keeps a link address visible when its text differs, and ignores other schemes', () => {
     const link = (text: string, href: string) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] });
     assert.equal(docToMarkdown({ type: 'doc', content: [p(link('the PR', 'https://x.dev/1'), t(' '), link('bad', 'javascript:alert(1)'))] }).text, 'the PR (https://x.dev/1) bad');
+  });
+});
+
+describe('Markdown to composer document (editing a message)', () => {
+  const people = [{ id: 'u1', name: 'Ann Lee' }, { id: 'u2', name: 'Bob' }];
+  const roundTrip = (text: string) => docToMarkdown(markdownToDoc(text, people));
+
+  it('gives back the same text for every kind of formatting', () => {
+    for (const text of [
+      'hello',
+      'line one\nline two',
+      'a **bold** _italic_ ~~gone~~ and `code` word',
+      '**bold** and _italic_ side by side',
+      'see https://example.com/path now',
+      '> quoted\n> two lines',
+      '- one\n- two\n  - nested\n- three',
+      '1. first\n2. second',
+      '```js\nlet a = 1;\n```',
+      'before\n```\ncode\n```\nafter',
+    ]) assert.equal(roundTrip(text).text, text, text);
+  });
+
+  it('turns @name of a known person into a mention and reports the id', () => {
+    const out = roundTrip('ping @Ann Lee and @Bob, also @Nobody');
+    assert.equal(out.text, 'ping @Ann Lee and @Bob, also @Nobody');
+    assert.deepEqual(out.mentions, ['u1', 'u2']);
+  });
+
+  it('opens an empty message (only issues attached) as an empty paragraph', () => {
+    assert.deepEqual(markdownToDoc('', people), { type: 'doc', content: [{ type: 'paragraph' }] });
+    assert.equal(docToMarkdown(markdownToDoc('', people)).text, '');
+  });
+
+  it('never makes an empty text node', () => {
+    const walk = (n: { type?: string; text?: string; content?: unknown[] }): void => {
+      if (n.type === 'text') assert.ok(n.text);
+      (n.content as typeof n[] | undefined)?.forEach(walk);
+    };
+    walk(markdownToDoc('a\n\n\nb\n- x\n', people));
   });
 });

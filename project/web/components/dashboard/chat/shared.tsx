@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as 
 import type { ChatIssueView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
-import { Badge, type Tone } from '../../ui/kit';
 
 /** Paper-plane send icon; the glyph's weight sits left of its box, so it is nudged 1px to look centred. */
 export function SendIcon({ className }: { className?: string }) {
@@ -228,32 +227,37 @@ const ISSUE_ICON_BY_EVENT: Record<string, IconName> = { crash: 'bomb', error: 'b
 const ISSUE_TILE: Record<string, string> = {
   crash: 'bg-fg/10 text-fg', error: 'bg-red-500/10 text-red-600 dark:text-red-400', performance: 'bg-amber-500/12 text-amber-700 dark:text-amber-400', message: 'bg-(--chip) text-fg-2',
 };
-const STATUS_TONE: Record<string, Tone> = { open: 'neutral', resolved: 'green', ignored: 'muted' };
 
 /** The icon of an issue kind. */
 export const issueIcon = (issue: Pick<ChatIssueView, 'errorType' | 'eventType'>): IconName => ISSUE_ICON_BY_TYPE[issue.errorType] ?? ISSUE_ICON_BY_EVENT[issue.eventType] ?? 'bug';
 export const issueTile = (eventType: string) => ISSUE_TILE[eventType] ?? ISSUE_TILE.error;
 
-/** An attached issue: a one-row card that opens the issue, or (in the composer) can be removed. */
-export function IssueCard({ issue, onRemove, inBubble }: { issue: ChatIssueView; onRemove?: () => void; inBubble?: boolean }) {
+/** An attached issue: a card that opens the issue, or (in the composer) can be removed. */
+export function IssueCard({ issue, onRemove, inBubble, flush }: { issue: ChatIssueView; onRemove?: () => void; inBubble?: boolean; flush?: boolean }) {
+  const count = issue.count > 999 ? '999+' : issue.count.toLocaleString();
   const body = (
     <>
-      <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg', issueTile(issue.eventType))} aria-hidden="true"><Icon name={issueIcon(issue)} className="size-4" /></span>
+      <span className={cn('grid size-10 shrink-0 place-items-center rounded-xl ring-1 ring-black/5 dark:ring-white/10', issueTile(issue.eventType))} aria-hidden="true"><Icon name={issueIcon(issue)} className="size-5" /></span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[13px] leading-5 font-semibold">
-          <span className="truncate">{issue.errorType}</span>
-          {issue.status !== 'open' ? <Badge tone={STATUS_TONE[issue.status] ?? 'muted'}>{issue.status}</Badge> : null}
+        <span className="flex items-center gap-2">
+          <span className="truncate text-[14px] leading-5 font-semibold">{issue.errorType}</span>
+          <span className="inline-flex shrink-0 items-center rounded-full bg-black/[0.06] px-1.5 py-px text-[10.5px] leading-4 font-medium capitalize dark:bg-white/10">
+            {issue.status}
+          </span>
         </span>
-        <span className="block truncate text-xs leading-4 text-muted">{issue.message || '(no message)'}</span>
+        <span className="mt-0.5 line-clamp-2 text-[12.5px] leading-[17px] [overflow-wrap:anywhere] opacity-70">{issue.message || '(no message)'}</span>
       </span>
-      <span className="shrink-0 rounded-full bg-(--chip) px-2 py-0.5 text-[11px] font-medium text-fg-2 tabular-nums" title={`${issue.count.toLocaleString()} ${issue.count === 1 ? 'event' : 'events'}`}>
-        <span className="sr-only">Events: </span>{issue.count > 999 ? '999+' : issue.count.toLocaleString()}
+      <span className="shrink-0 px-0.5 text-center leading-none" title={`${issue.count.toLocaleString()} ${issue.count === 1 ? 'event' : 'events'}`}>
+        <b className="block text-[15px] font-semibold tabular-nums">{count}</b>
+        <span className="mt-1 block text-[10px] tracking-wide uppercase opacity-60">{issue.count === 1 ? 'event' : 'events'}</span>
       </span>
     </>
   );
-  const frame = inBubble
-    ? 'flex w-full max-w-md items-center gap-2.5 rounded-[10px] border-0 bg-black/[0.045] px-2.5 py-1.5 text-inherit no-underline dark:bg-white/[0.07]'
-    : 'flex w-full max-w-md items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2 text-fg no-underline';
+  const frame = cn(
+    'flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-inherit no-underline',
+    flush ? 'bg-black/[0.05] dark:bg-white/[0.07]'
+      : cn('max-w-md rounded-t-[9px] rounded-b-none border', inBubble ? 'border-black/5 bg-white/55 dark:border-white/10 dark:bg-white/[0.06]' : 'border-line bg-panel text-fg'),
+  );
   return onRemove ? (
     <span className={cn(frame, 'pr-2')}>
       {body}
@@ -262,7 +266,7 @@ export function IssueCard({ issue, onRemove, inBubble }: { issue: ChatIssueView;
       </button>
     </span>
   ) : (
-    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:border-line-strong hover:bg-(--hover) hover:no-underline focus-visible:outline-2 focus-visible:outline-(--mention)')}>
+    <Link href={`/issues/${issue.id}`} className={cn(frame, 'transition-colors hover:no-underline focus-visible:outline-2 focus-visible:outline-(--mention) dark:hover:bg-white/10', flush ? 'hover:bg-black/[0.08]' : 'hover:bg-white/80')}>
       <span className="sr-only">Issue: </span>{body}
     </Link>
   );

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useApi } from '@/lib/client/api';
 import { useChat, type Draft } from '@/lib/client/chat';
 import { dayKey, startsGroup } from '@/lib/chatText';
-import type { ChatMessageView, MembersResponse, PersonView } from '@/lib/types';
+import type { ChatIssueView, ChatMessageView, MembersResponse, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useDialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
@@ -177,7 +177,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   const composer = useRef<ComposerHandle>(null);
   const wallpaper = useRef<WallpaperHandle>(null);
   const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null);
-  /** The message whose inline editor is open (one at a time). */
+  /** The message open in the message box for editing (one at a time). */
   const [editingId, setEditingId] = useState<string | null>(null);
   useEffect(() => { setEditingId(null); }, [projectId]);
 
@@ -325,22 +325,9 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   const latest = useRef({ chat, openDialog, toast, action, projectId });
   latest.current = { chat, openDialog, toast, action, projectId };
   const actions = useMemo<RowActions>(() => ({
-    reply: (m) => { setReplyTo(m); composer.current?.focus(); },
+    reply: (m) => { setEditingId(null); setReplyTo(m); composer.current?.focus(); },
     react: (id, emoji) => latest.current.chat.react(id, emoji),
-    edit: (m) => setEditingId(m.id),
-    cancelEdit: () => {
-      setEditingId(null);
-      requestAnimationFrame(() => composer.current?.focus());
-    },
-    saveEdit: async (m, text) => {
-      try {
-        await latest.current.chat.edit(m.id, text);
-        setEditingId(null);
-      } catch (e) {
-        latest.current.toast(e instanceof Error && e.message ? `Couldn’t save: ${e.message}` : 'Couldn’t save the change', 'error');
-        throw e;
-      }
-    },
+    edit: (m) => { setReplyTo(null); setEditingId(m.id); composer.current?.focus(); },
     remove: (m) => {
       const { action: run, openDialog: open, chat: c, toast: say } = latest.current;
       run(async () => {
@@ -364,6 +351,19 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     retry: (clientId) => latest.current.chat.retry(clientId),
     discard: (clientId) => latest.current.chat.discard(clientId),
   }), []);
+
+  /** The message being edited, while it is still there (deleted meanwhile = the edit ends). */
+  const editingMessage = useMemo(() => (editingId ? chat.messages.find((m) => m.id === editingId && !m.deleted) ?? null : null), [editingId, chat.messages]);
+  const saveEdit = useCallback(async (text: string, issues: ChatIssueView[]) => {
+    if (!editingId) return;
+    try {
+      await chat.edit(editingId, text, issues);
+      setEditingId(null);
+    } catch (e) {
+      toast(e instanceof Error && e.message ? `Couldn’t save: ${e.message}` : 'Couldn’t save the change', 'error');
+      throw e;
+    }
+  }, [chat, editingId, toast]);
 
   const send = useCallback((draft: Draft) => {
     atBottom.current = true;
@@ -522,7 +522,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
         <footer className="relative shrink-0">
           {canPost ? (
             <Composer handle={composer} key={projectId} projectId={projectId} projectName={projectName} people={everyone} me={me}
-              replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} offline={!online} />
+              replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} offline={!online}
+              editing={editingMessage} onCancelEdit={() => setEditingId(null)} onSaveEdit={saveEdit} />
           ) : (
             <div className={cn(COLUMN, 'px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4')}>
               <p className="tg-input m-0 flex items-center justify-center gap-2 px-4 py-3.5 text-[14px] text-(--tg-in-meta)">
