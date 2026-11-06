@@ -22,7 +22,7 @@ export const POST = handle(async (request) => {
   const projectId = projectIdOfChannel(channel);
   if (projectId === null) return errorResponse(403, 'forbidden', 'Unknown channel');
   if ((await projectAccess(auth.db, auth.user, new ObjectId(projectId))) === null) return errorResponse(403, 'forbidden', 'No access to this project');
-  const signed = authorizeChannel(socketId, channel);
+  const signed = authorizeChannel(socketId, channel, String(auth.user._id));
   if (signed === null) return errorResponse(503, 'realtime_not_configured', 'Realtime is not set up');
   return json(signed);
 });

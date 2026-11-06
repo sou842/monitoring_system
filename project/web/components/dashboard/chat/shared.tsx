@@ -39,13 +39,21 @@ export function peerColor(id: string): string {
 }
 
 /** Round avatar with a soft gradient in the person's colour and their initials. */
-export function ChatAvatar({ id, name, size = 40, className }: { id: string; name: string; size?: number; className?: string }) {
+export function ChatAvatar({ id, name, size = 40, className, online = false }: { id: string; name: string; size?: number; className?: string; online?: boolean }) {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const initials = ((words[0]?.[0] ?? '?') + (words.length > 1 ? (words[words.length - 1][0] ?? '') : '')).toUpperCase();
-  return (
+  const avatar = (
     <span className={cn('tg-avatar', className)} aria-hidden="true"
       style={{ '--peer': peerColor(id), width: size, height: size, fontSize: Math.round(size * 0.4) } as CSSProperties}>
       {initials}
+    </span>
+  );
+  if (!online) return avatar;
+  // A green dot with a ring in the page colour, at the bottom-right corner.
+  return (
+    <span className="relative inline-flex shrink-0">
+      {avatar}
+      <span aria-hidden="true" title="Online" className="absolute right-0 bottom-0 rounded-full bg-[#3ccf4e] ring-2 ring-(--tg-bar)" style={{ width: Math.max(8, Math.round(size * 0.28)), height: Math.max(8, Math.round(size * 0.28)) }} />
     </span>
   );
 }

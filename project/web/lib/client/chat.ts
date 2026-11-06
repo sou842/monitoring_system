@@ -1,6 +1,10 @@
 'use client';
 
-import Pusher from 'pusher-js';
+import Pusher, { type PresenceChannel } from 'pusher-js';
+
+/** "Is typing" lapses this long after the last signal; you send a signal at most this often. */
+const TYPING_SHOWN_MS = 5000;
+const TYPING_SEND_EVERY_MS = 3000;
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REPLY_SNIPPET_LENGTH } from '../chat';
 import type { ChatIssueView, ChatMessageView, ChatReactionView, ChatResponse } from '../types';
@@ -89,6 +93,11 @@ export interface ChatState {
   hasMore: boolean;
   /** Messages arrive live through Pusher and the connection is up (otherwise the page polls). */
   live: boolean;
+  /** Ids of the people with the chat open right now (empty without a live connection). */
+  online: string[];
+  /** Ids of the people typing a message right now. */
+  typingIds: string[];
+  notifyTyping: () => void;
   /** When you read the chat before this visit (null = never); messages by others after it are "unread". */
   lastReadAt: string | null;
   /** Shows the message at once and delivers it in the background; failures end up in `pending` with status "failed". */
@@ -120,6 +129,11 @@ export function useChat(projectId: string | null, me: { id: string; name: string
   const [hasMore, setHasMore] = useState(false);
   const [live, setLive] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [online, setOnline] = useState<string[]>([]);
+  const [typingIds, setTypingIds] = useState<string[]>([]);
+  const presenceRef = useRef<PresenceChannel | null>(null);
+  const typingTimers = useRef(new Map<string, number>());
+  const lastTypingSent = useRef(0);
   const [lastReadAt, setLastReadAt] = useState<string | null>(null);
   const [reloadCount, setReloadCount] = useState(0);
   const lastId = useRef<string | null>(null);
@@ -242,7 +256,39 @@ export function useChat(projectId: string | null, me: { id: string; name: string
     });
     // After a reconnect, anything sent while we were away.
     channel.bind('pusher:subscription_succeeded', () => { void catchUp().catch(() => {}); });
+
+    // Who is online and who is typing: a presence channel (Pusher signs the user id, so it can't be faked);
+    // "typing" is a client event, which Pusher forwards with the sender's verified id. It lapses after a few seconds.
+    const presence = client.subscribe(`presence-project-${projectId}`) as PresenceChannel;
+    const idOf = (m: { id: string }) => String(m.id);
+    const syncOnline = () => { const ids: string[] = []; presence.members.each((m: { id: string }) => ids.push(idOf(m))); setOnline(ids); };
+    presence.bind('pusher:subscription_succeeded', syncOnline);
+    presence.bind('pusher:member_added', syncOnline);
+    presence.bind('pusher:member_removed', (m: { id: string }) => {
+      syncOnline();
+      const t = typingTimers.current.get(idOf(m));
+      if (t) { clearTimeout(t); typingTimers.current.delete(idOf(m)); }
+      setTypingIds((list) => list.filter((id) => id !== idOf(m)));
+    });
+    presence.bind('client-typing', (_data: unknown, meta?: { user_id?: string }) => {
+      const id = meta?.user_id;
+      if (!id) return;
+      clearTimeout(typingTimers.current.get(id));
+      typingTimers.current.set(id, window.setTimeout(() => {
+        typingTimers.current.delete(id);
+        setTypingIds((list) => list.filter((x) => x !== id));
+      }, TYPING_SHOWN_MS));
+      setTypingIds((list) => (list.includes(id) ? list : [...list, id]));
+    });
+    presenceRef.current = presence;
     return () => {
+      presenceRef.current = null;
+      presence.unbind_all();
+      typingTimers.current.forEach((t) => clearTimeout(t));
+      typingTimers.current.clear();
+      setOnline([]);
+      setTypingIds([]);
+      client.unsubscribe(`presence-project-${projectId}`);
       channel.unbind_all();
       client.unsubscribe(`private-project-${projectId}`);
       client.disconnect();
@@ -360,5 +406,13 @@ export function useChat(projectId: string | null, me: { id: string; name: string
 
   const reload = useCallback(() => setReloadCount((n) => n + 1), []);
 
-  return { messages, pending, loading, error, reload, hasMore, live: realtimeUp, lastReadAt, send, retry, discard, remove, edit, react, loadOlder };
+  /** Tells the others you are typing (at most once every few seconds; does nothing without a live connection). */
+  const notifyTyping = useCallback(() => {
+    const now = Date.now();
+    if (!presenceRef.current || now - lastTypingSent.current < TYPING_SEND_EVERY_MS) return;
+    lastTypingSent.current = now;
+    try { presenceRef.current.trigger('client-typing', {}); } catch { /* not subscribed yet, or the socket is down: skip */ }
+  }, []);
+
+  return { messages, pending, loading, error, reload, hasMore, live: realtimeUp, online, typingIds, notifyTyping, lastReadAt, send, retry, discard, remove, edit, react, loadOlder };
 }

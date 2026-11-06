@@ -434,6 +434,8 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   type Day = { key: string; label: string; parts: ReactNode[]; group: Group | null };
   const days: ReactNode[] = [];
   let day: Day | null = null;
+  const typingNames = chat.typingIds.filter((id) => id !== me.id).map((id) => byId.get(id)?.name ?? 'Someone');
+  const typingLabel = typingNames.length === 1 ? `${typingNames[0]} is typing…` : typingNames.length === 2 ? `${typingNames[0]} and ${typingNames[1]} are typing…` : `${typingNames.length} people are typing…`;
   const unreadCount = unreadAnchor ? chat.messages.filter((m) => m.userId !== me.id && m.id >= unreadAnchor).length : 0;
 
   const closeGroup = () => {
@@ -444,7 +446,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     ) : (
       <div key={g.key} className="flex">
         <div className="flex w-[42px] shrink-0 flex-col justify-end pb-1.5 pl-0.5">
-          <span className="sticky bottom-1.5"><ChatAvatar id={g.userId} name={g.name} size={GROUP_AVATAR_PX} /></span>
+          <span className="sticky bottom-1.5"><ChatAvatar id={g.userId} name={g.name} size={GROUP_AVATAR_PX} online={chat.online.includes(g.userId)} /></span>
         </div>
         <div className="flex min-w-0 flex-1 flex-col">{g.items}</div>
       </div>
@@ -544,6 +546,14 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
                     <div className="flex justify-center py-3"><span className="tg-pill text-[13px]">This is the very beginning of {projectName}</span></div>
                   )}
                   {days}
+                  {typingNames.length > 0 ? (
+                    <div className="tg-fade-in flex items-center gap-2 pb-2 pl-[51px]" role="status">
+                      <span className="tg-bubble is-in is-first is-last inline-flex items-center gap-1.5 px-3 py-2.5" aria-label={typingLabel}>
+                        {[0, 1, 2].map((i) => <span key={i} className="size-1.5 animate-bounce rounded-full bg-current opacity-60" style={{ animationDelay: `${i * 150}ms` }} />)}
+                      </span>
+                      <span className="min-w-0 truncate text-[12px] text-(--tg-in-meta)">{typingLabel}</span>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -579,7 +589,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
           ) : canPost ? (
             <Composer handle={composer} key={projectId} projectId={projectId} projectName={projectName} people={everyone} me={me}
               replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} offline={!online}
-              editing={editingMessage} onCancelEdit={() => setEditingId(null)} onSaveEdit={saveEdit} />
+              onTyping={chat.notifyTyping} editing={editingMessage} onCancelEdit={() => setEditingId(null)} onSaveEdit={saveEdit} />
           ) : (
             <div className={cn(COLUMN, 'px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4')}>
               <p className="tg-input m-0 flex items-center justify-center gap-2 px-4 py-3.5 text-[14px] text-(--tg-in-meta)">

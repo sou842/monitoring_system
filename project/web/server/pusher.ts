@@ -30,9 +30,9 @@ export function chatChannel(projectId: string): string {
   return `private-project-${projectId}`;
 }
 
-/** The project id inside a chat channel name, or null for any other channel. */
+/** The project id inside a chat channel name (the private message channel or the presence channel), or null for any other channel. */
 export function projectIdOfChannel(channel: string): string | null {
-  const match = /^private-project-([0-9a-f]{24})$/.exec(channel);
+  const match = /^(?:private|presence)-project-([0-9a-f]{24})$/.exec(channel);
   return match ? match[1] : null;
 }
 
@@ -47,8 +47,12 @@ export async function publish(projectId: string, event: string, data: unknown): 
   }
 }
 
-/** Signs a private-channel subscription for one socket, or null when Pusher isn't configured. */
-export function authorizeChannel(socketId: string, channel: string): Pusher.ChannelAuthResponse | null {
+/**
+ * Signs a channel subscription for one socket, or null when Pusher isn't configured. On the presence channel
+ * (who is online, "is typing") the person's user id is part of the signature, so nobody can claim another id.
+ */
+export function authorizeChannel(socketId: string, channel: string, userId: string): Pusher.ChannelAuthResponse | null {
   const p = pusher();
-  return p === null ? null : p.authorizeChannel(socketId, channel);
+  if (p === null) return null;
+  return channel.startsWith('presence-') ? p.authorizeChannel(socketId, channel, { user_id: userId }) : p.authorizeChannel(socketId, channel);
 }

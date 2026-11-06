@@ -91,7 +91,9 @@ function bridge(kind: Suggest['kind'], set: (s: Suggest | null) => void, onKey: 
 export interface ComposerHandle { focus: () => void }
 
 /** The message box (see the comment at the top of this file). */
-export function Composer({ handle, projectId, projectName, people, me, replyTo, onCancelReply, onSend, offline, editing, onCancelEdit, onSaveEdit }: {
+export function Composer({ handle, projectId, projectName, people, me, replyTo, onCancelReply, onSend, offline, editing, onCancelEdit, onSaveEdit, onTyping }: {
+  /** Called as you type (the page turns it into "is typing…" for the others, rate-limited there). */
+  onTyping?: () => void;
   handle?: RefObject<ComposerHandle | null>;
   projectId: string;
   projectName: string;
@@ -131,6 +133,10 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   suggestRef.current = suggest;
   const placeholder = useRef('');
   placeholder.current = offline ? 'You’re offline. Messages send when you’re back.' : editing ? 'Edit message' : 'Message';
+
+  // Editing an old message isn't "typing a message": nothing is announced then.
+  const onTypingRef = useRef<(() => void) | undefined>(undefined);
+  onTypingRef.current = editing ? undefined : onTyping;
 
   const attachRef = useRef<(issue: ChatIssueView) => void>(() => {});
   attachRef.current = (issue) => setAttached((list) => (list.length >= MAX_ISSUES || list.some((i) => i.id === issue.id) ? list : [...list, issue]));
@@ -224,7 +230,10 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
       handleDrop: (_view, event) => Boolean((event as DragEvent).dataTransfer?.files.length),
     },
     onCreate: ({ editor: e }) => setLength(docToMarkdown(e.getJSON()).text.length),
-    onUpdate: ({ editor: e }) => setLength(docToMarkdown(e.getJSON()).text.length),
+    onUpdate: ({ editor: e }) => {
+      setLength(docToMarkdown(e.getJSON()).text.length);
+      if (!e.isEmpty) onTypingRef.current?.();
+    },
   }, []);
 
   const active = useEditorState({
