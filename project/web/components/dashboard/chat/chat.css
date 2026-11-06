@@ -6,33 +6,35 @@
 @layer components {
   .tg {
     /* surfaces */
+    /* Light: plain white chat, a very light Telegram-blue bubble for you, a soft gray one for replies. */
     --tg-bar: #ffffff;
-    --tg-bar-line: rgb(0 0 0 / 0.08);
-    --tg-in: #ffffff;
-    --tg-own: #effddf;
-    --tg-text: #0f1419;
-    --tg-in-meta: #8d99a6;
-    --tg-own-meta: #4aa548;
-    --tg-accent: #3a8ee6;
+    --tg-head: #ffffff;
+    --tg-bar-line: rgb(15 23 42 / 0.08);
+    --tg-in: #f1f2f4;
+    --tg-own: #d8eafc;
+    --tg-text: #14181f;
+    --tg-in-meta: #8a93a0;
+    --tg-own-meta: #5f8fbf;
+    --tg-accent: #3390ec;
     --tg-accent-fg: #ffffff;
-    --tg-own-accent: #3c9a3a;
-    --tg-quote-own: rgb(60 154 58 / 0.12);
-    --tg-pill: rgb(62 86 52 / 0.42);
+    --tg-own-accent: #2a7ad0;
+    --tg-quote-own: rgb(42 122 208 / 0.1);
+    --tg-pill: rgb(60 70 85 / 0.55);
     --tg-pill-fg: #ffffff;
-    --tg-shadow: 0 1px 2px rgb(16 35 47 / 0.15);
+    --tg-shadow: none;
     --tg-fab: #ffffff;
-    --tg-fab-fg: #707579;
-    --tg-flash: rgb(58 142 230 / 0.22);
-    --tg-menu: rgb(255 255 255 / 0.86);
+    --tg-fab-fg: #6b7380;
+    --tg-flash: rgb(51 144 236 / 0.16);
+    --tg-menu: rgb(255 255 255 / 0.92);
     --tg-menu-solid: #ffffff;
-    --tg-menu-hover: rgb(0 0 0 / 0.05);
-    --tg-danger: #e53935;
-    /* wallpaper: four gradient points + doodle ink */
-    --tg-wall-1: #d4e2b4;
-    --tg-wall-2: #8dbf8f;
-    --tg-wall-3: #e4dd9c;
-    --tg-wall-4: #9fcaa6;
-    --tg-wall-ink: rgb(30 60 20 / 0.12);
+    --tg-menu-hover: rgb(15 23 42 / 0.05);
+    --tg-danger: #d92d3a;
+    /* wallpaper: plain white, no gradient or doodles */
+    --tg-wall-1: #ffffff;
+    --tg-wall-2: #ffffff;
+    --tg-wall-3: #ffffff;
+    --tg-wall-4: #ffffff;
+    --tg-wall-ink: transparent;
     position: relative;
     color: var(--tg-text);
     font-family: Roboto, Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -40,7 +42,8 @@
   [data-theme=dark] .tg {
     /* Telegram Desktop "Night" theme (tdesktop Resources/night.tdesktop-theme, colors.tdesktop-theme). */
     --tg-bar: #17212b;            /* historyComposeAreaBg, windowBg */
-    --tg-bar-line: #0e1621;
+    --tg-head: var(--bg);         /* header = chat background = the dashboard's dark page colour */
+    --tg-bar-line: rgb(255 255 255 / 0.06);
     --tg-in: #182533;             /* msgInBg */
     --tg-own: #2b5278;            /* msgOutBg */
     --tg-text: #f5f5f5;           /* historyTextInFg */
@@ -77,9 +80,9 @@
     mask: url(/chat/pattern.svg) repeat 0 0 / 360px 360px;
   }
 
-  [data-theme=dark] .tg-wall { background: #0e1621; }
-  [data-theme=dark] .tg-wall::after { display: none; }
-  [data-theme=dark] .tg-wall canvas { display: none; }
+  /* Both themes use a flat background: no gradient canvas, no doodles. */
+  [data-theme=dark] .tg-wall { background: var(--bg); }
+  .tg-wall::after, .tg-wall canvas { display: none; }
 
   /* ---- bubbles ---- */
   .tg-bubble {
@@ -218,10 +221,10 @@
   /* Send: a solid accent circle; grey and quiet until there is something to send. */
   .tg-send {
     width: 50px; height: 50px; flex-shrink: 0; background: var(--tg-accent); color: var(--tg-accent-fg);
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--tg-accent) 40%, transparent);
+    box-shadow: none;
   }
   .tg-send:hover { color: var(--tg-accent-fg); filter: brightness(1.06); }
-  .tg-send:disabled { cursor: default; background: var(--tg-bar); color: var(--tg-in-meta); opacity: 1; box-shadow: 0 1px 4px rgb(0 0 0 / 0.12); filter: none; }
+  .tg-send:disabled { cursor: default; background: var(--tg-bar); color: var(--tg-in-meta); opacity: 1; box-shadow: none; filter: none; }
   @media (max-width: 640px) { .tg-send { width: 44px; height: 44px; } .tg-input { border-radius: 22px; } }
   .tg-send:disabled:active { transform: none; }
   .tg-send svg { transition: transform .22s cubic-bezier(.2, .8, .3, 1), opacity .22s; }

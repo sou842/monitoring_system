@@ -16,7 +16,7 @@ import type { ChatIssueView, ChatMessageView, IssuesResponse, PersonView } from 
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
 import { snippetOf } from './MessageRow';
-import { ChatAvatar, Emoji, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, useDismiss, useFocusFirst } from './shared';
+import { ChatAvatar, Emoji, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, SendIcon, useDismiss, useFocusFirst } from './shared';
 
 /*
  * The message box, Teams-style: it opens as a plain one-line input, but it is a rich editor (Tiptap) inside.
@@ -359,17 +359,17 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
           {length > MAX_LENGTH ? `${(length - MAX_LENGTH).toLocaleString()} over` : `${(MAX_LENGTH - length).toLocaleString()} left`}
         </span>
       ) : null}
-      <button type="button" className={side} title={expanded ? 'Hide formatting' : 'Format'} aria-label={expanded ? 'Hide formatting' : 'Show formatting'} aria-pressed={expanded}
+      <button type="button" className={cn(side, '[&_svg]:size-4.5')} title={expanded ? 'Hide formatting' : 'Format'} aria-label={expanded ? 'Hide formatting' : 'Show formatting'} aria-pressed={expanded}
         onMouseDown={(e) => e.preventDefault()} onClick={() => { setExpanded((x) => !x); editor?.commands.focus(); }}>
         <Icon name="format" className="size-4" />
       </button>
-      <button type="button" className={side} title={attached.length >= MAX_ISSUES ? `Up to ${MAX_ISSUES} issues per message` : 'Share an issue (/)'} aria-label="Share an issue"
+      <button type="button" className={cn(side, '[&_svg]:size-4.5')} title={attached.length >= MAX_ISSUES ? `Up to ${MAX_ISSUES} issues per message` : 'Share an issue (/)'} aria-label="Share an issue"
         disabled={attached.length >= MAX_ISSUES} onMouseDown={(e) => e.preventDefault()} onClick={() => insert('/', true)}>
         <Icon name="wrench" className="size-4" />
       </button>
       <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={!sendable} aria-label="Send message" title={expanded ? 'Send (Ctrl+Enter)' : 'Send (Enter)'}
-        className="tg-send ml-0.5 size-9 sm:size-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
-        <Icon name="send" className="size-5" />
+        className="tg-fab tg-send ml-0.5 size-9 sm:size-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--tg-accent)">
+        <SendIcon className="size-5" />
       </button>
     </div>
   );

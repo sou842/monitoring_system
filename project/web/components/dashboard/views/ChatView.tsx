@@ -14,7 +14,7 @@ import '../chat/chat.css';
 import { ChannelHeader } from '../chat/ChannelHeader';
 import type { ComposerHandle } from '../chat/Composer';
 import { MessageRow, type Row, type RowActions } from '../chat/MessageRow';
-import { ChatAvatar, dayLabel, scrollBehavior } from '../chat/shared';
+import { ChatAvatar, dayLabel, scrollBehavior, SendIcon } from '../chat/shared';
 import { Wallpaper, type WallpaperHandle } from '../chat/Wallpaper';
 import { Page } from '../Page';
 import { useSession } from '../Shell';
@@ -41,7 +41,7 @@ function ComposerPlaceholder() {
   return (
     <div className={cn(COLUMN, 'flex items-end gap-2 px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4')} aria-hidden="true">
       <div className="tg-input has-tail flex h-[54px] flex-1 items-center pl-14 text-[16px] text-(--tg-in-meta)">Message</div>
-      <span className="tg-fab tg-send ml-1.5"><Icon name="send" className="size-6" /></span>
+      <span className="tg-fab tg-send ml-1.5"><SendIcon className="size-5" /></span>
     </div>
   );
 }
@@ -66,7 +66,12 @@ export function ChatView() {
   if (!projects) {
     return (
       <Page crumbs={crumbs} fill hideBar>
-        <div className="tg flex flex-1 flex-col overflow-hidden"><Wallpaper /><div className="relative flex-1"><Skeleton /></div></div>
+        <div className="tg flex flex-1 flex-col overflow-hidden">
+          <Wallpaper />
+          <HeaderSkeleton />
+          <div className="relative flex-1 overflow-hidden"><Skeleton /></div>
+          <div className="relative"><ComposerPlaceholder /></div>
+        </div>
       </Page>
     );
   }
@@ -91,18 +96,42 @@ export function ChatView() {
   );
 }
 
-/** Bubble-shaped placeholders, left and right, while the first page loads. */
+/** A pulsing grey bar standing in for a line of text, in the current text colour. */
+const BAR = 'h-3 animate-pulse rounded-full bg-(--tg-text)/10 motion-reduce:animate-none';
+
+/** Looks like the channel header (avatar, name, subtitle) while projects load. */
+function HeaderSkeleton() {
+  return (
+    <div className="relative z-10 flex h-14 shrink-0 items-center gap-2.5 border-b border-(--tg-bar-line) bg-(--tg-head) px-3 md:px-4" aria-hidden="true">
+      <span className="size-10 animate-pulse rounded-full bg-(--tg-text)/10 motion-reduce:animate-none" />
+      <div className="flex flex-col gap-1.5"><span className={cn(BAR, 'w-32')} /><span className={cn(BAR, 'h-2.5 w-20')} /></div>
+    </div>
+  );
+}
+
+/** Message-shaped placeholders (others on the left with an avatar, you on the right) while the first page loads. */
+const SKELETON_MESSAGES: ReadonlyArray<{ own: boolean; name?: boolean; lines: readonly number[] }> = [
+  { own: false, name: true, lines: [88, 62] },
+  { own: false, lines: [46] },
+  { own: true, lines: [70] },
+  { own: false, name: true, lines: [92, 100, 38] },
+  { own: true, lines: [58, 34] },
+  { own: false, name: true, lines: [54] },
+  { own: true, lines: [42] },
+];
+
 function Skeleton() {
   return (
-    <div className={cn(COLUMN, 'flex flex-col gap-2 px-3 pt-6 md:px-5')} aria-hidden="true">
-      {Array.from({ length: SKELETON_ROWS }, (_, i) => {
-        const own = i % 3 === 1;
-        return (
-          <div key={i} className={cn('flex', own ? 'justify-end' : 'justify-start')}>
-            <div className={cn('h-10 animate-pulse rounded-2xl opacity-70 motion-reduce:animate-none', own ? 'bg-(--tg-own)' : 'bg-(--tg-in)')} style={{ width: `${30 + ((i * 37) % 40)}%` }} />
+    <div className={cn(COLUMN, 'flex flex-col gap-1.5 px-3 pt-6 md:px-5')} aria-hidden="true">
+      {SKELETON_MESSAGES.slice(0, SKELETON_ROWS).map((m, i) => (
+        <div key={i} className={cn('flex items-end gap-2', m.own ? 'justify-end' : 'justify-start')}>
+          {!m.own && <span className="animate-pulse rounded-full bg-(--tg-text)/10 motion-reduce:animate-none" style={{ width: GROUP_AVATAR_PX, height: GROUP_AVATAR_PX }} />}
+          <div className={cn('flex w-[min(320px,72%)] flex-col gap-2 rounded-[15px] px-3 py-2.5', m.own ? 'bg-(--tg-own)' : 'bg-(--tg-in)')}>
+            {m.name && <span className={cn(BAR, 'h-2.5 w-20')} />}
+            {m.lines.map((w, j) => <span key={j} className={BAR} style={{ width: `${w}%` }} />)}
           </div>
-        );
-      })}
+        </div>
+      ))}
       <span className="sr-only" role="status">Loading messages…</span>
     </div>
   );

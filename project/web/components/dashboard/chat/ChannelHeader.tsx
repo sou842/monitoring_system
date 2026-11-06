@@ -72,7 +72,7 @@ export function ChannelHeader({ projectId, projectName, people, ownerId, meId, m
   }, [deferred, messages]);
 
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center gap-2.5 border-b border-(--tg-bar-line) bg-(--tg-bar) px-2 md:px-4">
+    <header className="relative z-30 flex h-14 shrink-0 items-center gap-2.5 border-b border-(--tg-bar-line) bg-(--tg-head) px-2 md:px-4">
       <button type="button" onClick={onOpenDrawer} aria-label="Open the menu" title="Menu" className={cn(ROUND, 'md:hidden')}>
         <Icon name="menu" className="size-4.5" />
       </button>
@@ -136,7 +136,7 @@ export function ChannelHeader({ projectId, projectName, people, ownerId, meId, m
         <button ref={membersButton} type="button" onClick={() => setMembersOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={membersOpen}
           aria-label={`${people.length} ${people.length === 1 ? 'member' : 'members'}`} title="Members"
           className="flex h-10 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent py-0 pr-3 pl-1.5 text-[13px] font-medium text-(--tg-in-meta) shadow-none hover:bg-(--hover) hover:text-(--tg-text) aria-expanded:bg-(--chip)">
-          <span className="flex -space-x-1.5 [&_.avatar]:size-6 [&_.avatar]:text-[10px] [&_.avatar]:ring-2 [&_.avatar]:ring-(--tg-bar)">
+          <span className="flex -space-x-1.5 [&_.avatar]:size-6 [&_.avatar]:text-[10px] [&_.avatar]:ring-2 [&_.avatar]:ring-(--tg-head)">
             {people.slice(0, STACKED_AVATARS).map((p) => <Avatar key={p.id} name={p.name} />)}
           </span>
           <span className="tabular-nums">{people.length || ''}</span>
