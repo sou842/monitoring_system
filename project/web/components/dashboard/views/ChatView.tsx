@@ -25,6 +25,8 @@ const STICK_PX = 120;
 const LOAD_OLDER_MARGIN_PX = 600;
 /** How long a message stays highlighted after jumping to it. */
 const FLASH_MS = 1600;
+/** Most messages deleted in one go (each is one request; the server allows 120 changes a minute). */
+const MAX_SELECTED = 50;
 /** Placeholder bubbles while the first page loads. */
 const SKELETON_ROWS = 7;
 /** After scrolling stops, the date stuck to the top fades away after this long. */
@@ -179,6 +181,9 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null);
   /** The message open in the message box for editing (one at a time). */
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Ids ticked in "select messages" mode (null = not selecting). */
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  useEffect(() => { setSelected(null); }, [projectId]);
   useEffect(() => { setEditingId(null); }, [projectId]);
 
   const everyone = useMemo<PersonView[]>(() => (people.data ? [...(people.data.owner ? [people.data.owner] : []), ...people.data.members] : []), [people.data]);
@@ -335,6 +340,15 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
         if (ok) say('Message deleted');
       })();
     },
+    select: (m) => { setReplyTo(null); setEditingId(null); setSelected(new Set([m.id])); },
+    toggle: (id) => setSelected((cur) => {
+      if (!cur) return cur;
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else if (next.size >= MAX_SELECTED) { latest.current.toast(`You can select up to ${MAX_SELECTED} messages at once`); return cur; }
+      else next.add(id);
+      return next.size > 0 ? next : null;
+    }),
     copyText: (m) => { navigator.clipboard.writeText(m.text).then(() => latest.current.toast('Copied to clipboard'), () => latest.current.toast('Couldn’t copy', 'error')); },
     copyLink: (m) => {
       const url = `${window.location.origin}/chats?project=${latest.current.projectId}#m-${m.id}`;
@@ -367,6 +381,32 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     }
   }, [chat, editingId, toast]);
 
+  /** Ticked messages that still exist and can be deleted (others may vanish while selecting). */
+  const selectedIds = useMemo(
+    () => (selected ? chat.messages.filter((m) => selected.has(m.id) && !m.deleted).map((m) => m.id) : []),
+    [selected, chat.messages],
+  );
+  const deleteSelected = () => {
+    const ids = selectedIds;
+    if (ids.length === 0) return;
+    action(async () => {
+      let failed = 0;
+      const ok = await openDialog({
+        title: `Delete ${ids.length} ${ids.length === 1 ? 'message' : 'messages'}?`,
+        message: 'They will be removed for everyone in this project. This can’t be undone.',
+        confirmText: 'Delete', danger: true,
+        onConfirm: async () => {
+          const results = await Promise.allSettled(ids.map((id) => chat.remove(id)));
+          failed = results.filter((r) => r.status === 'rejected').length;
+          if (failed === ids.length) throw new Error('Couldn’t delete the messages. Try again.');
+        },
+      });
+      if (!ok) return;
+      setSelected(null);
+      toast(failed > 0 ? `${ids.length - failed} deleted, ${failed} couldn’t be deleted` : ids.length === 1 ? 'Message deleted' : `${ids.length} messages deleted`, failed > 0 ? 'error' : undefined);
+    })();
+  };
+
   const send = useCallback((draft: Draft) => {
     atBottom.current = true;
     setReplyTo(null);
@@ -378,7 +418,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
     if (target !== e.currentTarget && !target.hasAttribute('data-row')) return;
-    if (e.key === 'Escape') { composer.current?.focus(); return; }
+    if (e.key === 'Escape') { if (selected) setSelected(null); else composer.current?.focus(); return; }
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     const list = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-row]')];
     if (list.length === 0) return;
@@ -441,7 +481,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     const own = m.userId === me.id;
     d.group?.items.push(
       <MessageRow key={row.key} row={row} first={first} last={last} animate={fresh.current.has(row.key)} me={me} people={byId} canPost={canPost}
-        canDelete={row.status === 'sent' && !m.deleted && (own || isOwner)} editing={editingId === row.key} actions={actions} />,
+        canDelete={row.status === 'sent' && !m.deleted && (own || isOwner)} editing={editingId === row.key} selecting={selected !== null} selected={Boolean(selected?.has(row.key))} actions={actions} />,
     );
   });
   closeDay();
@@ -522,7 +562,21 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
         </div>
 
         <footer className="relative shrink-0">
-          {canPost ? (
+          {selected ? (
+            <div className={cn(COLUMN, 'px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4')}>
+              <div className="tg-input flex items-center gap-2 px-3 py-2" role="toolbar" aria-label="Selected messages">
+                <button type="button" onClick={() => setSelected(null)} aria-label="Cancel selection" title="Cancel (Esc)"
+                  className="grid size-9 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-(--tg-in-meta) shadow-none hover:bg-(--tg-menu-hover)">
+                  <Icon name="close" className="size-5" />
+                </button>
+                <span className="min-w-0 flex-1 truncate text-[15px] font-medium" aria-live="polite">{selectedIds.length} selected</span>
+                <button type="button" onClick={deleteSelected} disabled={selectedIds.length === 0}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--tg-danger) px-4 py-2 text-[14px] font-medium text-white shadow-none disabled:cursor-default disabled:opacity-50">
+                  <Icon name="trashPlain" className="size-4" />Delete
+                </button>
+              </div>
+            </div>
+          ) : canPost ? (
             <Composer handle={composer} key={projectId} projectId={projectId} projectName={projectName} people={everyone} me={me}
               replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onSend={send} offline={!online}
               editing={editingMessage} onCancelEdit={() => setEditingId(null)} onSaveEdit={saveEdit} />

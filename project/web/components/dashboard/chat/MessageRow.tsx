@@ -18,6 +18,10 @@ export interface RowActions {
   reply: (m: ChatMessageView) => void;
   react: (id: string, emoji: string) => void;
   remove: (m: ChatMessageView) => void;
+  /** Starts selecting messages (to delete several at once) with this one ticked. */
+  select: (m: ChatMessageView) => void;
+  /** Ticks or unticks a message while selecting. */
+  toggle: (id: string) => void;
   /** Opens your own message in the message box for editing. */
   edit: (m: ChatMessageView) => void;
   copyText: (m: ChatMessageView) => void;
@@ -67,7 +71,7 @@ function hasSelectionIn(el: HTMLElement): boolean {
  * Right-click or long-press opens the menu (reactions + actions), double-click or swipe left replies,
  * and from the keyboard Enter / the Menu key / Shift+F10 open the menu of the focused message.
  */
-export const MessageRow = memo(function MessageRow({ row, first, last, animate, me, people, canPost, canDelete, editing, actions }: {
+export const MessageRow = memo(function MessageRow({ row, first, last, animate, me, people, canPost, canDelete, editing, selecting, selected, actions }: {
   row: Row;
   /** First bubble of a group (shows the sender's name). */
   first: boolean;
@@ -82,6 +86,9 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
   /** The inline editor is open on this message. */
   /** This message is open in the message box (it gets an outline). */
   editing: boolean;
+  /** The chat is in "select messages" mode (clicking ticks a message instead of anything else). */
+  selecting: boolean;
+  selected: boolean;
   actions: RowActions;
 }) {
   const m = row.msg;
@@ -90,7 +97,8 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
   const mentionsMe = !own && !m.deleted && m.mentions.includes(me.id);
   const names = useMemo(() => m.mentions.map((id) => people.get(id)?.name).filter((n): n is string => Boolean(n)), [m.mentions, people]);
   const sent = row.status === 'sent' && !m.deleted;
-  const hasMenu = sent || row.status === 'failed';
+  const hasMenu = (sent || row.status === 'failed') && !selecting;
+  const pickable = selecting && canDelete;
   const canEdit = own && sent && canPost;
 
   const article = useRef<HTMLElement>(null);
@@ -146,7 +154,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
     setMenu({ x: e.clientX, y: e.clientY });
   };
   const onDoubleClick = (e: MouseEvent<HTMLElement>) => {
-    if (!canPost || !sent || (e.target as HTMLElement).closest('a,button,pre,input,textarea')) return;
+    if (selecting || !canPost || !sent || (e.target as HTMLElement).closest('a,button,pre,input,textarea')) return;
     window.getSelection()?.removeAllRanges();
     actions.reply(m);
   };
@@ -170,6 +178,7 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
       ...(canEdit ? [{ label: 'Edit', icon: 'pencil' as const, onSelect: () => actions.edit(m) }] : []),
       ...(m.text ? [{ label: 'Copy text', icon: 'copy' as const, onSelect: () => actions.copyText(m) }] : []),
       { label: 'Copy link', icon: 'link', onSelect: () => actions.copyLink(m) },
+      ...(canDelete ? [{ label: 'Select', icon: 'check' as const, onSelect: () => actions.select(m) }] : []),
       ...(canDelete ? [{ label: 'Delete', icon: 'trashPlain' as const, danger: true, onSelect: () => actions.remove(m) }] : []),
     ];
   const reactions = canPost && sent
@@ -205,6 +214,8 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
       tabIndex={-1}
       aria-label={label}
       aria-haspopup={hasMenu ? 'menu' : undefined}
+      data-selected={selected ? '' : undefined}
+      onClickCapture={selecting ? (e) => { e.preventDefault(); e.stopPropagation(); if (pickable) actions.toggle(m.id); } : undefined}
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
       onKeyDown={onKeyDown}
@@ -212,8 +223,13 @@ export const MessageRow = memo(function MessageRow({ row, first, last, animate, 
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={() => { endPress(); setSwipe(0); }}
-      className={cn('tg-row isolate flex touch-pan-y outline-none', own ? 'justify-end pr-[9px]' : 'justify-start pl-[9px]', last ? 'pb-1.5' : 'pb-[3px]')}
+      className={cn('tg-row relative isolate flex touch-pan-y outline-none', own ? 'justify-end pr-[9px]' : 'justify-start pl-[9px]', last ? 'pb-1.5' : 'pb-[3px]', selecting && 'pl-10', pickable && 'cursor-pointer', selected && 'bg-(--tg-accent)/15')}
     >
+      {selecting ? (
+        <span aria-hidden="true" className={cn('absolute top-1/2 left-2.5 grid size-5 -translate-y-1/2 place-items-center rounded-full border-2 transition-colors', !pickable && 'opacity-30', selected ? 'border-(--tg-accent) bg-(--tg-accent) text-white' : 'border-(--tg-in-meta)')}>
+          {selected ? <Icon name="check" className="size-3.5" /> : null}
+        </span>
+      ) : null}
       {row.status === 'failed' ? (
         <button type="button" title={row.error ? `Not sent: ${row.error}` : 'Not sent'} aria-label="Not sent. Show options"
           onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left - 200, y: r.bottom + 4 }); }}
