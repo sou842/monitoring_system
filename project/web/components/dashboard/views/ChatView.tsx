@@ -356,9 +356,11 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   const editingMessage = useMemo(() => (editingId ? chat.messages.find((m) => m.id === editingId && !m.deleted) ?? null : null), [editingId, chat.messages]);
   const saveEdit = useCallback(async (text: string, issues: ChatIssueView[]) => {
     if (!editingId) return;
+    const saved = editingId;
     try {
-      await chat.edit(editingId, text, issues);
-      setEditingId(null);
+      await chat.edit(saved, text, issues);
+      // Only end the edit if it is still this message (another one may have been opened while saving).
+      setEditingId((current) => (current === saved ? null : current));
     } catch (e) {
       toast(e instanceof Error && e.message ? `Couldn’t save: ${e.message}` : 'Couldn’t save the change', 'error');
       throw e;

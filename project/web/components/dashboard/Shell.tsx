@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type CSSPr
 import { api, clearCache, onUnauthorized, useApi } from '@/lib/client/api';
 import type { ProjectListItem, ProjectsResponse, UserView } from '@/lib/types';
 import { Avatar } from '../ui/bits';
+import { clearIssuePickerCache } from './chat/useIssuePicker';
 import { Icon, type IconName } from '../ui/Icon';
 import { Menu } from '../ui/Menu';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
@@ -168,6 +169,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
   useEffect(() => setUser(initialUser), [initialUser]);
   useEffect(() => {
     onUnauthorized(() => {
+      clearIssuePickerCache();
       router.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
     });
     return () => onUnauthorized(null);
@@ -178,6 +180,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
     // The development login bypass (LoginForm) is a plain cookie the server can't clear; without this the dev "admin" stays logged in.
     document.cookie = 'et_dev=; path=/; max-age=0; SameSite=Lax';
     clearCache();
+    clearIssuePickerCache();
     router.replace('/login');
     router.refresh();
   });

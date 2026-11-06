@@ -9,6 +9,8 @@ import type { ChatIssueView, IssueListItem, IssuesResponse } from '@/lib/types';
 const SEARCH_DEBOUNCE_MS = 300;
 /** A fetched first page is reused for this long (the picker opens instantly, new issues show up soon enough). */
 const CACHE_TTL_MS = 60_000;
+/** A cached page younger than this is used as is; an older one is shown and refreshed behind the scenes. */
+const REFRESH_AFTER_MS = 10_000;
 /** Most first pages kept (one per project and search text). */
 const CACHE_MAX = 40;
 
@@ -39,6 +41,17 @@ function fetchPage(projectId: string, q: string, page: number): Promise<IssuesRe
   inflight.set(key, request);
   return request;
 }
+
+/** Forgets every fetched page: called when the session ends, so the next person never sees someone else's list. */
+export function clearIssuePickerCache(): void {
+  firstPages.clear();
+  inflight.clear();
+}
+
+const isFresh = (projectId: string, q: string) => {
+  const hit = firstPages.get(keyOf(projectId, q));
+  return Boolean(hit && Date.now() - hit.at < REFRESH_AFTER_MS);
+};
 
 /** Warms the cache with the project's newest issues, so the "/" list is there the moment it opens. */
 export function prefetchIssues(projectId: string): void {
@@ -77,7 +90,8 @@ export function useIssuePicker(projectId: string, query: string | null) {
     if (hit) setState({ items: hit.issues.map(toView), page: 1, total: hit.total, loading: false, loadingMore: false, failed: false });
     // Without a saved page the previous results stay until the new ones arrive (no flashing while typing).
     else setState((s) => ({ ...s, loading: true, loadingMore: false, failed: false }));
-    // A cached page may be a minute old: show it, and refresh quietly behind it.
+    // A recent page is used as is; an older one is shown and refreshed quietly behind it.
+    if (hit && isFresh(projectId, settled)) return;
     fetchPage(projectId, settled, 1)
       .then((response) => {
         if (generation.current !== mine) return;

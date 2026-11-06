@@ -262,6 +262,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   useEffect(() => {
     if (!editor) return;
     if (editing) {
+      saving.current = false;
       if (!stash.current) stash.current = { doc: editor.isEmpty ? null : editor.getJSON(), attached: latest.current.attached };
       editor.commands.setContent(markdownToDoc(editing.text, people), { emitUpdate: false });
       setAttached(editing.issues);
@@ -427,6 +428,7 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
             <li role="presentation" className="sticky top-0 z-10 -mx-1.5 -mt-1.5 mb-1 flex items-center gap-2 rounded-t-2xl border-0 border-b border-solid border-(--tg-bar-line) bg-(--tg-menu-solid) px-3.5 py-2.5 text-[14px]">
               <Icon name="search" className="size-4 shrink-0 text-(--tg-in-meta)" />
               <input type="text" value={pickerText} onChange={(e) => setPickerText(e.target.value)} placeholder="Search issues by type, message or id" aria-label="Search issues" autoComplete="off" spellCheck={false}
+                role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={listId} aria-activedescendant={options[index] ? `${listId}-${options[index].id}` : undefined}
                 onKeyDown={(e) => { if (suggestKey.current(e.nativeEvent)) { e.preventDefault(); if (e.key === 'Escape') editor?.commands.focus(); } }}
                 className="min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-(--tg-text) shadow-none outline-none placeholder:text-(--tg-in-meta)" />
               <span className="shrink-0 text-[12px] text-(--tg-in-meta) tabular-nums" aria-live="polite">{picker.loading ? 'Searching…' : picker.total > 0 ? `${options.length} of ${picker.total.toLocaleString()}` : ''}</span>
