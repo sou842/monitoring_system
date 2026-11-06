@@ -8,15 +8,14 @@ import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Suggestion, { exitSuggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion';
 import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
-import { api } from '@/lib/client/api';
 import type { Draft } from '@/lib/client/chat';
 import { docToMarkdown, markdownToDoc } from '@/lib/chatText';
-import { queryString } from '@/lib/format';
-import type { ChatIssueView, ChatMessageView, IssuesResponse, PersonView } from '@/lib/types';
+import type { ChatIssueView, ChatMessageView, PersonView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
 import { snippetOf } from './MessageRow';
 import { ChatAvatar, Emoji, ICON_BUTTON, IssueCard, issueIcon, issueTile, onMenuKeyDown, SendIcon, useDismiss, useFocusFirst } from './shared';
+import { prefetchIssues, useIssuePicker } from './useIssuePicker';
 
 /*
  * The message box, Teams-style: it opens as a plain one-line input, but it is a rich editor (Tiptap) inside.
@@ -33,9 +32,10 @@ const MAX_ISSUES = 5;
 /** Longest message the server accepts; the counter appears near it. */
 const MAX_LENGTH = 4000;
 const COUNTER_FROM = 3600;
-/** Issues listed in the "/" picker, and how long typing pauses before it searches. */
-const ISSUE_RESULTS = 6;
-const ISSUE_SEARCH_DELAY_MS = 200;
+/** Scrolling within this many px of the end of the "/" list loads the next page of issues. */
+const ISSUE_LOAD_MORE_PX = 96;
+/** Placeholder rows shown while the first page of the "/" list loads. */
+const ISSUE_SKELETON_ROWS = 4;
 const MENTION_RESULTS = 6;
 /** Unsent text is kept per project for this tab only (sessionStorage: gone when the tab closes, never shared). */
 const DRAFT_KEY = (projectId: string) => `et_chat_draft:${projectId}`;
@@ -119,8 +119,8 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   const [attached, setAttached] = useState<ChatIssueView[]>([]);
   const [suggest, setSuggest] = useState<Suggest | null>(null);
   const [index, setIndex] = useState(0);
-  const [issueResults, setIssueResults] = useState<ChatIssueView[]>([]);
-  const [searching, setSearching] = useState(false);
+  /** What is in the issue picker's search box: what was typed after "/" in the message, or typed in the box itself. */
+  const [pickerText, setPickerText] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [length, setLength] = useState(0);
   /** The unsent draft (text and issues) set aside while a message is being edited, put back afterwards. */
@@ -282,27 +282,28 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
   // Placeholder text follows offline / expanded / editing.
   useEffect(() => { if (editor) editor.view.dispatch(editor.state.tr.setMeta('placeholder', placeholder.current)); }, [editor, offline, expanded, editingId]);
 
-  // "/" searches the project's issues as the person types.
-  const issueQuery = suggest?.kind === 'issue' ? suggest.query : null;
-  useEffect(() => {
-    if (issueQuery === null) return;
-    let cancelled = false;
-    setSearching(true);
-    const timer = setTimeout(() => {
-      api<IssuesResponse>(`/api/issues${queryString({ projectId, status: 'all', sort: 'lastSeen', q: issueQuery })}`)
-        .then((res) => { if (!cancelled) setIssueResults(res.issues.slice(0, ISSUE_RESULTS).map((i) => ({ id: i.id, eventType: i.eventType, errorType: i.errorType, message: i.message, status: i.status, count: i.count }))); })
-        .catch(() => { if (!cancelled) setIssueResults([]); })
-        .finally(() => { if (!cancelled) setSearching(false); });
-    }, ISSUE_SEARCH_DELAY_MS);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [issueQuery, projectId]);
-  useEffect(() => setIndex(0), [suggest?.kind, suggest?.query]);
+  // "/" lists the project's issues (already fetched when the chat opened) and searches them as the person types;
+  // scrolling to the end of the list loads the next page.
+  useEffect(() => { prefetchIssues(projectId); }, [projectId]);
+  const issueQuery = suggest?.kind === 'issue' ? pickerText : null;
+  useEffect(() => { if (suggest?.kind === 'issue') setPickerText(suggest.query); }, [suggest?.kind, suggest?.query]);
+  const picker = useIssuePicker(projectId, issueQuery);
+  const issueResults = picker.items;
+  useEffect(() => setIndex(0), [suggest?.kind, suggest?.query, pickerText]);
 
   const mentionOptions = suggest?.kind === 'mention'
     ? people.filter((p) => p.id !== me.id && p.name.toLowerCase().includes(suggest.query.toLowerCase())).slice(0, MENTION_RESULTS)
     : [];
   const options: Array<PersonView | ChatIssueView> = suggest?.kind === 'mention' ? mentionOptions : suggest?.kind === 'issue' ? issueResults : [];
-  const shown = suggest !== null && (options.length > 0 || (suggest.kind === 'issue' && !searching) || (suggest.kind === 'mention' && suggest.query.length > 0));
+  const shown = suggest !== null && (suggest.kind === 'issue' || options.length > 0 || suggest.query.length > 0);
+  // Keep the highlighted option in view, and fetch more issues when the highlight nears the end of what is loaded.
+  const { hasMore: moreIssues, loadMore: loadMoreIssues } = picker;
+  useEffect(() => {
+    if (!shown || !options[index]) return;
+    document.getElementById(`${listId}-${options[index].id}`)?.scrollIntoView({ block: 'nearest' });
+    if (suggest?.kind === 'issue' && moreIssues && index >= options.length - 3) loadMoreIssues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, shown]);
 
   function choose(option: PersonView | ChatIssueView) {
     if (!suggest) return;
@@ -418,13 +419,29 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
     <div className="relative mx-auto flex w-full max-w-185 items-end gap-2 px-2.5 pt-1.5 pb-[max(10px,env(safe-area-inset-bottom))] sm:gap-2.5 md:px-4 md:pb-[max(14px,env(safe-area-inset-bottom))]">
       {shown ? (
         <ul id={listId} role="listbox" aria-label={suggest.kind === 'mention' ? 'People in this project' : 'Issues in this project'}
-          className="tg-fade-in absolute right-18 bottom-full left-2 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto rounded-2xl bg-(--tg-menu) p-1.5 text-(--tg-text) shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl md:left-4">
-          <li className="px-2.5 pt-1 pb-1.5 text-[12px] font-medium text-(--tg-in-meta)" role="presentation">
-            {suggest.kind === 'mention' ? 'People in this project' : searching ? 'Searching issues…' : 'Issues in this project'}
-          </li>
-          {options.length === 0 ? (
+          onScroll={(e) => { const el = e.currentTarget; if (suggest.kind === 'issue' && el.scrollHeight - el.scrollTop - el.clientHeight < ISSUE_LOAD_MORE_PX) loadMoreIssues(); }}
+          className="tg-fade-in absolute right-18 bottom-full left-2 z-30 mb-1 max-h-80 max-w-xl list-none overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-2xl bg-(--tg-menu) p-1.5 text-(--tg-text) shadow-[0_6px_24px_rgb(0_0_0/0.2)] backdrop-blur-xl md:left-4">
+          {suggest.kind === 'mention' ? (
+            <li className="px-2.5 pt-1 pb-1.5 text-[12px] font-medium text-(--tg-in-meta)" role="presentation">People in this project</li>
+          ) : (
+            <li role="presentation" className="sticky top-0 z-10 -mx-1.5 -mt-1.5 mb-1 flex items-center gap-2 rounded-t-2xl border-0 border-b border-solid border-(--tg-bar-line) bg-(--tg-menu-solid) px-3.5 py-2.5 text-[14px]">
+              <Icon name="search" className="size-4 shrink-0 text-(--tg-in-meta)" />
+              <input type="text" value={pickerText} onChange={(e) => setPickerText(e.target.value)} placeholder="Search issues by type, message or id" aria-label="Search issues" autoComplete="off" spellCheck={false}
+                onKeyDown={(e) => { if (suggestKey.current(e.nativeEvent)) { e.preventDefault(); if (e.key === 'Escape') editor?.commands.focus(); } }}
+                className="min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-(--tg-text) shadow-none outline-none placeholder:text-(--tg-in-meta)" />
+              <span className="shrink-0 text-[12px] text-(--tg-in-meta) tabular-nums" aria-live="polite">{picker.loading ? 'Searching…' : picker.total > 0 ? `${options.length} of ${picker.total.toLocaleString()}` : ''}</span>
+            </li>
+          )}
+          {options.length === 0 && suggest.kind === 'issue' && picker.loading ? (
+            Array.from({ length: ISSUE_SKELETON_ROWS }, (_, k) => (
+              <li key={k} role="presentation" aria-hidden="true" className="flex items-center gap-3 px-2.5 py-1.5">
+                <span className="size-8.5 shrink-0 animate-pulse rounded-full bg-(--tg-text)/10 motion-reduce:animate-none" />
+                <span className="grid flex-1 gap-1.5"><span className="h-3 w-1/3 animate-pulse rounded-full bg-(--tg-text)/10 motion-reduce:animate-none" /><span className="h-2.5 w-2/3 animate-pulse rounded-full bg-(--tg-text)/10 motion-reduce:animate-none" /></span>
+              </li>
+            ))
+          ) : options.length === 0 ? (
             <li className="px-2.5 py-2 text-[14px] text-(--tg-in-meta)" role="presentation">
-              {suggest.kind === 'mention' ? `Nobody called “${suggest.query}” is in this project.` : suggest.query ? `No issues match “${suggest.query}”.` : 'This project has no issues yet.'}
+              {suggest.kind === 'mention' ? `Nobody called “${suggest.query}” is in this project.` : picker.failed ? 'Couldn’t load issues. Type again to retry.' : pickerText ? `No issues match “${pickerText}”.` : 'This project has no issues yet.'}
             </li>
           ) : null}
           {options.map((option, i) => (
@@ -445,6 +462,9 @@ export function Composer({ handle, projectId, projectName, people, me, replyTo, 
               )}
             </li>
           ))}
+          {suggest.kind === 'issue' && picker.loadingMore ? (
+            <li role="presentation" className="px-2.5 py-2 text-[12px] text-(--tg-in-meta)">Loading more…</li>
+          ) : null}
         </ul>
       ) : null}
 
