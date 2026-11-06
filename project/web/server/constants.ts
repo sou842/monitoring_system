@@ -242,6 +242,16 @@ export const CHAT_PAGE_SIZE = 50;
 /** Chat messages one user may post per minute (all projects together). */
 export const CHAT_MESSAGES_PER_MINUTE = 30;
 export const CHAT_RATE_WINDOW_MS = 60 * 1000;
+/** Reactions, edits and deletes one user may make per minute (all projects together). */
+export const CHAT_ACTIONS_PER_MINUTE = 120;
+/** Most new messages returned by one catch-up request (`after=`); the browser asks again while `hasMore`. */
+export const CHAT_CATCH_UP_LIMIT = 200;
+/** Most changed (edited, deleted, reacted-to) messages returned by one sync request (`since=`). */
+export const CHAT_CHANGES_LIMIT = 200;
+/** A sync cursor is moved back by this much, so a change saved by a server whose clock is slightly behind is not missed (re-sending one is harmless). */
+export const CHAT_SYNC_OVERLAP_MS = 5000;
+/** Longest client id accepted for de-duplicating a re-sent message. */
+export const MAX_CHAT_CLIENT_ID_LENGTH = 64;
 /** Unread counts stop at this number ("99+"). */
 export const MAX_UNREAD_COUNT = 99;
 /** Mentions stored per message. */

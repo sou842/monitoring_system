@@ -123,12 +123,18 @@ export interface ChatMessageView {
   replyTo: ChatReplyView | null;
   reactions: ChatReactionView[];
   createdAt: string;
+  /** When the author last edited the text (null = never). */
+  editedAt: string | null;
   deleted: boolean;
 }
 
 export interface ChatResponse {
   messages: ChatMessageView[];
+  /** With `since`: loaded messages edited, reacted to or deleted since then. */
+  changed: ChatMessageView[];
   hasMore: boolean;
+  /** Cursor to send as `since` next time. */
+  syncedAt: string;
   /** Whether Pusher is set up on the server (otherwise the page polls). */
   realtime: boolean;
   /** When you read the chat before this visit (newest page only; null = never or not applicable). */

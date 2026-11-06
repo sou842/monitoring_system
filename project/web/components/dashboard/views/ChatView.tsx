@@ -118,7 +118,7 @@ function toRow(p: { clientId: string; draft: Draft; status: 'sending' | 'failed'
     msg: {
       id: p.clientId, projectId, userId: me.id, userName: me.name, text: p.draft.text, mentions: p.draft.mentions, issues: p.draft.issues,
       replyTo: r ? { id: r.id, userId: r.userId, userName: r.userName, text: r.text.slice(0, 140), deleted: false, hasIssues: r.issues.length > 0 } : null,
-      reactions: [], createdAt: p.createdAt, deleted: false,
+      reactions: [], createdAt: p.createdAt, editedAt: null, deleted: false,
     },
   };
 }
@@ -148,6 +148,9 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   const composer = useRef<ComposerHandle>(null);
   const wallpaper = useRef<WallpaperHandle>(null);
   const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null);
+  /** The message whose inline editor is open (one at a time). */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  useEffect(() => { setEditingId(null); }, [projectId]);
 
   const everyone = useMemo<PersonView[]>(() => (people.data ? [...(people.data.owner ? [people.data.owner] : []), ...people.data.members] : []), [people.data]);
   const byId = useMemo(() => new Map(everyone.map((p) => [p.id, p])), [everyone]);
@@ -295,6 +298,20 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
   const actions = useMemo<RowActions>(() => ({
     reply: (m) => { setReplyTo(m); composer.current?.focus(); },
     react: (id, emoji) => latest.current.chat.react(id, emoji),
+    edit: (m) => setEditingId(m.id),
+    cancelEdit: () => {
+      setEditingId(null);
+      requestAnimationFrame(() => composer.current?.focus());
+    },
+    saveEdit: async (m, text) => {
+      try {
+        await latest.current.chat.edit(m.id, text);
+        setEditingId(null);
+      } catch (e) {
+        latest.current.toast(e instanceof Error && e.message ? `Couldn’t save: ${e.message}` : 'Couldn’t save the change', 'error');
+        throw e;
+      }
+    },
     remove: (m) => {
       const { action: run, openDialog: open, chat: c, toast: say } = latest.current;
       run(async () => {
@@ -393,7 +410,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
     const own = m.userId === me.id;
     d.group?.items.push(
       <MessageRow key={row.key} row={row} first={first} last={last} animate={fresh.current.has(row.key)} me={me} people={byId} canPost={canPost}
-        canDelete={row.status === 'sent' && !m.deleted && (own || isOwner)} actions={actions} />,
+        canDelete={row.status === 'sent' && !m.deleted && (own || isOwner)} editing={editingId === row.key} actions={actions} />,
     );
   });
   closeDay();

@@ -1,7 +1,8 @@
 import { ObjectId, type Db, type Filter } from 'mongodb';
 import { isChatReaction, REPLY_SNIPPET_LENGTH } from '../lib/chat.ts';
-import { CHAT_PAGE_SIZE, MAX_CHAT_ISSUES, MAX_CHAT_MENTIONS, MAX_CHAT_MESSAGE_LENGTH, MAX_UNREAD_COUNT } from './constants.ts';
+import { CHAT_CATCH_UP_LIMIT, CHAT_CHANGES_LIMIT, CHAT_PAGE_SIZE, MAX_CHAT_CLIENT_ID_LENGTH, MAX_CHAT_ISSUES, MAX_CHAT_MENTIONS, MAX_CHAT_MESSAGE_LENGTH, MAX_UNREAD_COUNT } from './constants.ts';
 import { collections } from './db.ts';
+import { escapeRegex } from './http.ts';
 import type { ChatMessageDoc } from './models.ts';
 
 /** Project chat (docs/MEMBERS_AND_CHAT.md): one channel per project, plain-text messages. */
@@ -52,6 +53,8 @@ export interface ChatMessageView {
   replyTo: ChatReplyView | null;
   reactions: ChatReactionView[];
   createdAt: Date;
+  /** When the author last edited the text (null = never). */
+  editedAt: Date | null;
   deleted: boolean;
 }
 
@@ -135,6 +138,7 @@ export async function messageViews(db: Db, messages: ChatMessageDoc[], viewerId:
         names: list.slice(0, REACTION_NAMES_SHOWN).map((id) => nameOf(id) ?? 'Deleted user'),
       })),
       createdAt: m.createdAt,
+      editedAt: m.deletedAt ? null : m.editedAt ?? null,
       deleted: Boolean(m.deletedAt),
     };
   });
@@ -148,12 +152,45 @@ export async function messageViews(db: Db, messages: ChatMessageDoc[], viewerId:
 export async function listMessages(db: Db, projectId: ObjectId, options: { before?: ObjectId | null; after?: ObjectId | null } = {}): Promise<{ messages: ChatMessageDoc[]; hasMore: boolean }> {
   const c = collections(db);
   if (options.after) {
-    const messages = await c.chatMessages.find({ projectId, _id: { $gt: options.after } }).sort({ _id: 1 }).limit(CHAT_PAGE_SIZE * 4).toArray();
-    return { messages, hasMore: false };
+    const newer = await c.chatMessages.find({ projectId, _id: { $gt: options.after } }).sort({ _id: 1 }).limit(CHAT_CATCH_UP_LIMIT + 1).toArray();
+    return { messages: newer.slice(0, CHAT_CATCH_UP_LIMIT), hasMore: newer.length > CHAT_CATCH_UP_LIMIT };
   }
   const filter: Filter<ChatMessageDoc> = options.before ? { projectId, _id: { $lt: options.before } } : { projectId };
   const newest = await c.chatMessages.find(filter).sort({ _id: -1 }).limit(CHAT_PAGE_SIZE + 1).toArray();
   return { messages: newest.slice(0, CHAT_PAGE_SIZE).reverse(), hasMore: newest.length > CHAT_PAGE_SIZE };
+}
+
+/**
+ * Messages of the project changed (edited, reacted to, deleted) after `since`, up to `upTo` (the ones the
+ * browser already has, at most CHAT_CHANGES_LIMIT, oldest change first). Messages newer than `upTo` come
+ * through `after=` instead.
+ */
+export function changedMessages(db: Db, projectId: ObjectId, since: Date, upTo: ObjectId | null): Promise<ChatMessageDoc[]> {
+  const filter: Filter<ChatMessageDoc> = { projectId, updatedAt: { $exists: true, $gt: since } };
+  if (upTo) filter._id = { $lte: upTo };
+  return collections(db).chatMessages.find(filter).sort({ updatedAt: 1 }).limit(CHAT_CHANGES_LIMIT).toArray();
+}
+
+/** A client id for de-duplicating sends: a short string of safe characters, else null. */
+export function cleanClientId(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_CHAT_CLIENT_ID_LENGTH && /^[\w-]+$/.test(value) ? value : null;
+}
+
+/**
+ * The people of the project whose "@Name" appears in `text`, matched the way the message renderer does
+ * (lib/chatText.ts: longest names first, so "@Ann Lee" wins over "@Ann"; not followed by a word character).
+ * Used when a message is edited: the text is then the source of truth for who is mentioned.
+ */
+export function mentionsInText(text: string, people: Array<{ _id: ObjectId; name: string }>): ObjectId[] {
+  const named = people.filter((p) => p.name).sort((a, b) => b.name.length - a.name.length);
+  if (named.length === 0) return [];
+  const pattern = new RegExp(`@(${named.map((p) => escapeRegex(p.name)).join('|')})(?![\\w])`, 'g');
+  const found = new Map<string, ObjectId>();
+  for (const match of text.matchAll(pattern)) {
+    const person = named.find((p) => p.name === match[1]);
+    if (person) found.set(String(person._id), person._id);
+  }
+  return [...found.values()].slice(0, MAX_CHAT_MENTIONS);
 }
 
 /** One message of the project, or null. */
@@ -164,21 +201,46 @@ export function getMessage(db: Db, projectId: ObjectId, id: ObjectId): Promise<C
 /** Saves a new message. */
 export async function postMessage(
   db: Db, projectId: ObjectId, userId: ObjectId, text: string,
-  extras: { mentions?: ObjectId[]; issueIds?: ObjectId[]; replyToId?: ObjectId | null } = {}, now = new Date(),
-): Promise<ChatMessageDoc> {
+  extras: { mentions?: ObjectId[]; issueIds?: ObjectId[]; replyToId?: ObjectId | null; clientId?: string | null } = {}, now = new Date(),
+): Promise<{ message: ChatMessageDoc; duplicate: boolean }> {
   const message: ChatMessageDoc = { _id: new ObjectId(), projectId, userId, text, mentions: extras.mentions ?? [], issueIds: extras.issueIds ?? [], createdAt: now };
   if (extras.replyToId) message.replyToId = extras.replyToId;
-  await collections(db).chatMessages.insertOne(message);
-  return message;
+  if (extras.clientId) message.clientId = extras.clientId;
+  const c = collections(db);
+  try {
+    await c.chatMessages.insertOne(message);
+  } catch (error) {
+    // The same send arrived before (the browser retried after losing the answer): return the saved message.
+    if (extras.clientId && (error as { code?: unknown }).code === 11000) {
+      const saved = await c.chatMessages.findOne({ userId, clientId: extras.clientId });
+      if (saved && saved.projectId.equals(projectId)) return { message: saved, duplicate: true };
+    }
+    throw error;
+  }
+  return { message, duplicate: false };
+}
+
+/** Saves the author's new text (and who it mentions). Returns false when the message was deleted meanwhile. */
+export async function editMessage(db: Db, message: ChatMessageDoc, text: string, mentions: ObjectId[], now = new Date()): Promise<boolean> {
+  const result = await collections(db).chatMessages.updateOne(
+    { _id: message._id, deletedAt: { $exists: false } },
+    { $set: { text, mentions, editedAt: now, updatedAt: now } },
+  );
+  return result.matchedCount === 1;
+}
+
+/** Removes a message's content for everyone; a "deleted" marker stays. */
+export async function deleteMessage(db: Db, id: ObjectId, now = new Date()): Promise<void> {
+  await collections(db).chatMessages.updateOne({ _id: id }, { $set: { deletedAt: now, updatedAt: now, text: '', mentions: [] }, $unset: { reactions: '', issueIds: '', editedAt: '' } });
 }
 
 /** Adds `userId`'s `emoji` to a message, or takes it away when it is already there. Returns false for an unknown emoji or a deleted message. */
-export async function toggleReaction(db: Db, message: ChatMessageDoc, userId: ObjectId, emoji: unknown): Promise<boolean> {
+export async function toggleReaction(db: Db, message: ChatMessageDoc, userId: ObjectId, emoji: unknown, now = new Date()): Promise<boolean> {
   if (!isChatReaction(emoji) || message.deletedAt) return false;
   const c = collections(db);
   const key = `reactions.${emoji}`;
-  const removed = await c.chatMessages.updateOne({ _id: message._id, [key]: userId }, { $pull: { [key]: userId } });
-  if (removed.modifiedCount === 0) await c.chatMessages.updateOne({ _id: message._id }, { $addToSet: { [key]: userId } });
+  const removed = await c.chatMessages.updateOne({ _id: message._id, [key]: userId }, { $pull: { [key]: userId }, $set: { updatedAt: now } });
+  if (removed.modifiedCount === 0) await c.chatMessages.updateOne({ _id: message._id, deletedAt: { $exists: false } }, { $addToSet: { [key]: userId }, $set: { updatedAt: now } });
   return true;
 }
 
@@ -206,7 +268,8 @@ export async function unreadCounts(db: Db, userId: ObjectId, projectIds: ObjectI
   await Promise.all(projectIds.map(async (projectId) => {
     const read = reads.find((r) => r.projectId.equals(projectId));
     const filter: Filter<ChatMessageDoc> = { projectId, userId: { $ne: userId }, deletedAt: { $exists: false } };
-    if (read) filter.createdAt = { $gt: read.lastReadAt };
+    // The _id bound lets the { projectId, _id } index skip everything read (ids start with their creation second).
+    if (read) { filter._id = { $gte: ObjectId.createFromTime(Math.floor(read.lastReadAt.getTime() / 1000)) }; filter.createdAt = { $gt: read.lastReadAt }; }
     const n = await c.chatMessages.countDocuments(filter, { limit: MAX_UNREAD_COUNT + 1 });
     if (n > 0) counts.set(String(projectId), n);
   }));

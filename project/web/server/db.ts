@@ -77,6 +77,10 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.collection('project_members').createIndex({ userId: 1 }),
     // Project chat: newest messages of a channel; one read marker per (project, user).
     db.collection('chat_messages').createIndex({ projectId: 1, _id: -1 }),
+    // Changes (edits, reactions, deletes) since a time, for syncing open chats.
+    db.collection('chat_messages').createIndex({ projectId: 1, updatedAt: 1 }, { partialFilterExpression: { updatedAt: { $exists: true } } }),
+    // A message re-sent after a lost response is saved once.
+    db.collection('chat_messages').createIndex({ userId: 1, clientId: 1 }, { unique: true, partialFilterExpression: { clientId: { $exists: true } } }),
     // Chat messages older than 30 days are removed automatically.
     db.collection('chat_messages').createIndex({ createdAt: 1 }, { expireAfterSeconds: CHAT_RETENTION_DAYS * SECONDS_PER_DAY }),
     db.collection('chat_reads').createIndex({ projectId: 1, userId: 1 }, { unique: true }),

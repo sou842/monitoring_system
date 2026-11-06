@@ -320,6 +320,104 @@ describe('project members and chat (integration)', { skip: enabled ? false : 'MO
       assert.equal((await list(carol, `&after=${lastMessage.id}`)).lastReadAt, null); // polling does not report it
     });
 
+    it('authors edit their own messages; mentions follow the new text; others cannot edit', async () => {
+      const edit = (who: typeof bob, id: string, text: unknown) => chat.PATCH(who.as('/api/chat', { method: 'PATCH', body: { id, text } }));
+      const original = (await (await post(bob, 'Ask @Carol Member', { mentions: [carol.user.id] })).json()).message;
+      assert.equal(original.editedAt, null);
+
+      const res = await edit(bob, original.id, '  Ask @Olive Owner instead  ');
+      assert.equal(res.status, 200);
+      const { message } = await res.json();
+      assert.equal(message.text, 'Ask @Olive Owner instead');
+      assert.equal(typeof message.editedAt, 'string');
+      assert.deepEqual(message.mentions, [owner.user.id]); // worked out again from the text
+
+      assert.equal((await edit(carol, original.id, 'mine now')).status, 403); // not the author
+      assert.equal((await edit(owner, original.id, 'owner edit')).status, 403); // the owner may delete, not rewrite
+      assert.equal((await edit(stranger, original.id, 'hi')).status, 404);
+      assert.equal((await edit(bob, original.id, '   ')).status, 400);
+      assert.equal((await edit(bob, original.id, 'x'.repeat(4001))).status, 400);
+      assert.equal((await edit(bob, 'zzz', 'hi')).status, 400);
+
+      // The same text again changes nothing.
+      const same = await (await edit(bob, original.id, 'Ask @Olive Owner instead')).json();
+      assert.equal(same.message.editedAt, message.editedAt);
+
+      // A reply shows the edited text of the message it quotes.
+      const reply = (await (await post(owner, 'ok', { replyTo: original.id })).json()).message;
+      assert.equal(reply.replyTo.text, 'Ask @Olive Owner instead');
+
+      await chat.DELETE(bob.as(`/api/chat?id=${original.id}`, { method: 'DELETE' }));
+      assert.equal((await edit(bob, original.id, 'too late')).status, 409);
+      const shown = (await list(bob)).messages.find((m: { id: string }) => m.id === original.id);
+      assert.equal(shown.editedAt, null); // a deleted message is just "deleted"
+    });
+
+    it('syncs edits, reactions and deletes of loaded messages through `since`', async () => {
+      const start = await list(carol);
+      const lastId = start.messages[start.messages.length - 1].id;
+      const target = start.messages.find((m: { userId: string; deleted: boolean; text: string }) => m.userId === owner.user.id && !m.deleted && m.text);
+      assert.ok(target);
+      const nothing = await list(carol, `&after=${lastId}&since=${encodeURIComponent(start.syncedAt)}`);
+      assert.equal(nothing.messages.length, 0);
+
+      assert.equal((await chat.PATCH(owner.as('/api/chat', { method: 'PATCH', body: { id: target.id, text: 'ok, edited' } }))).status, 200);
+      await chat.POST(bob.as('/api/chat?action=react', { method: 'POST', body: { id: target.id, emoji: '👀' } }));
+      const synced = await list(carol, `&after=${lastId}&since=${encodeURIComponent(start.syncedAt)}`);
+      const changed = synced.changed.find((m: { id: string }) => m.id === target.id);
+      assert.equal(changed.text, 'ok, edited');
+      assert.equal(changed.reactions[0].emoji, '👀');
+      assert.equal(synced.messages.length, 0); // nothing new, only changes
+      assert.equal((await chat.GET(carol.as(`/api/chat?projectId=${projectId}&after=${lastId}&since=nope`))).status, 400);
+    });
+
+    it('a send retried with the same clientId is saved once', async () => {
+      const body = { clientId: 'c-retry-1' };
+      const first = await post(owner, 'only once', body);
+      assert.equal(first.status, 201);
+      const again = await post(owner, 'only once', body);
+      assert.equal(again.status, 200);
+      assert.equal((await again.json()).message.id, (await first.json()).message.id);
+      assert.equal(await db.collection('chat_messages').countDocuments({ text: 'only once' }), 1);
+      // Another user may happen to use the same client id.
+      assert.equal((await post(bob, 'only once', body)).status, 201);
+    });
+
+    it('catching up returns at most 200 new messages and says when there are more', async () => {
+      const created = await (await projects.POST(dana.as('/api/projects', { method: 'POST', body: { name: 'Busy chat' } }))).json();
+      const busy = created.project.id as string;
+      const { ObjectId } = await import('mongodb');
+      const base = Date.now() - 60_000;
+      const docs = Array.from({ length: 251 }, (_, i) => ({
+        _id: ObjectId.createFromTime(Math.floor((base + i * 100) / 1000)),
+        projectId: new ObjectId(busy), userId: new ObjectId(dana.user.id), text: `m${i}`, mentions: [], issueIds: [], createdAt: new Date(base + i * 100),
+      }));
+      // createFromTime gives the same id within a second: make each unique but in order.
+      docs.forEach((d, i) => { d._id = new ObjectId(d._id.toHexString().slice(0, 8) + i.toString(16).padStart(16, '0')); });
+      await db.collection('chat_messages').insertMany(docs);
+      const get = async (q: string) => (await chat.GET(dana.as(`/api/chat?projectId=${busy}${q}`))).json();
+      const firstRound = await get(`&after=${docs[0]._id.toHexString()}`);
+      assert.equal(firstRound.messages.length, 200);
+      assert.equal(firstRound.hasMore, true);
+      const secondRound = await get(`&after=${firstRound.messages[199].id}`);
+      assert.equal(secondRound.messages.length, 50);
+      assert.equal(secondRound.hasMore, false);
+
+      // More than one page of changes: the cursor continues from the last change returned, so none are skipped.
+      const since = new Date(Date.now() - 1000).toISOString();
+      const changedAt = Date.now();
+      await db.collection('chat_messages').bulkWrite(docs.map((d, i) => ({ updateOne: { filter: { _id: d._id }, update: { $set: { text: `edited ${i}`, updatedAt: new Date(changedAt + i) } } } })));
+      const lastId = docs[docs.length - 1]._id.toHexString();
+      const page1 = await get(`&after=${lastId}&since=${encodeURIComponent(since)}`);
+      assert.equal(page1.changed.length, 200);
+      assert.equal(page1.hasMore, true);
+      const page2 = await get(`&after=${lastId}&since=${encodeURIComponent(page1.syncedAt)}`);
+      const seen = new Set([...page1.changed, ...page2.changed].map((m: { id: string }) => m.id));
+      assert.equal(seen.size, 251);
+      assert.equal(page2.hasMore, false);
+      await projects.DELETE(dana.as(`/api/projects?id=${busy}`, { method: 'DELETE' }));
+    });
+
     it('limits how fast one user can post', async () => {
       let last = 201;
       for (let i = 0; i < 35 && last === 201; i++) last = (await post(owner, `spam ${i}`)).status;

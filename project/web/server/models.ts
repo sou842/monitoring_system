@@ -171,6 +171,12 @@ export interface ChatMessageDoc {
   /** Reactions: emoji (one of lib/chat.ts CHAT_REACTIONS) → the users who reacted with it. */
   reactions?: Record<string, ObjectId[]>;
   createdAt: Date;
+  /** Last time the text was edited by its author (shown as "edited"). */
+  editedAt?: Date;
+  /** Last change of any kind after posting (edit, reaction, delete); browsers sync changes by it. */
+  updatedAt?: Date;
+  /** The sending browser's id for this message, so a send retried after a lost response is not saved twice. */
+  clientId?: string;
   deletedAt?: Date;
 }
 
