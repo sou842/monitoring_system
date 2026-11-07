@@ -14,9 +14,10 @@ import '../chat/chat.css';
 import { ChannelHeader } from '../chat/ChannelHeader';
 import type { ComposerHandle } from '../chat/Composer';
 import { MessageRow, type Row, type RowActions } from '../chat/MessageRow';
-import { ChatAvatar, dayLabel, scrollBehavior, SendIcon } from '../chat/shared';
+import { ChatAvatar, dayLabel, ICON_BUTTON, scrollBehavior, SendIcon } from '../chat/shared';
 import { Wallpaper, type WallpaperHandle } from '../chat/Wallpaper';
 import { Page } from '../Page';
+import { CountBadge } from '../../ui/kit';
 import { useSession } from '../Shell';
 
 /** Pixels from the bottom within which the list counts as "at the bottom" (and follows new messages). */
@@ -38,12 +39,22 @@ const GROUP_AVATAR_PX = 34;
 /** The conversation column (messages and the message box) is at most this wide. */
 const COLUMN = 'mx-auto w-full max-w-[1400px]';
 
-/** Looks like the closed message box, shown while the editor's code loads (so nothing jumps). */
+/** Looks like the closed message box (same size and layout as the real one), shown while the editor's code loads so nothing jumps. */
 function ComposerPlaceholder() {
+  const side = cn(ICON_BUTTON, 'size-9 rounded-full text-(--tg-in-meta) sm:size-10 [&_svg]:size-5');
   return (
-    <div className={cn(COLUMN, 'flex items-end gap-2 px-2 pt-1 pb-[max(10px,env(safe-area-inset-bottom))] md:px-4')} aria-hidden="true">
-      <div className="tg-input has-tail flex h-[54px] flex-1 items-center pl-14 text-[16px] text-(--tg-in-meta)">Message</div>
-      <span className="tg-fab tg-send ml-1.5"><SendIcon className="size-5" /></span>
+    <div className="relative mx-auto flex w-full max-w-185 items-end gap-2 px-2.5 pt-1.5 pb-[max(10px,env(safe-area-inset-bottom))] sm:gap-2.5 md:px-4 md:pb-[max(14px,env(safe-area-inset-bottom))]" aria-hidden="true">
+      <div className="tg-input min-w-0 flex-1">
+        <div className="flex items-end gap-0.5 px-1 py-1 sm:px-1.5">
+          <span className={cn(side, 'shrink-0 self-end')}><Icon name="smile" className="size-4" /></span>
+          <div className="min-w-0 flex-1 px-1 py-1.5 sm:py-2"><div className="min-h-6 text-[16px] leading-6 text-(--tg-in-meta)">Message</div></div>
+          <div className="flex shrink-0 items-center self-end">
+            <span className={cn(side, '[&_svg]:size-4.5')}><Icon name="format" className="size-4" /></span>
+            <span className={cn(side, '[&_svg]:size-4.5')}><Icon name="wrench" className="size-4" /></span>
+            <button type="button" disabled tabIndex={-1} className="tg-fab tg-send ml-0.5 size-9 sm:size-10"><SendIcon className="size-5" /></button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -566,7 +577,7 @@ function Channel({ projectId, projectName, canPost, isOwner, me }: {
               aria-label={newBelow > 0 ? `${newBelow} new ${newBelow === 1 ? 'message' : 'messages'}, jump to latest` : 'Jump to the latest message'}
               className={cn('tg-fab relative size-10', showJump && rows.length > 0 ? 'pointer-events-auto' : 'translate-y-4 scale-75 opacity-0')}>
               <Icon name="arrowDown" className="size-5" />
-              {newBelow > 0 ? <span className="tg-fab-badge">{newBelow > 99 ? '99+' : newBelow}</span> : null}
+              <CountBadge count={newBelow} size="sm" label="new" className="absolute -top-1.5 -right-1 pointer-events-none shadow-[0_0_0_2px_var(--tg-fab)]" />
             </button>
           </div>
         </div>

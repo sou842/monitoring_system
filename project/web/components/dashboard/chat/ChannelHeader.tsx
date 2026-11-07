@@ -76,7 +76,7 @@ export function ChannelHeader({ projectId, projectName, people, ownerId, meId, m
       <button type="button" onClick={onOpenDrawer} aria-label="Open the menu" title="Menu" className={cn(ROUND, 'md:hidden')}>
         <Icon name="menu" className="size-4.5" />
       </button>
-      <ChatAvatar id={projectId} name={projectName} size={40} />
+      <ChatAvatar id={projectId} name={projectName} size={40} plain />
       <div className="min-w-0 flex-1">
         <h1 className="m-0 truncate text-[16px] leading-5 font-medium text-(--tg-text)">{projectName}</h1>
         <p className="m-0 mt-0.5 truncate text-[14px] leading-4 text-(--tg-in-meta)" title="Everyone with access to this project can read this conversation">

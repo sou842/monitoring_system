@@ -11,6 +11,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { Menu } from '../ui/Menu';
 import { ResizeHandle, usePanelWidth } from '../ui/ResizeHandle';
 import { ThemeToggle } from '../ui/ThemeToggle';
+import { CountBadge } from '../ui/kit';
 import { useToast } from '../ui/Toasts';
 
 interface Session {
@@ -81,7 +82,7 @@ function NavItem({ entry, pathname, collapsed, badge = 0 }: { entry: NavEntry; p
     <>
       <Icon name={entry.icon} />
       <span className="nav-text">{entry.label}</span>
-      {badge > 0 ? <span className="nav-count">{badge > 99 ? '99+' : badge}</span> : null}
+      <CountBadge count={badge} className="nav-count" ring={collapsed} />
       {entry.href ? null : <span className="pill-soon">Soon</span>}
     </>
   );
@@ -258,7 +259,7 @@ export function Shell({ user: initialUser, children }: { user: UserView; childre
                     <Link key={p.id} href="/chats" onClick={() => setProjectId(p.id)} className={`nav-item${active ? ' active' : ''} shadow-none`} aria-current={active ? 'page' : undefined} title={collapsed ? p.name : undefined}>
                       <Avatar name={p.name} size="sm" shape="square" />
                       <span className="nav-text">{p.name}</span>
-                      {p.unreadMessages > 0 ? <span className="nav-count">{p.unreadMessages > 99 ? '99+' : p.unreadMessages}</span> : null}
+                      <CountBadge count={p.unreadMessages} size="sm" className="nav-count" ring={collapsed} />
                     </Link>
                   );
                 })}

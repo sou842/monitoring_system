@@ -2,9 +2,25 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { Facehash } from 'facehash';
 import type { ChatIssueView } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../../ui/Icon';
+
+/** Backgrounds for the avatar faces (picked from the name, so a person keeps one colour). */
+const FACE_COLORS = ['#E8EDF2', '#E5ECF5', '#E3EFEA', '#E1EFED', '#E8E8F5', '#EEE7F4', '#F2E5E9', '#F3EBDD'];
+
+/** Eyes and mouth: dark slate, because the face backgrounds are pale. */
+const FACE_INK = '#334155';
+
+/** The mouth of an avatar face. */
+function Smile({ width }: { width: number }) {
+  return (
+    <svg viewBox="0 0 20 10" width={width} fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+      <path d="M2 2c2 5.5 14 5.5 16 0" />
+    </svg>
+  );
+}
 
 /** Paper-plane send icon; the glyph's weight sits left of its box, so it is nudged 1px to look centred. */
 export function SendIcon({ className }: { className?: string }) {
@@ -39,13 +55,20 @@ export function peerColor(id: string): string {
 }
 
 /** Round avatar with a soft gradient in the person's colour and their initials. */
-export function ChatAvatar({ id, name, size = 40, className, online = false }: { id: string; name: string; size?: number; className?: string; online?: boolean }) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+export function ChatAvatar({ id, name, size = 40, className, online = false, plain = false }: { id: string; name: string; size?: number; className?: string; online?: boolean; plain?: boolean }) {
+  const words = name.trim().split(/s+/).filter(Boolean);
   const initials = ((words[0]?.[0] ?? '?') + (words.length > 1 ? (words[words.length - 1][0] ?? '') : '')).toUpperCase();
-  const avatar = (
+  // plain = initials on a coloured circle (the channel header); otherwise a face.
+  // A deterministic face from the person's name (same name, same face): eyes, a smile, blinking, and a tilt toward you on hover.
+  const avatar = plain ? (
     <span className={cn('tg-avatar', className)} aria-hidden="true"
       style={{ '--peer': peerColor(id), width: size, height: size, fontSize: Math.round(size * 0.4) } as CSSProperties}>
       {initials}
+    </span>
+  ) : (
+    <span className={cn('inline-block shrink-0 overflow-hidden rounded-full', className)} aria-hidden="true" style={{ width: size, height: size }}>
+      <Facehash name={name.trim() || id} size={size} colors={FACE_COLORS} intensity3d="medium" enableBlink
+        showInitial={false} onRenderMouth={() => <Smile width={Math.round(size * 0.3)} />} style={{ color: FACE_INK }} />
     </span>
   );
   if (!online) return avatar;

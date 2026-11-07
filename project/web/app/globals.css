@@ -125,6 +125,7 @@
     --mention-me: rgba(234, 179, 8, 0.08);
     --mention-me-line: #e0b030;
     --unread: #f87171;
+    --badge-bg: #f87171; --badge-fg: #2a0b0b; --badge-ring: var(--frame);
     --bubble-own: oklch(0.32 0.075 255);
     --bubble-own-fg: oklch(0.94 0.01 255);
     --bubble-own-fg-dim: oklch(0.94 0.01 255 / 62%);
@@ -192,6 +193,7 @@
     --mention-me: #fdf7e6;
     --mention-me-line: #c9930a;
     --unread: #d92d3a;
+    --badge-bg: #e03a47; --badge-fg: #ffffff; --badge-ring: var(--frame);
     --bubble-own: oklch(0.9 0.035 255);
     --bubble-own-fg: oklch(0.27 0.05 260);
     --bubble-own-fg-dim: oklch(0.27 0.05 260 / 60%);

@@ -208,10 +208,6 @@
   }
   .tg-fab:hover { color: var(--tg-accent); }
   .tg-fab:active { transform: scale(.92); }
-  .tg-fab-badge {
-    position: absolute; top: -6px; right: -4px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
-    background: var(--tg-accent); color: var(--tg-accent-fg); font-size: 12px; font-weight: 500; line-height: 22px; text-align: center;
-  }
 
   /* The message box: a rounded card with a hairline border and a soft shadow; the border darkens while typing. */
   .tg-input {

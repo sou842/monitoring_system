@@ -1,6 +1,30 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
+const BADGE_SIZES = {
+  sm: 'min-w-4 h-4 px-1 text-[10px]',
+  md: 'min-w-5 h-5 px-1.5 text-[11px]',
+} as const;
+const BADGE_MAX = 99;
+
+/** Round unread/new count: one component for the sidebar, channels and chat. Renders nothing for 0; shows "99+" above 99. */
+export function CountBadge({ count, size = 'md', label = 'unread', ring = false, className }: {
+  count: number; size?: keyof typeof BADGE_SIZES; label?: string; ring?: boolean; className?: string;
+}) {
+  if (!(count > 0)) return null;
+  return (
+    <span
+      aria-label={`${count} ${label}`}
+      className={cn(
+        'inline-grid flex-none place-items-center rounded-full bg-(--badge-bg) leading-none font-semibold whitespace-nowrap text-(--badge-fg) tabular-nums',
+        BADGE_SIZES[size], ring && 'shadow-[0_0_0_2px_var(--badge-ring)]', className,
+      )}
+    >
+      {count > BADGE_MAX ? `${BADGE_MAX}+` : count}
+    </span>
+  );
+}
+
 /*
  * Tailwind building blocks for the app-frame look (docs/DESIGN.md): soft white cards on the grey frame,
  * radius 16, pill buttons and badges, almost no borders. New screens use these instead of the older

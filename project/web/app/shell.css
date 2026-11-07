@@ -74,7 +74,8 @@
 .nav-item.active { background: var(--panel); color: var(--fg); font-weight: 600; box-shadow: var(--shadow-sm), 0 0 0 1px var(--line); }
 .nav-item svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .nav-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-count { margin-left: auto; min-width: 20px; padding: 0 7px; border-radius: 999px; background: var(--chip); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+/* Unread count: a filled pill that stays round for 1 digit, grows for 2 and "99+", and never shrinks or wraps in a tight row. */
+.nav-count { margin-left: auto; } /* look comes from <CountBadge> */
 .nav-item.muted-item { color: var(--faint); }
 .nav-item.muted-item:hover { color: var(--fg); }
 .nav-item.is-soon, .menu-item.is-soon { cursor: default; }
@@ -176,7 +177,7 @@
   .app-frame.collapsed .nav-item svg { width: 18px; height: 18px; }
   .app-frame.collapsed .nav-item .avatar { margin: 0; }
   /* The unread / open count becomes a small badge on the tile's corner. */
-  .app-frame.collapsed .nav-count { position: absolute; top: 2px; right: 0; margin: 0; min-width: 16px; padding: 0 4px; font-size: 9.5px; line-height: 16px; background: var(--faint); color: var(--invert-fg); box-shadow: 0 0 0 2px var(--frame); }
+  .app-frame.collapsed .nav-count { position: absolute; top: 0; right: -2px; margin: 0; }
   .app-frame.collapsed .side-foot { width: 100%; justify-items: center; }
   .app-frame.collapsed .side-foot .menu-wrap { width: auto; }
   .app-frame.collapsed .user-card { justify-content: center; width: 40px; height: 40px; padding: 0; border-radius: 12px; }
