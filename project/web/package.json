@@ -8,7 +8,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "dev": "node --use-system-ca node_modules/next/dist/bin/next dev",
+    "dev": "next dev --turbopack",
     "prebuild": "node scripts/build-sdk.ts",
     "build": "next build",
     "start": "next start",
