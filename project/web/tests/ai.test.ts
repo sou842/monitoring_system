@@ -97,3 +97,32 @@ describe('AI: issue context', () => {
     assert.match(cappedJson({ a: 'x'.repeat(100) }, 20), /^.{20}… \[cut: \d+ more characters\]$/);
   });
 });
+
+describe('AI: no em/en dashes in answers', () => {
+  it('rewrites dashes', async () => {
+    const { withoutDashes } = await import('../server/ai/chat.ts');
+    assert.equal(withoutDashes('It failed — the server returned 502.'), 'It failed, the server returned 502.');
+    assert.equal(withoutDashes('a—b, 2–5 s, end —'), 'a-b, 2-5 s, end-');
+    assert.equal(withoutDashes('plain - hyphen stays'), 'plain - hyphen stays');
+  });
+
+  it('applies to streamed answer and reasoning text, and passes other parts through', async () => {
+    const { dashFreeTransform } = await import('../server/ai/chat.ts');
+    const stream = dashFreeTransform()({ tools: {}, stopStream: () => {} });
+    const writer = stream.writable.getWriter();
+    const parts = [
+      { type: 'text-delta', id: '1', text: 'Cause — a 500' },
+      { type: 'reasoning-delta', id: '2', text: 'think — hard' },
+      { type: 'text-start', id: '1' },
+    ];
+    for (const p of parts) void writer.write(p as never);
+    void writer.close();
+    const out: unknown[] = [];
+    for await (const p of stream.readable as unknown as AsyncIterable<unknown>) out.push(p);
+    assert.deepEqual(out, [
+      { type: 'text-delta', id: '1', text: 'Cause, a 500' },
+      { type: 'reasoning-delta', id: '2', text: 'think, hard' },
+      { type: 'text-start', id: '1' },
+    ]);
+  });
+});

@@ -1,4 +1,4 @@
-import { APICallError, convertToModelMessages, safeValidateUIMessages, stepCountIs, streamText, type ModelMessage, type ToolSet, type UIMessage } from 'ai';
+import { APICallError, convertToModelMessages, safeValidateUIMessages, stepCountIs, streamText, type ModelMessage, type StreamTextTransform, type TextStreamPart, type ToolSet, type UIMessage } from 'ai';
 import type { Db } from 'mongodb';
 import { requireUser } from '../auth.ts';
 import {
@@ -23,6 +23,26 @@ import { aiConfigured, chatModel } from './nvidia.ts';
  */
 
 /** Characters of the text the user typed in their newest message. */
+/**
+ * Replaces em/en dashes, which the dashboard's answers must not contain (the
+ * prompt forbids them too, but the model still slips one in now and then).
+ * " — " becomes ", " and any other dash a hyphen. Works per streamed chunk;
+ * every replacement is local, so a chunk boundary can at worst leave "word ,".
+ */
+export function withoutDashes(text: string): string {
+  return text.replace(/ ?— ?/g, (m) => (m.length === 3 ? ', ' : '-')).replace(/[—–]/g, '-');
+}
+
+/** Stream transform applying `withoutDashes` to answer and reasoning text. */
+export function dashFreeTransform<TOOLS extends ToolSet>(): StreamTextTransform<TOOLS> {
+  return () => new TransformStream<TextStreamPart<TOOLS>, TextStreamPart<TOOLS>>({
+    transform(part, controller) {
+      if (part.type === 'text-delta' || part.type === 'reasoning-delta') controller.enqueue({ ...part, text: withoutDashes(part.text) });
+      else controller.enqueue(part);
+    },
+  });
+}
+
 function questionLength(message: UIMessage | undefined): number {
   if (!message || message.role !== 'user') return 0;
   return message.parts.reduce((n, part) => n + (part.type === 'text' ? part.text.length : 0), 0);
@@ -123,6 +143,7 @@ export async function streamAnswer({ request, label, system, messages, tools, ma
     tools,
     stopWhen: stepCountIs(maxSteps),
     maxOutputTokens: AI_MAX_OUTPUT_TOKENS,
+    experimental_transform: dashFreeTransform(),
     abortSignal: AbortSignal.any([request.signal, AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS)]),
     // Replaces the SDK's default, which logs the whole error (prompt included).
     onError: ({ error }) => logModelError(error),

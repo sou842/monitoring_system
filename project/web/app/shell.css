@@ -128,7 +128,7 @@
 .right-slot { flex: none; display: flex; min-height: 0; }
 .app-frame .ai-panel {
   position: relative; inset: auto; z-index: auto; flex: none; width: var(--ai-panel-w, 440px); max-width: 100%; height: auto;
-  overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow);
+  overflow: hidden; border-left: 1px solid var(--line); box-shadow: var(--shadow);
 }
 .app-frame .ai-panel-head { height: 56px; }
 .drawer-backdrop { display: none; }
