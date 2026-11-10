@@ -24,7 +24,7 @@ In-house error, performance and memory monitoring for browser apps (and manual c
 - Ingestion endpoint for \`init()\`: \`${ENDPOINT}\`.
 - Browsers: Chrome 60+, Safari 12+, Firefox 60+ (some collectors are Chromium-only: long tasks, memory, page HTTP status in Safari). Node 18+ for manual capture (needs global fetch); automatic collectors only install where \`window\` exists, so importing it during SSR is safe.
 - Golden rules: call \`init()\` once, as early as possible (before app code, not in a React useEffect); never throws, never logs unless \`debug: true\`; the API key is public in a browser app, so protect the project with Allowed origins (topic privacy_security).
-Topics: install, html, react, nextjs, vue_angular_other, appzillon, configuration, api, privacy_security, csp_cors, troubleshooting, versions, delivery.`,
+Topics: install, html, react, nextjs, vue_angular_other, appzillon, appzillon_adapt, configuration, api, privacy_security, csp_cors, troubleshooting, versions, delivery.`,
   },
   install: {
     title: 'Installing: npm, CDN, self-hosted file',
@@ -203,37 +203,145 @@ Never pass an \`HttpErrorResponse\` object as context: its \`url\` may contain t
 **Micro-frontends / several bundles on one page:** init once (in the shell); a second \`init()\` is ignored. Different teams wanting separate projects need separate pages, not two instances.`,
   },
   appzillon: {
-    title: 'Appzillon apps (jsDelivr snippet, setScreen, apz.server callbacks)',
-    body: `# Appzillon integration
-Appzillon (low-code banking platform, jQuery SPAs) can't be modified by the team, so the SDK is added by a snippet in the app (index/landing HTML or an app-level script) that loads it from jsDelivr with an exact version:
-\`\`\`html
-<script>
+    title: 'Appzillon: the reference integration (tracker block, helpers, server-call wrapper, screens, login/logout)',
+    body: `# Appzillon integration (reference, as used in a real admin app)
+Appzillon (low-code banking platform, jQuery SPAs: screens change without URL changes, server calls go through \`apz.server.*\` with a \`callBack\`) can't be modified by the team, so the SDK is added as one self-contained block in an app-level script that loads first. It is loaded from jsDelivr with an exact version. Projects differ in names (see topic appzillon_adapt) but follow this shape. Replace \`et_your_project_key\` with the project's key and add the app's origins to the project's Allowed origins.
+\`\`\`js
+// ---- Error tracker ----
 (function () {
-  import('${CDN}').then(function (m) {
-    var ET = m.default;
-    ET.init({ apiKey: 'et_your_project_key', endpoint: '${ENDPOINT}', environment: 'uat', appVersion: '2.0.0' });
-    window.ErrorTracker = ET;
-    // Screens change without URL changes: name them, so events and page views say which screen.
-    function wrapScreen(name) {
-      var original = apz[name];
-      if (typeof original !== 'function') return;
-      apz[name] = function (opts) {
-        try { var id = opts && (opts.screenId || opts.id); if (id) ET.setScreen(String(id)); } catch (e) {}
-        return original.apply(this, arguments);
-      };
+    var SDK_URL = '${CDN}'; // always an exact version
+    var DEV = location.hostname === 'localhost';
+
+    // Appzillon error codes that are normal business outcomes (wrong password, validation, ...), not bugs.
+    var IGNORED_ERROR_CODES = ['$APZ-SMS-EX-003', 'APZ-FM-EX-038', 'APZ_FM_EX_038'];
+
+    var cfg = {
+        apiKey: 'et_your_project_key',
+        endpoint: '${ENDPOINT}',
+        environment: DEV ? 'development' : 'production',
+        appVersion: (window.apz && apz.appVersion) || '2.0.0',
+        debug: DEV
+    };
+
+    // Calls made before the SDK has loaded are kept here and replayed after init.
+    var MAX_PENDING = 50;
+    var pending = [];
+    function withTracker(fn) {
+        if (window.ErrorTracker) { try { fn(window.ErrorTracker); } catch (e) { /* never break the app */ } }
+        else if (pending.length < MAX_PENDING) { pending.push(fn); }
     }
-    wrapScreen('launchScreen');
-    wrapScreen('launchSubScreen');
-  });
+
+    // Start loading as early as possible so fewer startup errors are missed.
+    import(SDK_URL).then(function (m) {
+        m.default.init(cfg);
+        window.ErrorTracker = m.default;
+        var queued = pending; pending = []; queued.forEach(withTracker);
+    }).catch(function (e) { pending = []; if (DEV) { console.log('Error tracker failed to load: ' + e); } });
+
+    // Safe helpers for the rest of the app: never throw, queue until the tracker has loaded.
+    apz.admin.track = {
+        error:   function (e, ctx)   { withTracker(function (t) { t.captureError(e, ctx); }); },
+        message: function (msg, lvl) { withTracker(function (t) { t.captureMessage(msg, lvl || 'info'); }); },
+        user:    function (id)       { withTracker(function (t) { t.setUser(id ? { id: String(id), name: String(id), email: null } : null); }); },
+        crumb:   function (msg, type){ withTracker(function (t) { t.addBreadcrumb({ type: type || 'log', message: msg }); }); },
+        screen:  function (name)     { withTracker(function (t) { t.setScreen(name || null); }); }
+    };
+
+    // captureMessage can't carry context, so server failures are sent as a named error.
+    function serverError(msg, ctx) {
+        var err = new Error(msg);
+        err.name = 'AppzillonServerError';
+        apz.admin.track.error(err, ctx);
+    }
+
+    // Wrap every server call's callBack: report failed responses, and errors thrown inside the callback
+    // (Appzillon catches callback errors itself and only console.logs them, so the tracker never sees them otherwise).
+    function wrapCallBack(params, fnName) {
+        if (!params || typeof params.callBack !== 'function' || params.callBack.__tracked) { return; }
+        var original = params.callBack;
+        var iface = params.ifaceName || fnName;
+        var wrapped = function (res) {
+            try {
+                if (res && res.status === false) {
+                    serverError('Server call failed: ' + iface, { iface: iface });
+                } else if (res && res.resFull && res.resFull.appzillonHeader && res.resFull.appzillonHeader.status === false) {
+                    var errs = res.resFull.appzillonErrors || [];
+                    var code = errs.length ? errs[0].errorCode : null;
+                    if (IGNORED_ERROR_CODES.indexOf(code) === -1) {
+                        serverError('Server returned error: ' + iface, {
+                            iface: iface, errorCode: code, errorMessage: errs.length ? errs[0].errorMessage || null : null
+                        });
+                    }
+                }
+            } catch (trackErr) { /* tracking must never break the callback */ }
+            try {
+                return original.apply(this, arguments);
+            } catch (e) {
+                apz.admin.track.error(e, { iface: iface, callback: original.name || null });
+                throw e; // keep Appzillon's own behaviour
+            }
+        };
+        wrapped.__tracked = true;
+        params.callBack = wrapped;
+    }
+    ['callServer', 'sendReq', 'login', 'logout', 'changePassword'].forEach(function (name) {
+        var original = apz.server[name];
+        if (typeof original !== 'function') { return; }
+        apz.server[name] = function (params) {
+            if (name === 'logout') { apz.admin.track.user(null); } // next user's errors must not carry this user's id
+            wrapCallBack(params, name);
+            return original.apply(this, arguments);
+        };
+    });
+
+    // Screens: tell the tracker which one is showing (setScreen also leaves a "Screen: X" breadcrumb).
+    ['launchScreen', 'launchSubScreen'].forEach(function (name) {
+        var original = apz[name];
+        if (typeof original !== 'function') { return; }
+        apz[name] = function (obj) {
+            try { if (obj && typeof obj.scr === 'string' && obj.scr) { apz.admin.track.screen(obj.scr); } } catch (e) { /* never break navigation */ }
+            return original.apply(this, arguments);
+        };
+    });
 })();
-</script>
+// ---- End error tracker ----
 \`\`\`
-- The property holding the screen id depends on how the app calls \`launchScreen\` (check one call in the app's scripts and adapt \`screenId\`).
-- **Business failures come back as HTTP 200** with \`appzillonHeader.status === false\`, so the SDK sees them as successful calls. Report them from the \`apz.server\` callback wrapper: \`ET.captureError(new Error('Server call failed: ' + iface), { iface: iface, errorCode: code, errorMessage: msg })\` (type it e.g. \`AppzillonServerError\` by setting \`err.name\`). Don't put request/response bodies into context (customer data).
-- Real HTTP 5xx on \`POST /AppzillonWeb\`, failed \`scrdef\`/\`ifacedef\` JSON loads and JS errors are captured automatically.
-- Login: \`ET.setUser({ id: userId })\` after a successful login; \`ET.setUser(null)\` on logout.
-- Appzillon keeps earlier screens hidden in the DOM; SDK 0.11.0 could report false \`BlankPage\` events because of it. Use ${SDK_VERSION === '0.11.0' ? 'a newer version' : SDK_VERSION} or newer.
-- In the dashboard, add the app's origin(s) to the project's Allowed origins (e.g. \`http://localhost:8080\` in development and the real UAT/production origins).`,
+**Login: attach the user** in the login callback, right after success (the user id only; no names/emails if they're customers):
+\`\`\`js
+apz.admin.LoginScreen.LgCB = function (params) {
+    if (params.status && params.resFull.appzillonHeader.status && params.res.loginResponse.status) {
+        apz.admin.appglobals.userId = params.req.loginRequest.userId;
+        apz.admin.track.user(apz.admin.appglobals.userId);   // attach logged-in user to tracker events
+        // ...rest of the app's own login code unchanged
+    }
+};
+\`\`\`
+Logout needs no extra code: the \`apz.server.logout\` wrapper above calls \`track.user(null)\`.
+What this gives: the \`AppzillonServerError\` events (message \`Server call failed: <iface>\` or \`Server returned error: <iface>\`, context \`iface\`, \`errorCode\`, \`errorMessage\`), callback exceptions with the interface name, every event tagged with the screen (\`obj.scr\`) and user id, plus the automatic ones: real HTTP 5xx on \`POST /AppzillonWeb\`, failed \`scrdef\`/\`ifacedef\` loads, JS errors, slow calls, page views per screen.
+Notes: the project's pinned SDK version should be **0.11.1 or newer** (0.11.0 could report false \`BlankPage\` events because Appzillon keeps earlier screens hidden in the DOM). \`IGNORED_ERROR_CODES\` is per project: add the codes that are normal outcomes (wrong password, validation, expired password); keep real failures reportable. Never put request/response bodies in the context (customer data).`,
+  },
+  appzillon_adapt: {
+    title: 'Appzillon: adapting the reference to a different project, questions to ask, Appzillon-specific troubleshooting',
+    body: `# Adapting the Appzillon integration to another project
+Appzillon projects are similar but not identical. Start from the reference in topic \`appzillon\` and check each item below against the user's code; ask the user to paste the relevant lines when you can't tell. Never assume names.
+**1. Namespace for the helpers.** The reference uses \`apz.admin.track\` because that app's namespace is \`apz.admin\`. Other apps use their own (\`apz.<appId>\`, \`apz.app\`…). Use any object that exists when the block runs, or create one (\`window.tracker = {...}\`). Everything else only calls \`track.error/user/screen/crumb/message\`.
+**2. Where the block goes.** It must run before the app's screens and before login: the first script the app loads (an app-level JS file loaded by index/landing HTML). Several apps/modules on one page or in iframes: initialise once in the shell; a second \`init()\` is ignored.
+**3. Screen id.** Reference apps call \`apz.launchScreen({ scr: 'Landing' })\` so the id is \`obj.scr\`. Others use \`screenId\`, \`id\` or \`scrName\`; look at one real call. If the screen is only a sub-screen of a parent, \`launchSubScreen\` can be wrapped the same way (the last call wins). Don't build names from data (\`Order 42\`): the screen name groups issues and page views.
+**4. Server-call functions.** The reference wraps \`callServer, sendReq, login, logout, changePassword\` on \`apz.server\`. Other projects may use a subset, different names, or call \`apz.server.callServer\` with different parameters. Check the real names in the app's scripts (grep \`apz.server.\`) and where the callback property lives (\`callBack\` here; could be \`callback\`/\`successCB\`). Functions that don't exist are skipped safely.
+**5. Failure shapes inside the callback.** Two seen: \`res.status === false\` (call failed at transport/platform level) and \`res.resFull.appzillonHeader.status === false\` with \`res.resFull.appzillonErrors[0].errorCode/errorMessage\` (business failure delivered as HTTP 200). Confirm the project's callbacks receive the same \`res\` shape; if their callbacks get the raw response, adapt the paths.
+**6. Business codes vs real failures.** Normal outcomes (wrong password, validation, "password expired", session timeout handled by the app) must not become issues. Ask the user which error codes the app already handles with \`apz.dispMsg\`/custom messages and put them in \`IGNORED_ERROR_CODES\`. In the reference app, codes starting with \`$\` (e.g. \`$APZ-SMS-EX-003\`) are handled as messages by the login code; confirm what \`$\` means in the user's project before ignoring them all. Too many \`AppzillonServerError\` issues = the ignore list is too short; too few = it is too broad.
+**7. Login/logout.** Call \`track.user(userId)\` in the login success callback (whatever function it is in that project) and \`track.user(null)\` on logout, session expiry or relogin. Use the stable user id, not names/emails.
+**8. Config.** \`environment\` from hostname or an Appzillon config value (development/uat/production); \`appVersion\` from \`apz.appVersion\` if present; \`debug\` only on localhost. Allowed origins in the dashboard must list the app's real origins (scheme + host + port), for example \`http://localhost:8080\` and the UAT/prod hosts.
+**9. Hosting the SDK.** CDN import needs \`https://cdn.jsdelivr.net\` reachable and allowed by the app's CSP, and \`connect-src\` for the endpoint. In networks that block CDNs, self-host \`index.mjs\` (topic install) and change \`SDK_URL\`. Pin an exact version; bump it deliberately.
+**Appzillon-specific troubleshooting**
+- *Nothing arrives:* \`debug\` is on only for localhost; open the console for "Error tracker failed to load" (CDN blocked/CSP) and check the Network tab for the POST to the endpoint (403 \`origin_not_allowed\` = add the origin). Then topic \`troubleshooting\`.
+- *Events have no screen:* the \`launchScreen\` wrapper isn't running (wrong property name, wrapper installed after the first screen) or \`obj.scr\` isn't the field the app uses.
+- *Events have no user / wrong user:* login callback not calling \`track.user\`, or logout paths that bypass \`apz.server.logout\` (session timeout).
+- *Callback errors missing:* the call wasn't made through a wrapped \`apz.server\` function, or the callback was assigned after the call.
+- *Server failures reported twice/noisy:* the same failure may arrive as HttpError (real HTTP status) and as \`AppzillonServerError\` (callback); that's expected only for real HTTP failures. Business failures are only seen as \`AppzillonServerError\`.
+- *False \`BlankPage\` events:* upgrade the SDK to 0.11.1+ (hidden earlier screens).
+- *Stack frames:* \`appzillon/scripts/appzillon/*.js\` are platform, \`jquery\`/\`fusioncharts\` are libraries; app code is the screen's own scripts and callbacks. Source maps aren't supported, so minified app files show minified frames.
+- *Can't change the Appzillon platform itself:* everything above is done in app-level scripts; don't suggest patching \`appzillon.js\`.`,
   },
   configuration: {
     title: 'All init() options with defaults and limits',
