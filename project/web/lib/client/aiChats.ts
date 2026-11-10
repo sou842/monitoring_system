@@ -3,7 +3,7 @@ import type { UIMessage } from 'ai';
 /**
  * Saved "Ask AI" chats, in this browser's IndexedDB: one chat per user and
  * issue, only the most recent AI_CHATS_PER_USER per user, each removed after
- * AI_CHAT_MAX_AGE_MS without a new message. Chats are not cleared on logout;
+ * AI_CHAT_MAX_AGE_MS without being opened or getting a new message. Chats are not cleared on logout;
  * they are keyed by user id, so another account on the same browser can't load them.
  * Every function fails quietly (private windows, blocked storage, old browsers):
  * the chat then just isn't saved.
@@ -17,8 +17,8 @@ const STORE = 'chats';
 const META = 'meta';
 /** Chats kept per user (newest message first); older ones are deleted. */
 export const AI_CHATS_PER_USER = 30;
-/** A chat with no new message for this many days is deleted. */
-export const AI_CHAT_MAX_AGE_DAYS = 30;
+/** A chat not opened and with no new message for this many days is deleted. */
+export const AI_CHAT_MAX_AGE_DAYS = 45;
 export const AI_CHAT_MAX_AGE_MS = AI_CHAT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 /** Messages kept per chat (same as the server's history limit, AI_MAX_HISTORY_MESSAGES). */
 export const AI_CHAT_MAX_MESSAGES = 40;
@@ -29,6 +29,8 @@ export interface ChatMeta {
   userId: string;
   /** When the newest message was saved (ms since epoch). */
   updatedAt: number;
+  /** When the chat was last opened (ms since epoch); missing on chats saved before this field existed. */
+  openedAt?: number;
   /** Assistant-page chats: the first question, for the history list. */
   title?: string;
 }
@@ -41,6 +43,11 @@ export interface SavedChat {
   messages: UIMessage[];
   /** When the newest message was saved (ms since epoch). */
   updatedAt: number;
+}
+
+/** The last time a chat was opened or written to: its age for expiry. */
+export function lastUsedAt(chat: Pick<ChatMeta, 'updatedAt' | 'openedAt'>): number {
+  return Math.max(chat.updatedAt, typeof chat.openedAt === 'number' ? chat.openedAt : 0);
 }
 
 /**
@@ -63,7 +70,7 @@ export function chatsToPrune(
   const drop: string[] = [];
   const kept = new Map<string, ChatMeta[]>();
   for (const chat of chats) {
-    if (!(now - chat.updatedAt < maxAge)) { drop.push(chat.key); continue; }
+    if (!(now - lastUsedAt(chat) < maxAge)) { drop.push(chat.key); continue; }
     const list = kept.get(chat.userId) ?? [];
     list.push(chat);
     kept.set(chat.userId, list);
@@ -125,15 +132,36 @@ function finished(tx: IDBTransaction): Promise<void> {
   });
 }
 
-/** The saved chat of this user on this issue, or null (none, expired, or storage unavailable). */
+/**
+ * The saved chat of this user on this issue, or null (none, expired, or storage
+ * unavailable). Opening it renews its age (`openedAt`), not its recency (`updatedAt`).
+ */
 export async function loadChat(userId: string, issueId: string): Promise<UIMessage[] | null> {
   try {
     const db = await openDb();
-    const chat = await done(db.transaction(STORE, 'readonly').objectStore(STORE).get(chatKey(userId, issueId))) as SavedChat | undefined;
-    if (!chat || !Array.isArray(chat.messages) || !(Date.now() - chat.updatedAt < AI_CHAT_MAX_AGE_MS)) return null;
+    const tx = db.transaction([STORE, META], 'readonly');
+    const key = chatKey(userId, issueId);
+    const [chat, info] = await Promise.all([
+      done(tx.objectStore(STORE).get(key)) as Promise<SavedChat | undefined>,
+      done(tx.objectStore(META).get(key)) as Promise<ChatMeta | undefined>,
+    ]);
+    // The meta record carries `openedAt`; the chat record alone only knows its last message.
+    if (!chat || !Array.isArray(chat.messages) || !(Date.now() - lastUsedAt(info ?? chat) < AI_CHAT_MAX_AGE_MS)) return null;
+    if (info) void touchChat(db, info);
     return chat.messages;
   } catch {
     return null;
+  }
+}
+
+/** Records that a chat was opened, on its small meta record only. Best effort: a failure never hides the chat. */
+async function touchChat(db: IDBDatabase, info: ChatMeta): Promise<void> {
+  try {
+    const tx = db.transaction(META, 'readwrite');
+    tx.objectStore(META).put({ ...info, openedAt: Date.now() } satisfies ChatMeta);
+    await finished(tx);
+  } catch {
+    // Not renewed; it still expires AI_CHAT_MAX_AGE_DAYS after its last message.
   }
 }
 
@@ -173,7 +201,7 @@ export async function listAssistantChats(userId: string): Promise<AssistantChatI
     const all = await done(db.transaction(META, 'readonly').objectStore(META).getAll()) as ChatMeta[];
     const now = Date.now();
     return all
-      .filter((m) => m.userId === userId && m.key.startsWith(prefix) && now - m.updatedAt < AI_CHAT_MAX_AGE_MS)
+      .filter((m) => m.userId === userId && m.key.startsWith(prefix) && now - lastUsedAt(m) < AI_CHAT_MAX_AGE_MS)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((m) => ({ chatId: m.key.slice(prefix.length), title: m.title || 'Untitled chat', updatedAt: m.updatedAt }));
   } catch {

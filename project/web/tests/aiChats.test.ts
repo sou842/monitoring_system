@@ -22,6 +22,16 @@ describe('saved AI chats pruning', () => {
     assert.deepEqual(drop.sort(), [`a:${AI_CHATS_PER_USER}`, `a:${AI_CHATS_PER_USER + 1}`, `a:${AI_CHATS_PER_USER + 2}`].sort());
   });
 
+  it('keeps for 45 days', () => {
+    assert.equal(AI_CHAT_MAX_AGE_MS, 45 * 24 * 60 * 60 * 1000);
+  });
+
+  it('counts age from the last open when that is newer than the last message', () => {
+    const opened = { ...chat('a', 1, AI_CHAT_MAX_AGE_MS * 2), openedAt: NOW - 1000 };
+    const stale = { ...chat('a', 2, AI_CHAT_MAX_AGE_MS * 2), openedAt: NOW - AI_CHAT_MAX_AGE_MS };
+    assert.deepEqual(chatsToPrune([opened, stale], NOW), ['a:2']);
+  });
+
   it('treats a broken timestamp as expired', () => {
     assert.deepEqual(chatsToPrune([{ key: 'a:1', userId: 'a', updatedAt: Number.NaN }], NOW), ['a:1']);
   });
