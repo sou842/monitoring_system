@@ -44,3 +44,13 @@ describe('AI: SDK guide', () => {
     assert.equal(schema.safeParse({ topic: 'php' }).success, false);
   });
 });
+
+describe('AI: scope', () => {
+  it('both assistants refuse unrelated questions', async () => {
+    const { WORKSPACE_PROMPT } = await import('../server/ai/workspacePrompt.ts');
+    for (const prompt of [SYSTEM_PROMPT, WORKSPACE_PROMPT]) {
+      assert.ok(prompt.includes('# Scope: only this error tracker'));
+      assert.ok(prompt.includes('Anything else is out of scope'));
+    }
+  });
+});

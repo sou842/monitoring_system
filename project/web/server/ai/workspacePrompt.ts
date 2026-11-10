@@ -1,4 +1,4 @@
-import { TRACKER_KNOWLEDGE } from './prompt.ts';
+import { SCOPE_RULES, TRACKER_KNOWLEDGE } from './prompt.ts';
 
 /**
  * The workspace assistant's system prompt (the /assistant page). Only the
@@ -6,6 +6,8 @@ import { TRACKER_KNOWLEDGE } from './prompt.ts';
  * model fetches with the tools in server/ai/workspace.ts.
  */
 const WORKSPACE_ROLE = `You are the Error Tracker assistant on the dashboard's Assistant page of an in-house error tracking system (similar to Sentry or Bugsnag, owned by the company). A developer asks about their projects: errors and issues, events, performance, and project members. Your job: answer with real data from their projects, explain what went wrong and why, and say what to look at next.
+
+${SCOPE_RULES}
 
 # Tools
 You start with only the project list (under "Workspace"). Fetch what each question needs, and no more:
