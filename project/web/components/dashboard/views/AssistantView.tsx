@@ -165,8 +165,8 @@ export function AssistantView() {
       fill
       barLeft={(
         <>
-          <Menu trigger={({ open, toggle }) => (
-            <button type="button" className={pillButton('secondary', 'h-7 max-w-[min(60vw,300px)] gap-1.5 px-3 text-[12px] [&_svg]:h-3.5 [&_svg]:w-3.5')} onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Saved chats">
+          <Menu className="min-w-0 max-w-75 shrink" trigger={({ open, toggle }) => (
+            <button type="button" className={pillButton('secondary', 'h-7 w-full min-w-0 gap-1.5 px-3 text-[12px] [&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:flex-none')} onClick={toggle} aria-haspopup="menu" aria-expanded={open} title="Saved chats">
               <Icon name="chat" />
               <span className="truncate">{current ? current.title : 'New chat'}</span>
               <Icon name="chevron" />
@@ -189,7 +189,7 @@ export function AssistantView() {
               ))}
             </div>
           </Menu>
-          <button type="button" className={pillButton('secondary', 'h-7 gap-1.5 px-3 text-[12px] [&_svg]:h-3.5 [&_svg]:w-3.5')} onClick={newChat}><Icon name="plus" />New chat</button>
+          <button type="button" className={pillButton('secondary', 'h-7 flex-none gap-1.5 px-3 text-[12px] [&_svg]:h-3.5 [&_svg]:w-3.5')} onClick={newChat} aria-label="New chat" title="New chat"><Icon name="plus" /><span className="hidden sm:inline">New chat</span></button>
         </>
       )}
     >
