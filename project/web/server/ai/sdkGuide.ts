@@ -354,6 +354,7 @@ Required: \`apiKey\` (string, \`et_…\`), \`endpoint\` (ingestion URL). Invalid
 | sampleRate | 1.0 | 0–1, share of error events kept |
 | maxBreadcrumbs | 30 | max 100 |
 | maskSelectors | [] | CSS selectors whose text is replaced by [masked] in click breadcrumbs; password inputs always masked |
+| trackDevice | true | random anonymous \`device.id\` kept in localStorage (\`_et_device\`) so events from one browser can be linked; false = \`device.id\` null (the per-tab \`session_id\` is still sent) |
 | debug | false | log SDK diagnostics to the console |
 | captureHttpErrors | true | fetch/XHR error statuses → HttpError |
 | httpErrorStatuses | [400, 404, 405, 413, [500, 599]] | codes and inclusive [min,max] ranges; 401/403/409/422/429 not reported by default; [] = none |
@@ -396,6 +397,7 @@ Automatic (no code): uncaught errors and rejections, fetch/XHR failures and timi
 - The browser API key is public (anyone can read it from the page). Protect the project in the dashboard: project page → Settings → **Allowed origins** (exact scheme+host+port, e.g. \`https://app.example.com\`, \`http://localhost:3000\`; no wildcards; max 20; empty = any origin). Requests from other origins get 403 \`origin_not_allowed\`. Requests without an Origin header (server SDK, mobile) are always allowed. There is also a per-IP limit (150 events/min and 150 page views/min per project).
 - The key is kept in memory and in the request header only; never stored (the offline queue in localStorage has it removed). Rotate it on the project page if it leaks.
 - Never collected: screenshots or screen recordings, HTML, form values, request/response bodies, cookies. URL query strings and fragments are stripped everywhere (tokens often live there). Click text from \`maskSelectors\` elements and password fields is masked.
+- Device and session ids (0.12.0+): \`device.id\` is a random id in localStorage (\`_et_device\`), \`session_id\` a random id in sessionStorage (\`_et_session\`). Neither is derived from the person, the browser or the hardware (no fingerprinting); clearing site data gives a new device id. Turn the device id off with \`trackDevice: false\`. The server stores a keyed hash of the sender's IP network per project (\`networkId\`), never the IP.
 - What you add yourself (\`setUser\`, \`captureError\` context, breadcrumbs) is sent as is: prefer ids over emails/names when users are customers; never put tokens, card numbers or bodies in context.
 - Last line of defence: \`beforeSend\`
 \`\`\`ts
@@ -432,6 +434,7 @@ beforeSend(event) {
   versions: {
     title: 'Version history and upgrade notes',
     body: `# Versions (current: ${SDK_VERSION})
+- **0.12.0** – Device and session ids: every event carries \`device.id\` (random, kept in localStorage, same for one browser; \`trackDevice: false\` turns it off) and \`session_id\` (random, per tab, survives reloads, new after 30 min idle). The dashboard adds a hashed sender network (never the IP), shows Devices / sessions / networks on the issue page, and the issue search finds issues by any of these ids.
 - **0.11.1** – BlankPage false-alarm fixes: hidden subtrees skipped, three checks over 3 s, full confirmation check, text and user-activity vetoes, \`context.confidence\` / \`samples\` / \`deep_check\`. Recommended for apps that keep hidden screens in the DOM (Appzillon).
 - **0.11.0** – Diagnostic context on events (\`situation\`, \`error_causes\`, \`error_fields\`, ResourceError/HttpError/InvalidJsonResponse causes, server request-id headers).
 - **0.10.0** – BlankPage detection (\`detectBlankPage\`).

@@ -40,6 +40,8 @@ export function issueTools(db: Db, issue: IssueDoc, project: Pick<ProjectDoc, 'i
         return {
           id: String(event._id),
           receivedAt: event.receivedAt.toISOString(),
+          // Hashed sender network (never the IP); device.id and session_id are in the JSON.
+          networkId: event.networkId ?? null,
           analysis: eventAnalysis(event, project ? project.insights : null),
           json: cappedJson(event.payload),
         };

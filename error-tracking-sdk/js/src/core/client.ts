@@ -26,6 +26,7 @@ import { Breadcrumb, BreadcrumbInput, EventLevel, JsonObject, TrackedUser, Track
 import { CircularBuffer } from './circularBuffer';
 import { ResolvedConfig } from './config';
 import { DeviceInfo } from './device';
+import { Identity, IdentityDependencies } from './identity';
 import { mergeContext, situation, withSituation } from './diagnosis';
 import { absoluteUrl, getDocument, getWindow, nowIso, nowMs, stripQuery } from './env';
 import { Deduplicator, fingerprint, RateLimiter } from './eventFilters';
@@ -47,6 +48,7 @@ export interface ClientDependencies {
   queueRetryDelaysMs?: readonly number[];
   queueFlushDelayMs?: number;
   sampleBlankPage?: (hint: Element | null) => BlankPageSample;
+  identity?: IdentityDependencies;
 }
 
 /**
@@ -58,6 +60,7 @@ export class Client implements CollectorSink {
   private readonly config: ResolvedConfig;
   private readonly breadcrumbs: CircularBuffer<Breadcrumb>;
   private readonly device = new DeviceInfo();
+  private readonly identity: Identity;
   private readonly queue: EventQueue;
   private readonly random: () => number;
   private readonly rateLimiter: RateLimiter;
@@ -91,6 +94,7 @@ export class Client implements CollectorSink {
     this.logger = new Logger(config.debug);
     this.breadcrumbs = new CircularBuffer<Breadcrumb>(config.maxBreadcrumbs);
     this.random = deps.random || Math.random;
+    this.identity = new Identity(config.trackDevice, deps.identity);
     this.rateLimiter = deps.rateLimiter || new RateLimiter();
     this.deduplicator = deps.deduplicator || new Deduplicator();
 
@@ -410,6 +414,7 @@ export class Client implements CollectorSink {
 
   onBreadcrumb(input: BreadcrumbInput): void {
     if (input === null || typeof input !== 'object') return;
+    this.identity.touch();
     this.breadcrumbs.push({
       timestamp: nowIso(),
       type: typeof input.type === 'string' ? input.type : 'log',
@@ -553,10 +558,11 @@ export class Client implements CollectorSink {
       appVersion: this.config.appVersion,
       user: this.user,
       screen: this.screen,
+      sessionId: this.identity.currentSessionId(),
       breadcrumbs: this.breadcrumbs.toArray(),
       performance: performance,
       memory: this.memory.snapshot(),
-      device: this.device.snapshot(),
+      device: this.device.snapshot(this.identity.deviceId()),
     };
   }
 }

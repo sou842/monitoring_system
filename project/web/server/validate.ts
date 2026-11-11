@@ -16,6 +16,7 @@ import {
 import {
   MAX_API_CALLS,
   MAX_BREADCRUMBS,
+  MAX_CLIENT_ID_LENGTH,
   MAX_CLOCK_SKEW_MS,
   MAX_JSON_FIELD_BYTES,
   MAX_MESSAGE_LENGTH,
@@ -100,6 +101,15 @@ function frame(value: unknown): StackFrame {
 /** An API call's id (same call, same id in every event); null from older SDKs or when it isn't a short string. */
 function requestId(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_REQUEST_ID_LENGTH ? value : null;
+}
+
+/**
+ * Device and session ids: random ids made by the SDKs. Only short
+ * letters/digits/`-`/`_` are kept (hex from JS, a UUID from mobile), so the
+ * field can never smuggle an email or free text into an index.
+ */
+function clientId(value: unknown): string | null {
+  return typeof value === 'string' && value.length <= MAX_CLIENT_ID_LENGTH && /^[A-Za-z0-9_-]+$/.test(value) ? value.toLowerCase() : null;
 }
 
 function apiCall(value: unknown): ApiCall {
@@ -213,6 +223,7 @@ export function validateEvent(raw: unknown, now = new Date()): ValidationResult 
       user: { id: str(user.id), email: str(user.email), name: str(user.name) },
       // Older SDKs don't send it: null, like any other missing field.
       screen: str(raw.screen, MAX_SCREEN_LENGTH) || null,
+      session_id: clientId(raw.session_id),
       error,
       stacktrace: list(raw.stacktrace, MAX_STACK_FRAMES).map(frame),
       breadcrumbs: list(raw.breadcrumbs, MAX_BREADCRUMBS).map(breadcrumb),
@@ -235,6 +246,7 @@ export function validateEvent(raw: unknown, now = new Date()): ValidationResult 
         oom_kill: bool(memory.oom_kill),
       },
       device: {
+        id: clientId(device.id),
         platform: str(device.platform) || 'unknown',
         os: str(device.os),
         os_version: str(device.os_version),

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { formatDate, timeAgo } from '@/lib/format';
 import { analyzeEvent, frameLabel, stackText, type ClassifiedFrame, type FrameKind, type Insight } from '@/lib/insights';
@@ -39,6 +40,37 @@ function KeyValues({ rows }: { rows: Array<[string, string | number | null | und
         <div key={label} className="contents">
           <dt className="text-muted max-sm:mt-2">{label}</dt>
           <dd className="m-0 break-words">{String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * Device, session and network ids of one event, each with a link to every issue
+ * in the project that has events from it (the issues search matches these ids).
+ */
+function OriginIds({ event, projectId }: { event: ClientEvent; projectId: string | null }) {
+  const rows: Array<[string, string | null, string]> = [
+    ['Device', event.payload.device.id ?? event.deviceId ?? null, 'Random id this browser keeps (SDK 0.12.0+). Same id = same browser on the same machine.'],
+    ['Session', event.payload.session_id ?? event.sessionId ?? null, 'One visit: the same tab, reloads included, until 30 minutes without activity.'],
+    ['Network', event.networkId ?? null, 'Hashed IP network the event was sent from (never the IP). Shared by everyone behind the same office or home connection.'],
+  ];
+  const shown = rows.filter((r): r is [string, string, string] => Boolean(r[1]));
+  if (shown.length === 0) return <p className="m-0 text-[13px] text-muted">Not recorded (sent by an SDK older than 0.12.0).</p>;
+  return (
+    <dl className="m-0 grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[13px] max-sm:grid-cols-1 max-sm:gap-y-0.5">
+      {shown.map(([label, id, help]) => (
+        <div key={label} className="contents">
+          <dt className="text-muted max-sm:mt-2" title={help}>{label}</dt>
+          <dd className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="mono truncate text-xs" title={id}>{id}</span>
+            {projectId ? (
+              <Link className="text-xs whitespace-nowrap underline underline-offset-2" href={`/projects/${projectId}?status=all&q=${encodeURIComponent(id)}`}>
+                All issues from this {label.toLowerCase()}
+              </Link>
+            ) : null}
+          </dd>
         </div>
       ))}
     </dl>
@@ -166,6 +198,7 @@ function QuickFacts({ payload, receivedAt }: { payload: Payload; receivedAt: str
     ['User', user || null, [payload.user.id, payload.user.name, payload.user.email].filter(Boolean).join(' · ') || undefined],
     ['Browser', [d.browser, d.browser_version].filter(Boolean).join(' ') || null],
     ['OS / device', [d.os, d.os_version].filter(Boolean).join(' ') || [d.manufacturer, d.model].filter(Boolean).join(' ') || null],
+    ['Device id', d.id ? d.id.slice(0, 8) : null, d.id ? `${d.id} (same id = same browser; full ids under Details)` : undefined],
     ['Screen size', d.screen_width ? `${d.screen_width} × ${d.screen_height}` : null],
     ['App version', payload.app_version],
     ['Environment', payload.environment],
@@ -425,7 +458,7 @@ function PerformanceTab({ payload }: { payload: Payload }) {
 }
 
 /** Everything about one event, grouped into tabs: overview first, then stack, breadcrumbs, details, performance and the raw JSON. */
-export function EventDetail({ event, insightSettings }: { event: ClientEvent; insightSettings: InsightSettingsView | null }) {
+export function EventDetail({ event, insightSettings, projectId = null }: { event: ClientEvent; insightSettings: InsightSettingsView | null; projectId?: string | null }) {
   const p = event.payload;
   const rawJsonRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<TabId>('overview');
@@ -530,6 +563,9 @@ export function EventDetail({ event, insightSettings }: { event: ClientEvent; in
               ['Locale', p.device.locale],
               ['Referrer', p.device.referrer],
             ]} />
+          </Block>
+          <Block title="Came from">
+            <OriginIds event={event} projectId={projectId} />
           </Block>
           {p.context ? (
             <Block title="Context" className="col-span-full" aside={<CopyButton text={JSON.stringify(p.context, null, 2)} />}>

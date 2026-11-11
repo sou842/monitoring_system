@@ -272,6 +272,10 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
         sampled: 5,
         users: 3,
         anonymous: 1,
+        devices: 0,
+        sessions: 0,
+        networks: 1,
+        withDevice: 0,
         screens: [{ value: 'Checkout', count: 3 }, { value: 'Cart', count: 1 }, { value: 'https://shop.test/checkout', count: 1 }],
         browsers: [{ value: 'Chrome 125', count: 3 }, { value: 'Chrome 124', count: 2 }],
         versions: [{ value: '2.1.4', count: 4 }, { value: '2.2.0', count: 1 }],
@@ -282,6 +286,69 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
       const plan = await db.collection('events').aggregate([{ $match: { issueId: new ObjectId(list.issues[0].id) } }, { $sort: { receivedAt: -1 } }, { $limit: 1000 }]).explain();
       assert.match(JSON.stringify(plan), /IXSCAN/, 'Impact reads the issue\'s events through the index');
       await api.projects.DELETE(authed(`/api/projects?id=${created.project.id}`, { method: 'DELETE' }));
+    });
+
+    it('stores device, session and hashed network ids, counts them in Impact and finds issues by them', async () => {
+      const created = await (await api.projects.POST(authed('/api/projects', { method: 'POST', body: { name: 'Origins' } }))).json();
+      const id = created.project.id;
+      const devA = 'a'.repeat(32);
+      const devB = 'b'.repeat(32);
+      const failing = (message: string, deviceId: string | null, sessionId: string | null) =>
+        sampleEvent({
+          error: { message, type: 'OriginError', handled: false },
+          session_id: sessionId,
+          device: { ...(sampleEvent().device as Record<string, unknown>), id: deviceId },
+        });
+      const office = { 'x-forwarded-for': '198.51.100.20' };
+      assert.equal((await ingest(created.apiKey, [failing('Origin one', devA, '1'.repeat(32)), failing('Origin one', devA, '2'.repeat(32))], office)).status, 202);
+      assert.equal((await ingest(created.apiKey, [failing('Origin one', devB, '3'.repeat(32)), failing('Origin two', devB, '3'.repeat(32))], office)).status, 202);
+      await ingest(created.apiKey, [failing('Origin one', null, null)], { 'x-forwarded-for': '192.0.2.99' });
+
+      const stored = await db.collection('events').find({ projectId: new ObjectId(id) }).toArray();
+      assert.equal(stored.length, 5);
+      const officeIds = new Set(stored.filter((e) => e.deviceId).map((e) => e.networkId));
+      assert.equal(officeIds.size, 1, 'one office, one network id');
+      const [officeId] = [...officeIds];
+      assert.match(officeId, /^[0-9a-f]{16}$/);
+      assert.ok(!JSON.stringify(stored).includes('198.51.100.20'), 'the IP is never stored');
+
+      const list = await (await api.issues.GET(authed(`/api/issues?projectId=${id}&q=Origin%20one`))).json();
+      const detail = await (await api.issue.GET(authed(`/api/issue?id=${list.issues[0].id}`))).json();
+      assert.equal(detail.impact.devices, 2);
+      assert.equal(detail.impact.sessions, 3);
+      assert.equal(detail.impact.networks, 2);
+      assert.equal(detail.impact.withDevice, 3);
+      const withDevice = detail.events.find((e) => e.deviceId === devB);
+      assert.equal(withDevice.sessionId, '3'.repeat(32));
+      assert.equal(withDevice.networkId, officeId);
+
+      const byDevice = await (await api.issues.GET(authed(`/api/issues?projectId=${id}&q=${devB.toUpperCase()}`))).json();
+      assert.deepEqual(byDevice.issues.map((i) => i.message).sort(), ['Origin one', 'Origin two']);
+      assert.ok(byDevice.issues.every((i) => i.matchedEventId), 'each links an event from that device');
+      const bySession = await (await api.issues.GET(authed(`/api/issues?projectId=${id}&q=${'1'.repeat(32)}`))).json();
+      assert.deepEqual(bySession.issues.map((i) => i.message), ['Origin one']);
+      const byNetwork = await (await api.issues.GET(authed(`/api/issues?projectId=${id}&q=${officeId}`))).json();
+      assert.equal(byNetwork.total, 2);
+      const elsewhere = await (await api.issues.GET(authed(`/api/issues?projectId=${projectId}&q=${devB}`))).json();
+      assert.equal(elsewhere.total, 0, 'only events of the searched project count');
+
+      const pid = new ObjectId(id);
+      const plan = await db.collection('events').find({ projectId: pid, deviceId: devB }).explain();
+      assert.match(JSON.stringify(plan.queryPlanner.winningPlan), /projectId_1_deviceId_1_receivedAt_-1/, 'uses the device index');
+      // The search's id lookup (same shape as server/routes/issues.ts): an OR of index scans, never the whole project.
+      const searchPlan = JSON.stringify(
+        (await db.collection('events').find({ $or: [
+          { 'payload.performance.api_calls._id': 'nothing', projectId: pid },
+          { projectId: pid, deviceId: 'nothing' },
+          { projectId: pid, sessionId: 'nothing' },
+          { projectId: pid, networkId: 'nothing' },
+        ] }).sort({ receivedAt: -1 }).limit(20).explain()).queryPlanner.winningPlan,
+      );
+      assert.match(searchPlan, /"OR"|SORT_MERGE/, 'one index per branch');
+      assert.doesNotMatch(searchPlan, /COLLSCAN/);
+      assert.doesNotMatch(searchPlan, /projectId_1_receivedAt_-1/, 'does not walk every event of the project');
+      for (const name of ['deviceId', 'sessionId', 'networkId']) assert.match(searchPlan, new RegExp('projectId_1_' + name + '_1_receivedAt_-1'));
+      await api.projects.DELETE(authed(`/api/projects?id=${id}`, { method: 'DELETE' }));
     });
 
     it('rotates the API key: the old key stops working, the new one works', async () => {

@@ -55,10 +55,12 @@ export function makeScope(overrides: Partial<EventScope> = {}): EventScope {
     appVersion: '2.1.4',
     user: null,
     screen: null,
+    sessionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     breadcrumbs: [],
     performance: emptyPerformance(),
     memory: emptyMemory(),
     device: {
+      id: 'dddddddddddddddddddddddddddddddd',
       platform: 'js',
       os: 'Windows 11',
       os_version: '15.0.0',
@@ -96,7 +98,7 @@ export function mockFetch(status = 202) {
  * separately so any accidental drift from the shared contract is visible.
  */
 const SHARED_SCHEMA = {
-  root: ['sdk', 'api_key', 'event_type', 'timestamp', 'environment', 'app_version', 'user', 'screen', 'error', 'stacktrace', 'breadcrumbs', 'performance', 'memory', 'device', 'transaction'],
+  root: ['sdk', 'api_key', 'event_type', 'timestamp', 'environment', 'app_version', 'user', 'screen', 'session_id', 'error', 'stacktrace', 'breadcrumbs', 'performance', 'memory', 'device', 'transaction'],
   sdk: ['name', 'version'],
   user: ['id', 'email', 'name'],
   error: ['message', 'type', 'handled'],
@@ -105,7 +107,7 @@ const SHARED_SCHEMA = {
   performance: ['page_load_ms', 'ttfb_ms', 'fcp_ms', 'lcp_ms', 'startup_ms', 'frame_rate_fps', 'slow_screen', 'api_calls', 'slow_api_calls'],
   apiCall: ['_id', 'url', 'method', 'status', 'duration_ms'],
   memory: ['used_mb', 'total_mb', 'leak_suspected', 'oom_kill'],
-  device: ['platform', 'os', 'os_version', 'manufacturer', 'model', 'browser', 'browser_version', 'screen_width', 'screen_height', 'url', 'locale'],
+  device: ['id', 'platform', 'os', 'os_version', 'manufacturer', 'model', 'browser', 'browser_version', 'screen_width', 'screen_height', 'url', 'locale'],
 };
 const JS_EXTENSIONS = { root: ['level', 'context'], performance: ['cls'], device: ['referrer'] };
 

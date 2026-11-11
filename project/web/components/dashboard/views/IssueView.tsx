@@ -185,6 +185,10 @@ export function IssueView({ issueId }: { issueId: string }) {
 
   const impact = data.impact;
   const users = impact && impact.users > 0 ? impact.users.toLocaleString() : impact && impact.anonymous > 0 ? 'not identified' : '–';
+  const devices = impact && impact.withDevice > 0 ? impact.devices.toLocaleString() : '–';
+  const devicesSub = impact && impact.withDevice > 0
+    ? [`${impact.sessions.toLocaleString()} session${impact.sessions === 1 ? '' : 's'}`, impact.networks > 0 ? `${impact.networks.toLocaleString()} network${impact.networks === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ')
+    : undefined;
   const usersSub = impact && impact.users > 0 && impact.anonymous > 0 ? `+ ${percent(impact.anonymous, impact.sampled)} anonymous` : undefined;
 
   return (
@@ -217,6 +221,12 @@ export function IssueView({ issueId }: { issueId: string }) {
         <div className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line pt-3.5 min-[480px]:grid-cols-3 sm:flex sm:flex-wrap">
           <Stat label="Events" value={issue.count.toLocaleString()} />
           <Stat label="Users" value={users} sub={usersSub} title={impact ? `Distinct user ids (setUser) in the newest ${impact.sampled.toLocaleString()} stored events; ${impact.anonymous.toLocaleString()} event(s) had none.` : undefined} />
+          <Stat
+            label="Devices"
+            value={devices}
+            sub={devicesSub}
+            title={impact ? `Distinct device ids (random, one per browser), visits and sender networks (hashed IPs) in the newest ${impact.sampled.toLocaleString()} stored events; ${impact.withDevice.toLocaleString()} of them came from SDK 0.12.0+ with a device id.` : undefined}
+          />
           <Stat label="First seen" value={timeAgo(issue.firstSeen)} title={formatDate(issue.firstSeen)} />
           <Stat label="Last seen" value={timeAgo(issue.lastSeen)} title={formatDate(issue.lastSeen)} />
           <Stat label="Environments" value={issue.environments.join(', ') || '–'} />
@@ -262,7 +272,7 @@ export function IssueView({ issueId }: { issueId: string }) {
           ) : eventState.error ? (
             <ErrorNotice error={eventState.error} />
           ) : event ? (
-            <EventDetail key={event.id} event={event} insightSettings={data.project ? data.project.insights : null} />
+            <EventDetail key={event.id} event={event} insightSettings={data.project ? data.project.insights : null} projectId={data.project ? data.project.id : null} />
           ) : (
             <Loading />
           )}

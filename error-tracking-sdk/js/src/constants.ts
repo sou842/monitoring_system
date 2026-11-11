@@ -5,7 +5,7 @@
 
 export const SDK_NAME = 'error-tracker-js';
 /** Must match package.json "version" (a test enforces this). */
-export const SDK_VERSION = '0.11.1';
+export const SDK_VERSION = '0.12.0';
 export const PLATFORM = 'js';
 
 // ---------------------------------------------------------------------------
@@ -114,6 +114,24 @@ export const HTTP_STATUS_CODE_MAX = 599;
 export const MAX_API_CALLS_TRACKED = 20;
 /** Random bytes in each API call's `_id` (8 bytes = 16 hex characters). */
 export const REQUEST_ID_BYTES = 8;
+
+// ---------------------------------------------------------------------------
+// Device and session ids
+// ---------------------------------------------------------------------------
+
+/** localStorage key of the random device id. Holds nothing but the id. */
+export const DEVICE_ID_STORAGE_KEY = '_et_device';
+/** Random bytes in `device.id` (16 bytes = 32 hex characters). */
+export const DEVICE_ID_BYTES = 16;
+/** sessionStorage key of the session: `{ "id": "<hex>", "last": <epoch ms> }`. */
+export const SESSION_STORAGE_KEY = '_et_session';
+/** Random bytes in `session_id` (16 bytes = 32 hex characters). */
+export const SESSION_ID_BYTES = 16;
+/** A tab with no SDK activity (events, breadcrumbs) for this long starts a new session. */
+export const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+/** The session's last-activity time is written to sessionStorage at most this often. */
+export const SESSION_TOUCH_WRITE_MS = 60 * 1000;
+
 /** Delay after window `load` so loadEventEnd is populated. */
 export const PAGE_LOAD_SETTLE_MS = 0;
 /** CLS session window rules (per the web-vitals definition). */

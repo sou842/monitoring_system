@@ -72,6 +72,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
   "app_version": "2.1.4",
   "user": { "id": "usr_8821", "email": null, "name": null },
   "screen": null,               // app screen from setScreen(), or null (SDK 0.8.0+; older SDKs omit it → stored as null)
+  "session_id": "5f0c…",        // random id of the visit (per tab, new after 30 min idle), or null (SDK 0.12.0+)
   "error": { "message": "Cannot read property 'price' of undefined", "type": "TypeError", "handled": false },
   "stacktrace": [ { "filename": "cart.js", "lineno": 142, "colno": 12, "function": "handlePayment" } ],
   "breadcrumbs": [ { "timestamp": "ISO8601", "type": "click", "message": "button#pay", "data": {} } ],
@@ -85,6 +86,7 @@ attempt 1 ── fail ──► wait 1 s ──► attempt 2 ── fail ──�
   },
   "memory": { "used_mb": 142, "total_mb": 256, "leak_suspected": false, "oom_kill": null },
   "device": {
+    "id": "a41b…",              // random device id kept in localStorage, or null (SDK 0.12.0+, trackDevice)
     "platform": "js", "os": "Windows", "os_version": "11", "manufacturer": null, "model": null,
     "browser": "Chrome", "browser_version": "124.0", "screen_width": 1920, "screen_height": 1080,
     "url": "https://app.example.com/checkout",

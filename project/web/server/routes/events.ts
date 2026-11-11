@@ -3,6 +3,7 @@ import { API_KEY_HEADER, MAX_EVENTS_PER_REQUEST } from '../constants.ts';
 import { getDb } from '../db.ts';
 import { bodyObject, errorResponse, handle, json, readJson } from '../http.ts';
 import { ingestEvents } from '../ingest.ts';
+import { networkIdOf } from '../network.ts';
 import { isOriginAllowed } from '../origins.ts';
 import { findProjectByApiKey } from '../projects.ts';
 import {
@@ -94,6 +95,7 @@ async function ingest(request: Request): Promise<Response> {
     ((await consumeIpTransactionBudget(db, project._id, ip, pageViewCount)).allowed &&
       (await consumeTransactionBudget(db, project._id, pageViewCount)).allowed);
 
-  const result = await ingestEvents({ db, project, rawEvents: events, acceptTransactions });
+  const networkId = networkIdOf(project._id, ip);
+  const result = await ingestEvents({ db, project, rawEvents: events, acceptTransactions, networkId });
   return json(result, 202);
 }

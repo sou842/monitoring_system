@@ -19,12 +19,14 @@ export interface IngestResult {
  * Invalid events are rejected individually; valid ones in the same batch are
  * still stored.
  */
-export async function ingestEvents({ db, project, rawEvents, now = new Date(), acceptTransactions = true }: {
+export async function ingestEvents({ db, project, rawEvents, now = new Date(), acceptTransactions = true, networkId = null }: {
   db: Db;
   project: Pick<ProjectDoc, '_id'>;
   rawEvents: unknown[];
   now?: Date;
   acceptTransactions?: boolean;
+  /** Hashed network of the request (`networkIdOf()`), stored on every event of the batch. */
+  networkId?: string | null;
 }): Promise<IngestResult> {
   const rejected: IngestResult['rejected'] = [];
   const valid: EventPayload[] = [];
@@ -44,7 +46,7 @@ export async function ingestEvents({ db, project, rawEvents, now = new Date(), a
   const docs: EventDoc[] = [];
   for (const event of valid) {
     const issue = await upsertIssue(db, projectId, event, now);
-    docs.push(eventDocument(projectId, issue._id, event, now));
+    docs.push(eventDocument(projectId, issue._id, event, now, networkId));
   }
   await collections(db).events.insertMany(docs, { ordered: false });
   return { accepted: docs.length + storedViews, rejected };
@@ -137,7 +139,7 @@ async function upsertIssue(db: Db, projectId: ObjectId, event: EventPayload, now
 }
 
 /** Event as stored: indexed summary fields plus the full validated payload. */
-function eventDocument(projectId: ObjectId, issueId: ObjectId, event: EventPayload, now: Date): EventDoc {
+function eventDocument(projectId: ObjectId, issueId: ObjectId, event: EventPayload, now: Date, networkId: string | null): EventDoc {
   return {
     _id: new ObjectId(),
     projectId,
@@ -154,6 +156,11 @@ function eventDocument(projectId: ObjectId, issueId: ObjectId, event: EventPaylo
     userId: event.user.id,
     url: event.device.url,
     screen: event.screen,
+    // Only set when known: the partial indexes on these fields cover documents that have them,
+    // and a plain `{ deviceId: 'x' }` lookup can use an `$exists` partial index.
+    ...(event.device.id ? { deviceId: event.device.id } : {}),
+    ...(event.session_id ? { sessionId: event.session_id } : {}),
+    ...(networkId ? { networkId } : {}),
     platform: event.device.platform,
     payload: event,
   };

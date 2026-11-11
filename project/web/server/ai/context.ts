@@ -54,6 +54,9 @@ export function eventSummaryLine(event: EventDoc): string {
     device && device.browser ? `${device.browser} ${device.browser_version ?? ''}`.trim() : null,
     device && device.os ? `${device.os} ${device.os_version ?? ''}`.trim() : null,
     event.userId ? `user ${event.userId}` : null,
+    event.deviceId ? `device ${event.deviceId.slice(0, 8)}` : null,
+    event.sessionId ? `session ${event.sessionId.slice(0, 8)}` : null,
+    event.networkId ? `network ${event.networkId.slice(0, 8)}` : null,
     event.message && event.message !== event.payload.error?.message ? `message ${event.message}` : null,
   ];
   return parts.filter(Boolean).join(' · ');
@@ -81,6 +84,9 @@ export function breakdown(events: readonly EventDoc[]): string {
     'Operating systems': new Map(), Handled: new Map(), Messages: new Map(), Days: new Map(),
   };
   const users = new Set<string>();
+  const devices = new Set<string>();
+  const sessions = new Set<string>();
+  const networks = new Set<string>();
   for (const e of events) {
     const device = e.payload && e.payload.device;
     count(fields.Screens, e.screen);
@@ -93,12 +99,18 @@ export function breakdown(events: readonly EventDoc[]): string {
     count(fields.Messages, e.message);
     count(fields.Days, e.timestamp.toISOString().slice(0, 10));
     if (e.userId) users.add(e.userId);
+    if (e.deviceId) devices.add(e.deviceId);
+    if (e.sessionId) sessions.add(e.sessionId);
+    if (e.networkId) networks.add(e.networkId);
   }
   // When they happened (device clock), not when they arrived: the offline queue sends late events in one batch.
   const times = events.map((e) => e.timestamp.getTime());
   const oldest = new Date(Math.min(...times)).toISOString();
   const newest = new Date(Math.max(...times)).toISOString();
-  const lines = [`${events.length} stored event(s), happened from ${oldest} to ${newest}; ${users.size} distinct user id(s).`];
+  const origin = devices.size + sessions.size + networks.size > 0
+    ? ` From ${devices.size} distinct device id(s), ${sessions.size} session(s), ${networks.size} sender network(s) (events from SDKs older than 0.12.0 have no device/session id).`
+    : '';
+  const lines = [`${events.length} stored event(s), happened from ${oldest} to ${newest}; ${users.size} distinct user id(s).${origin}`];
   for (const [label, counter] of Object.entries(fields)) lines.push(`- ${label}: ${topRows(counter, events.length)}`);
   return lines.join('\n');
 }
@@ -146,7 +158,7 @@ export function issueContext({ issue, project, event, events }: IssueContextInpu
 
 /** Event fields the breakdown and event lists read; skips the heavy parts (breadcrumbs, stack, API calls). */
 export const EVENT_SUMMARY_PROJECTION = {
-  receivedAt: 1, timestamp: 1, environment: 1, appVersion: 1, handled: 1, userId: 1, url: 1, screen: 1, message: 1,
+  receivedAt: 1, timestamp: 1, environment: 1, appVersion: 1, handled: 1, userId: 1, url: 1, screen: 1, message: 1, deviceId: 1, sessionId: 1, networkId: 1,
   'payload.device': 1, 'payload.error': 1,
 } as const;
 

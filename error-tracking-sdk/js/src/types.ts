@@ -34,6 +34,12 @@ export interface ErrorTrackerConfig {
   maxBreadcrumbs?: number;
   /** CSS selectors whose text is replaced with `[masked]` in click breadcrumbs. */
   maskSelectors?: string[];
+  /**
+   * Send a random, anonymous device id (`device.id`, kept in localStorage under
+   * `_et_device`) so events from the same browser can be linked. Defaults to true.
+   * The per-tab `session_id` is sent either way.
+   */
+  trackDevice?: boolean;
   /** Log SDK diagnostics to the console. Defaults to false. */
   debug?: boolean;
   /** Report fetch/XHR responses with an error status (see `httpErrorStatuses`) as error events. Defaults to true. */
@@ -200,6 +206,12 @@ export interface MemoryPayload {
 }
 
 export interface DevicePayload {
+  /**
+   * Random id of this browser (32 hex characters), kept in localStorage so all
+   * events from one browser share it. Anonymous; null when `trackDevice` is off
+   * or outside a browser.
+   */
+  id: string | null;
   platform: string;
   os: string | null;
   os_version: string | null;
@@ -292,6 +304,11 @@ export interface TrackerEvent {
    * the app never set one. For apps whose screens change without the URL changing.
    */
   screen: string | null;
+  /**
+   * Random id of the visit (32 hex characters): the same across reloads in one
+   * tab, new for every tab and after 30 minutes without activity. Null outside a browser.
+   */
+  session_id: string | null;
   error: ErrorPayload | null;
   stacktrace: StackFrame[];
   breadcrumbs: Breadcrumb[];

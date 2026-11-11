@@ -131,14 +131,18 @@ export class DeviceInfo {
       });
   }
 
-  /** Snapshot for a payload; URL and screen size are read fresh each time. */
-  snapshot(): DevicePayload {
+  /**
+   * Snapshot for a payload; URL and screen size are read fresh each time.
+   * @param id  the device id from `Identity`, or null
+   */
+  snapshot(id: string | null = null): DevicePayload {
     const win = getWindow();
     const doc = getDocument();
     const nav = getNavigator();
     const screen = win !== null ? win.screen : undefined;
 
     return {
+      id: id,
       platform: PLATFORM,
       os: this.parsed.os,
       os_version: this.parsed.osVersion,

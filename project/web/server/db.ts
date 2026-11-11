@@ -96,6 +96,12 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.collection('events').createIndex({ projectId: 1, receivedAt: -1 }),
     // Find the events that recorded one API call by its `_id` (multikey: one entry per call).
     db.collection('events').createIndex({ 'payload.performance.api_calls._id': 1 }),
+    // "Everything from this device / session / network" lookups and the search box (SDK 0.12.0+ events only).
+    // $exists, not $type: a partial index is only used when the query implies its filter, and an equality does
+    // imply $exists (ingest leaves the field out when unknown) but not $type. tests/api.test.ts checks the plan.
+    db.collection('events').createIndex({ projectId: 1, deviceId: 1, receivedAt: -1 }, { partialFilterExpression: { deviceId: { $exists: true } } }),
+    db.collection('events').createIndex({ projectId: 1, sessionId: 1, receivedAt: -1 }, { partialFilterExpression: { sessionId: { $exists: true } } }),
+    db.collection('events').createIndex({ projectId: 1, networkId: 1, receivedAt: -1 }, { partialFilterExpression: { networkId: { $exists: true } } }),
     // Events older than 30 days are removed automatically.
     db.collection('events').createIndex({ receivedAt: 1 }, { expireAfterSeconds: EVENT_RETENTION_DAYS * SECONDS_PER_DAY }),
 

@@ -28,6 +28,15 @@ export function getLocalStorage(): Storage | null {
   }
 }
 
+/** Like `getLocalStorage()`, for sessionStorage (per tab, survives reloads). */
+export function getSessionStorage(): Storage | null {
+  try {
+    return typeof sessionStorage !== 'undefined' ? sessionStorage : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 export function isOnline(): boolean {
   const nav = getNavigator();
   // Treat "unknown" as online so we attempt delivery rather than buffer forever.

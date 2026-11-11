@@ -38,6 +38,9 @@ export function eventSummaryView(event: EventDoc): EventSummaryView {
     url: event.url,
     // Events stored before the field existed have none.
     screen: event.screen ?? null,
+    deviceId: event.deviceId ?? null,
+    sessionId: event.sessionId ?? null,
+    networkId: event.networkId ?? null,
     platform: event.platform,
     browser: event.payload && event.payload.device ? event.payload.device.browser : null,
   };

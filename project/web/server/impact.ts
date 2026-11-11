@@ -31,6 +31,11 @@ const BROWSER = {
   },
 };
 
+/** `{ $count }` facet: how many different non-empty string values `field` has. */
+function distinctCount(field: string): Document[] {
+  return [{ $match: { [field]: { $type: 'string', $ne: '' } } }, { $group: { _id: '$' + field } }, { $count: 'n' }];
+}
+
 const firstCount = (rows: unknown): number => (Array.isArray(rows) && rows[0] && typeof rows[0].n === 'number' ? rows[0].n : 0);
 
 const values = (rows: unknown): ImpactValue[] =>
@@ -38,7 +43,7 @@ const values = (rows: unknown): ImpactValue[] =>
 
 /**
  * Who and where an issue hits, over its newest `IMPACT_MAX_EVENTS` stored
- * events: distinct users, top screens (the `setScreen()` name, else the page
+ * events: distinct users, devices, sessions and networks, top screens (the `setScreen()` name, else the page
  * URL), browsers and app versions, and from SDK 0.11.0 events, how many
  * happened offline or while the page was still loading. One aggregation on the
  * `{ issueId, receivedAt }` index.
@@ -53,6 +58,9 @@ export async function issueImpact(db: Db, issueId: ObjectId): Promise<IssueImpac
       {
         $project: {
           userId: 1,
+          deviceId: 1,
+          sessionId: 1,
+          networkId: 1,
           screen: 1,
           url: 1,
           appVersion: 1,
@@ -67,6 +75,10 @@ export async function issueImpact(db: Db, issueId: ObjectId): Promise<IssueImpac
           sampled: [{ $count: 'n' }],
           users: [{ $match: { userId: { $type: 'string', $ne: '' } } }, { $group: { _id: '$userId' } }, { $count: 'n' }],
           anonymous: countOf({ $or: [{ userId: null }, { userId: '' }] }),
+          devices: distinctCount('deviceId'),
+          sessions: distinctCount('sessionId'),
+          networks: distinctCount('networkId'),
+          withDevice: countOf({ deviceId: { $type: 'string' } }),
           screens: top({ $ifNull: [textOrNull('$screen'), textOrNull('$url')] }),
           browsers: top(BROWSER),
           versions: top(textOrNull('$appVersion')),
@@ -82,6 +94,10 @@ export async function issueImpact(db: Db, issueId: ObjectId): Promise<IssueImpac
     sampled: firstCount(row && row.sampled),
     users: firstCount(row && row.users),
     anonymous: firstCount(row && row.anonymous),
+    devices: firstCount(row && row.devices),
+    sessions: firstCount(row && row.sessions),
+    networks: firstCount(row && row.networks),
+    withDevice: firstCount(row && row.withDevice),
     screens: values(row && row.screens),
     browsers: values(row && row.browsers),
     versions: values(row && row.versions),

@@ -9,6 +9,7 @@ import { culprit, fingerprint, normalizeFilename, normalizeMessage } from '../se
 import { cleanOriginList, isOriginAllowed, normalizeOrigin } from '../server/origins.ts';
 import { consumeEventBudget, ipBucket } from '../server/rateLimit.ts';
 import { validateEvent } from '../server/validate.ts';
+import { networkIdOf } from '../server/network.ts';
 import { sampleEvent, samplePageView, validOk, type RawEvent } from './helpers.ts';
 
 process.env.SESSION_SECRET = 'test-secret';
@@ -95,6 +96,45 @@ describe('validateEvent', () => {
     assert.equal(valid(sampleEvent({ screen: 42 })).screen, null);
     assert.equal(valid(sampleEvent({ screen: '' })).screen, null);
     assert.ok((valid(sampleEvent({ screen: 'S'.repeat(1000) })).screen ?? '').length <= 201);
+  });
+
+  it('keeps device.id and session_id only as short id-like strings (lower-cased)', () => {
+    const hex = 'ab12'.repeat(8);
+    const withIds = valid(sampleEvent({ session_id: hex.toUpperCase(), device: { ...(sampleEvent().device as Record<string, unknown>), id: hex } }));
+    assert.equal(withIds.session_id, hex);
+    assert.equal(withIds.device.id, hex);
+    assert.equal(valid(sampleEvent({ session_id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301' })).session_id, '3f2504e0-4f89-11d3-9a0c-0305e82c3301'); // mobile UUID
+    const old = valid(sampleEvent());
+    assert.equal(old.session_id, null); // older SDKs don't send them
+    assert.equal(old.device.id, null);
+    for (const bad of ['', 'a@b.com', 'has space', 'x'.repeat(65), 42, { $gt: '' }, ['a']]) {
+      assert.equal(valid(sampleEvent({ session_id: bad })).session_id, null, String(bad));
+      assert.equal(valid(sampleEvent({ device: { ...(sampleEvent().device as Record<string, unknown>), id: bad } })).device.id, null, String(bad));
+    }
+  });
+
+  it('hashes the sender network per project, never exposing the IP', () => {
+    const saved = process.env.SESSION_SECRET;
+    process.env.SESSION_SECRET = 'unit-secret';
+    try {
+      const p1 = new ObjectId();
+      const p2 = new ObjectId();
+      const a = networkIdOf(p1, '203.0.113.7');
+      assert.match(a ?? '', /^[0-9a-f]{16}$/);
+      assert.equal(networkIdOf(p1, '203.0.113.7'), a, 'stable');
+      assert.notEqual(networkIdOf(p1, '203.0.113.8'), a, 'another IP, another id');
+      assert.notEqual(networkIdOf(p2, '203.0.113.7'), a, 'another project, another id');
+      assert.equal(networkIdOf(p1, '2001:db8:1:2:aaaa::1'), networkIdOf(p1, '2001:db8:1:2:bbbb::9'), 'one IPv6 /64 = one network');
+      assert.equal(networkIdOf(p1, 'unknown'), null);
+      assert.equal(networkIdOf(p1, ''), null);
+      process.env.SESSION_SECRET = 'other-secret';
+      assert.notEqual(networkIdOf(p1, '203.0.113.7'), a, 'keyed by the secret');
+      delete process.env.SESSION_SECRET;
+      assert.equal(networkIdOf(p1, '203.0.113.7'), null, 'no secret, no id');
+    } finally {
+      if (saved === undefined) delete process.env.SESSION_SECRET;
+      else process.env.SESSION_SECRET = saved;
+    }
   });
 
   it("keeps each API call's _id, and null when it is missing or not a short string", () => {

@@ -9,7 +9,12 @@ const BYTE_VALUES = 256;
  * `Math.random` (old browsers, some test environments).
  */
 export function randomRequestId(): string {
-  const bytes = randomBytes(REQUEST_ID_BYTES);
+  return randomHexId(REQUEST_ID_BYTES);
+}
+
+/** A random lowercase hex id of `byteCount * 2` characters (device and session ids). */
+export function randomHexId(byteCount: number): string {
+  const bytes = randomBytes(byteCount);
   let id = '';
   for (let i = 0; i < bytes.length; i++) {
     const hex = bytes[i].toString(HEX_RADIX);

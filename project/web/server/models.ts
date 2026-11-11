@@ -86,6 +86,14 @@ export interface EventDoc {
   url: string | null;
   /** Missing on events stored before the field existed. */
   screen?: string | null;
+  /** `payload.device.id` / `payload.session_id`; missing on events stored before SDK 0.12.0 support. */
+  deviceId?: string | null;
+  sessionId?: string | null;
+  /**
+   * Hashed sender network (`server/network.ts`): the same office or home IP
+   * gives the same value within one project. Never the IP itself.
+   */
+  networkId?: string | null;
   platform: string;
   payload: EventPayload;
 }

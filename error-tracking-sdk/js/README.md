@@ -115,6 +115,7 @@ app.config.errorHandler = (err, instance, info) => {
 | `sampleRate` | `number` | `1.0` | 0–1. Each event is dropped when `Math.random() > sampleRate`. |
 | `maxBreadcrumbs` | `number` | `30` | Size of the breadcrumb ring buffer (max 100). |
 | `maskSelectors` | `string[]` | `[]` | Elements whose text is hidden (`[masked]`) in click breadcrumbs. `input[type="password"]` is always masked. |
+| `trackDevice` | `boolean` | `true` | Send a random, anonymous `device.id` (kept in `localStorage["_et_device"]`) so events from the same browser can be linked. The per-tab `session_id` is sent either way. See [Device and session ids](#device-and-session-ids). *Added in 0.12.0.* |
 | `debug` | `boolean` | `false` | Log SDK diagnostics to the console. |
 | `captureHttpErrors` | `boolean` | `true` | Report fetch/XHR responses whose status is in `httpErrorStatuses` as `HttpError` events. |
 | `httpErrorStatuses` | `Array<number \| [min, max]>` | `[400, 404, 405, 413, [500, 599]]` | Which statuses count as errors. See [Which HTTP statuses are reported](#which-http-statuses-are-reported). *Added in 0.6.0;* earlier versions reported every 4xx and 5xx. |
@@ -313,6 +314,15 @@ ErrorTracker.setScreen(null);           // clear it
 
 Other public methods: `flush(): Promise<void>` sends everything now (and never rejects). `close(): Promise<void>` flushes, removes every hook and persists anything unsent. `isInitialized(): boolean`.
 
+## Device and session ids
+
+*Added in 0.12.0.* Every event says which browser and which visit it came from, so the dashboard can tell "40 events from one device" apart from "40 devices":
+
+- `device.id`: a random 32-character hex id created on first run and kept in `localStorage["_et_device"]`. It stays the same across reloads, tabs and logins in that browser profile. Clearing site data, a private window or another browser gives a new one. Turn it off with `trackDevice: false` (then `device.id` is `null` and nothing is written).
+- `session_id`: a random id kept in `sessionStorage["_et_session"]`. It survives reloads in the same tab, every tab gets its own, and a new one starts after 30 minutes without activity.
+
+Both are random. They are not built from the user, the hardware or browser traits (no fingerprinting), and the API key is never stored with them. When storage is blocked, the ids live in memory for the page only. The dashboard adds a third hint server-side: a hashed id of the network the event was sent from (never the IP itself). The issue page shows how many devices, sessions and networks an issue hit, and the issue search finds issues by any of these ids.
+
 ## What is collected
 
 | Collector | Captures |
@@ -404,6 +414,7 @@ Every event follows the shared cross-platform schema. Every field is always pres
   "app_version": "2.1.4",
   "user": { "id": "usr_8821", "email": null, "name": null },
   "screen": null,
+  "session_id": "5f0c2e9a7d4b41e8a3c6f1b2d9e07a54",
   "error": { "message": "Cannot read properties of undefined (reading 'price')", "type": "TypeError", "handled": false },
   "stacktrace": [{ "filename": "https://app.example.com/static/cart.js", "lineno": 142, "colno": 12, "function": "handlePayment" }],
   "breadcrumbs": [{ "timestamp": "2026-10-17T10:42:14.100Z", "type": "click", "message": "Clicked Pay Now", "data": { "tag": "button", "text": "Pay Now", "selector": "form#checkout > button.primary" } }],
@@ -415,6 +426,7 @@ Every event follows the shared cross-platform schema. Every field is always pres
   },
   "memory": { "used_mb": 142.3, "total_mb": 256, "leak_suspected": false, "oom_kill": null },
   "device": {
+    "id": "a41b7c3e9f2d4a6b8c0e1f3a5b7d9c2e",
     "platform": "js", "os": "Windows 11", "os_version": "15.0.0", "manufacturer": null, "model": null,
     "browser": "Chrome", "browser_version": "124.0", "screen_width": 1920, "screen_height": 1080,
     "url": "https://app.example.com/checkout", "referrer": null, "locale": "en-IN"

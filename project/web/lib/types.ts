@@ -168,6 +168,10 @@ export interface EventSummaryView {
   userId: string | null;
   url: string | null;
   screen: string | null;
+  /** Random device / session ids from SDK 0.12.0+, and the hashed sender network; null when unknown. */
+  deviceId: string | null;
+  sessionId: string | null;
+  networkId: string | null;
   platform: string;
   browser: string | null;
 }
@@ -234,6 +238,12 @@ export interface IssueImpact {
   users: number;
   /** Events without a user id (the app never called setUser). */
   anonymous: number;
+  /** Distinct device ids / session ids / hashed networks among the sampled events. */
+  devices: number;
+  sessions: number;
+  networks: number;
+  /** Sampled events that carry a device id (SDK 0.12.0+ with trackDevice on). */
+  withDevice: number;
   screens: ImpactValue[];
   browsers: ImpactValue[];
   versions: ImpactValue[];

@@ -269,6 +269,8 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
           issueId: String(event.issueId),
           link: `/issues/${String(event.issueId)}?event=${String(event._id)}`,
           receivedAt: iso(event.receivedAt),
+          // Hashed sender network (never the IP); device.id and session_id are in the JSON.
+          networkId: event.networkId ?? null,
           analysis: eventAnalysis(event, await insightSettings(event.projectId)),
           json: cappedJson(event.payload, AI_WORKSPACE_EVENT_JSON_CHARS),
         };

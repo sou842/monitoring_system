@@ -43,6 +43,7 @@ export interface ResolvedConfig {
   maxBreadcrumbs: number;
   maskSelectors: string[];
   debug: boolean;
+  trackDevice: boolean;
   captureHttpErrors: boolean;
   /** Inclusive status ranges reported as HttpError. */
   httpErrorStatuses: Array<[number, number]>;
@@ -140,6 +141,7 @@ export function resolveConfig(input: ErrorTrackerConfig | null | undefined): Con
         }),
       ),
       debug: input.debug === true,
+      trackDevice: input.trackDevice !== false,
       captureHttpErrors: input.captureHttpErrors !== false,
       httpErrorStatuses: statusRanges(input.httpErrorStatuses),
       captureNetworkErrors: input.captureNetworkErrors !== false,

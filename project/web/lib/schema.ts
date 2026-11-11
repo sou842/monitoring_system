@@ -91,6 +91,8 @@ export interface EventPayload {
   user: { id: string | null; email: string | null; name: string | null };
   /** The app's screen name (setScreen); null from older SDKs. */
   screen: string | null;
+  /** Random id of the visit (SDK 0.12.0+); null from older SDKs or when invalid. */
+  session_id: string | null;
   error: { message: string; type: string; handled: boolean } | null;
   stacktrace: StackFrame[];
   breadcrumbs: Breadcrumb[];
@@ -108,6 +110,8 @@ export interface EventPayload {
   };
   memory: { used_mb: number | null; total_mb: number | null; leak_suspected: boolean | null; oom_kill: boolean | null };
   device: {
+    /** Random, anonymous id of the browser/device (SDK 0.12.0+); null when not sent. */
+    id: string | null;
     platform: string;
     os: string | null;
     os_version: string | null;

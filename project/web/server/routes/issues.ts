@@ -22,7 +22,8 @@ const isStatus = (value: unknown): value is IssueStatus => (ISSUE_STATUSES as re
  *   &type=error|message|performance|crash
  *   &env=production   &q=search text or an API call _id   &sort=lastSeen|count|firstSeen   &page=1
  *
- * When `q` is an API call `_id`, each matching issue has `matchedEventId`: the newest event that recorded the call.
+ * When `q` is an API call `_id`, a device id, a session id or a network id, each matching issue has
+ * `matchedEventId`: the newest event that recorded that call / came from that device, session or network.
  *
  * Returns the page of issues plus per-status counts and the project's environments for filters.
  */
@@ -53,10 +54,24 @@ export const GET = handle(async (request) => {
   if (q) {
     const pattern = new RegExp(escapeRegex(q), 'i');
     const or: Filter<IssueDoc>[] = [{ message: pattern }, { errorType: pattern }, { culprit: pattern }];
-    // The text may be an API call's `_id` (shown on the issue page and the Performance view).
+    // The text may be an API call's `_id` (shown on the issue page and the Performance view),
+    // or a device / session / network id (shown on each event).
     if (q.length <= MAX_REQUEST_ID_LENGTH) {
+      const id = q.toLowerCase();
       const hits = await c.events
-        .find({ 'payload.performance.api_calls._id': q, projectId }, { projection: { issueId: 1 } })
+        .find(
+          // projectId inside every branch, so each one runs on its own index (an outer projectId lets the
+          // planner pick { projectId, receivedAt } and scan the whole project for a text that is no id).
+          {
+            $or: [
+              { 'payload.performance.api_calls._id': q, projectId },
+              { projectId, deviceId: id },
+              { projectId, sessionId: id },
+              { projectId, networkId: id },
+            ],
+          },
+          { projection: { issueId: 1 } },
+        )
         .sort({ receivedAt: -1 })
         .limit(MAX_REQUEST_ID_EVENTS)
         .toArray();

@@ -198,6 +198,7 @@ All three SDKs must send events in this exact JSON shape. Any field not availabl
     "oom_kill": false
   },
   "device": {
+    "id": "32 hex chars" | null,        // added 2026-11-11, see below
     "platform": "js" | "ios" | "android",
     "os": "Windows 11" | "iOS 17.4" | "Android 14",
     "os_version": "string",
@@ -243,6 +244,14 @@ Every event has a top-level `"screen": string | null`: the app screen the event 
 - A new screen leaves a `navigation` breadcrumb (`Screen: <name>`, data `{ from, to, trigger: "setScreen" }`) and starts a new page view (`kind: "navigation"`, same `transaction.name`). A transaction event carries the screen of **its** view, even when it is sent after the next screen was set.
 - The backend groups page views by `screen` when present, otherwise by the normalized URL route. The dashboard shows `screen` next to the page URL.
 - iOS/Android should send the same field. A sensible default is `null` with `setScreen` only, so automatic view-controller or Activity names stay in `transaction.name`.
+
+### Addition (2026-11-11, JS 0.12.0): `device.id` and `session_id`
+So events from the same device and the same visit can be linked. Both are **random** ids made by the SDK, never derived from the person, the hardware or browser traits (no fingerprinting).
+- `device.id: string | null`: created once and kept (JS: `localStorage["_et_device"]`, 32 lowercase hex characters). Same id for every event from that browser profile, across reloads, tabs and logins; a new one after site data is cleared. `null` when the option `trackDevice` is `false` (default `true`) or outside a browser. If storage is blocked, an in-memory id for the page.
+- Top-level `session_id: string | null`: one visit. JS: `sessionStorage["_et_session"]` = `{ id, last }`, so it survives reloads in the same tab and each tab gets its own; a new session starts after 30 minutes without SDK activity (events or breadcrumbs). `null` outside a browser.
+- A stored value not in the exact SDK format is replaced. The API key is never stored next to them.
+- iOS/Android: `device.id` = a random UUID kept in the app's own storage (Keychain is not needed; reinstall = new id), **not** IDFA/IDFV/ANDROID_ID; `session_id` = new on cold start and after 30 minutes in the background. Same option name `trackDevice`.
+- The backend accepts letters, digits, `-` and `_` up to 64 characters (lower-cased), else `null`, and adds a server-side `networkId` (keyed hash of the sender IP network per project; never the IP).
 
 ### Addition (2026-10-28, JS 0.9.0): API call `_id`
 Every recorded HTTP request gets a unique `"_id": string` (JS: 16 random lowercase hex characters, from `crypto.getRandomValues` with a `Math.random` fallback), created once when the request finishes. The same call carries the **same** `_id` everywhere it appears:
