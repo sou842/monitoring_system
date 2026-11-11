@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { SDK_GUIDE_TOPICS, SDK_VERSION, sdkGuide, sdkGuideTools } from '../server/ai/sdkGuide.ts';
+import { PUBLISHED_RELEASES, SDK_GUIDE_TOPICS, SDK_VERSION, sdkGuide, sdkGuideTools } from '../server/ai/sdkGuide.ts';
 import { SYSTEM_PROMPT } from '../server/ai/prompt.ts';
 
 const sdkPackage = JSON.parse(readFileSync(new URL('../../../error-tracking-sdk/js/package.json', import.meta.url), 'utf8')) as { version: string };
@@ -22,6 +22,13 @@ describe('AI: SDK guide', () => {
   it('pins the current version in CDN snippets and lists it first in the history', () => {
     assert.ok(sdkGuide('html').includes(`@sourav732/error-tracker-js@${SDK_VERSION}/dist/index.mjs`));
     assert.ok(sdkGuide('versions').includes(`- **${SDK_VERSION}**`));
+  });
+
+  it('counts the published releases, newest (the bundled SDK) first', () => {
+    assert.equal(PUBLISHED_RELEASES[0], SDK_VERSION, 'add the new release to PUBLISHED_RELEASES');
+    assert.equal(new Set(PUBLISHED_RELEASES).size, PUBLISHED_RELEASES.length, 'no duplicates');
+    assert.ok(!PUBLISHED_RELEASES.includes('0.4.0'), '0.4.0 was never published');
+    assert.ok(sdkGuide('versions').includes(`**${PUBLISHED_RELEASES.length} in total**`));
   });
 
   it('lists every init() option the SDK accepts', () => {

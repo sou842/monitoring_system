@@ -10,6 +10,16 @@ import { z } from 'zod';
  * Keep it in step with error-tracking-sdk/js/README.md when the SDK changes.
  */
 export const SDK_VERSION: string = ErrorTracker.version;
+
+/**
+ * Every JS SDK release published on npm, newest first (`npm view @sourav732/error-tracker-js versions`,
+ * without the `0.0.0-stage` test upload). Add each new release here: tests/sdkGuide.test.ts fails while
+ * the bundled SDK version is not the first entry.
+ */
+export const PUBLISHED_RELEASES: readonly string[] = [
+  '0.12.0', '0.11.1', '0.11.0', '0.10.0', '0.9.0', '0.8.0', '0.7.1', '0.7.0',
+  '0.6.2', '0.6.1', '0.6.0', '0.5.0', '0.3.1', '0.3.0', '0.2.0', '0.1.0',
+];
 const PKG = '@sourav732/error-tracker-js';
 const DASHBOARD = 'https://monitoringsystem-backend.vercel.app';
 const ENDPOINT = `${DASHBOARD}/api/v1/events`;
@@ -434,6 +444,9 @@ beforeSend(event) {
   versions: {
     title: 'Version history and upgrade notes',
     body: `# Versions (current: ${SDK_VERSION})
+Published releases on npm (\`@sourav732/error-tracker-js\`), **${PUBLISHED_RELEASES.length} in total**, newest first: ${PUBLISHED_RELEASES.join(', ')}. (0.4.0 was never published: its changes shipped in 0.5.0. \`0.0.0-stage\` on npm is a test upload, not a release.) Only the JavaScript SDK exists; iOS and Android are not built yet.
+
+## What changed
 - **0.12.0** – Device and session ids: every event carries \`device.id\` (random, kept in localStorage, same for one browser; \`trackDevice: false\` turns it off) and \`session_id\` (random, per tab, survives reloads, new after 30 min idle). The dashboard adds a hashed sender network (never the IP), shows Devices / sessions / networks on the issue page, and the issue search finds issues by any of these ids.
 - **0.11.1** – BlankPage false-alarm fixes: hidden subtrees skipped, three checks over 3 s, full confirmation check, text and user-activity vetoes, \`context.confidence\` / \`samples\` / \`deep_check\`. Recommended for apps that keep hidden screens in the DOM (Appzillon).
 - **0.11.0** – Diagnostic context on events (\`situation\`, \`error_causes\`, \`error_fields\`, ResourceError/HttpError/InvalidJsonResponse causes, server request-id headers).
@@ -443,8 +456,9 @@ beforeSend(event) {
 - **0.7.x** – XHR timing fix (0.7.1: requests recorded before app callbacks run).
 - **0.6.0** – \`httpErrorStatuses\`; 401/403/409/422/429 no longer reported by default (behaviour change). 0.6.1: MainThreadBlocked/LowFrameRate context, memory-leak false-positive fix.
 - **0.5.0** – Performance monitoring (page views as \`transaction\` events), \`captureSlowEvents\` now off by default (behaviour change), keepalive delivery on page leave.
-- **0.4.0** – Memory-leak detector rewrite (\`memoryLeakMinGrowthMb\`), background-tab Web Vitals fix.
-- **0.3.0** – PageNotFound, configurable thresholds.
+- **0.4.0** (never published, shipped in 0.5.0) – Memory-leak detector rewrite (\`memoryLeakMinGrowthMb\`), background-tab Web Vitals fix.
+- **0.3.0** – PageNotFound, configurable thresholds. 0.3.1: fixes.
+- **0.2.0**, **0.1.0** – First releases: error, HTTP/network, resource, CSP, performance and memory collectors, offline queue.
 Upgrading is a version bump (npm or the CDN URL); no code changes are required between any of these versions.`,
   },
   delivery: {

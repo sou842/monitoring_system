@@ -287,7 +287,7 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
     }),
 
     get_sdk_version_issues: tool({
-      description: 'Errors by error-tracker SDK version (`sdk.version` of each event, e.g. 0.12.0: the version of our SDK that sent it). Without `version`: lists the SDK versions seen in the stored events, with event/issue counts and first/last seen. With `version`: the issues that had events sent by that SDK version, how many events, when, and `newInVersion` (the issue was first reported by this SDK version).',
+      description: 'Errors by error-tracker SDK version (`sdk.version` of each event, e.g. 0.12.0: the version of our SDK that sent it). Only versions that sent events in the stored data (30 days): not the SDK release history (that is read_sdk_guide topic versions). Without `version`: lists the SDK versions seen in the stored events, with event/issue counts and first/last seen. With `version`: the issues that had events sent by that SDK version, how many events, when, and `newInVersion` (the issue was first reported by this SDK version).',
       inputSchema: z.object({
         projectId: projectIdInput,
         version: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Exact SDK version, e.g. "0.12.0" (no "v"). Omit to list the versions.'),
