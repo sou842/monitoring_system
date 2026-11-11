@@ -11,10 +11,14 @@ import {
   AI_WORKSPACE_PERF_ROWS,
   AI_WORKSPACE_PERF_SAMPLES,
   AI_WORKSPACE_PROMPT_PROJECTS,
+  AI_VERSION_MAX_LENGTH,
+  AI_VERSION_QUERY_MAX_MS,
+  AI_VERSIONS_MAX,
+  EVENT_RETENTION_DAYS,
   MAX_REQUEST_ID_LENGTH,
   type StatsRange,
 } from '../constants.ts';
-import { collections } from '../db.ts';
+import { collections, EVENTS_VERSION_INDEX } from '../db.ts';
 import { escapeRegex, parseObjectId } from '../http.ts';
 import { projectPeople } from '../members.ts';
 import type { EventDoc, IssueDoc, UserDoc } from '../models.ts';
@@ -107,6 +111,66 @@ function endpointRow(row: EndpointRow) {
 
 function pageRow(row: PageRow) {
   return { page: row.name, views: row.views, loads: row.loads, loadP75: row.load, lcpP75: row.lcp, fcpP75: row.fcp, inpP75: row.inp, clsP75: row.cls, ttfbP75: row.ttfb, avgBlockingMs: Math.round(row.avgBlockingMs) };
+}
+
+interface VersionFilters {
+  ids: ObjectId[];
+  since: Date;
+  type?: string;
+  environment?: string;
+}
+interface VersionRow { _id: string | null; events: number; issues: number; first: Date; last: Date }
+interface VersionIssueRow { _id: ObjectId; events: number; first: Date; last: Date; newInVersion: boolean }
+interface VersionIssuesResult { top: VersionIssueRow[]; totals: Array<{ issues: number; events: number }> }
+
+/** MongoDB's error code for a query stopped by `maxTimeMS`. */
+const MONGO_MAX_TIME_EXPIRED = 50;
+/** Both version queries: a time cap, and the index that makes them covered (no event documents read) unless type/environment are given. */
+const VERSION_QUERY_OPTIONS = { maxTimeMS: AI_VERSION_QUERY_MAX_MS, hint: EVENTS_VERSION_INDEX } as const;
+
+function versionMatch({ ids, since, type, environment }: VersionFilters, version?: string): Filter<EventDoc> {
+  const match: Filter<EventDoc> = { projectId: { $in: ids } };
+  if (version !== undefined) match.appVersion = version;
+  match.receivedAt = { $gte: since };
+  if (type) match.eventType = type;
+  if (environment) match.environment = environment;
+  return match;
+}
+
+/** App versions seen in the range: events, distinct issues, first/last seen; most recently seen first. Exported for the query-plan test. */
+export function versionListPipeline(filters: VersionFilters) {
+  return [
+    { $match: versionMatch(filters) },
+    // Two steps (version+issue, then version) keep memory to one row per pair instead of a growing set per version.
+    { $group: { _id: { v: '$appVersion', i: '$issueId' }, events: { $sum: 1 }, first: { $min: '$receivedAt' }, last: { $max: '$receivedAt' } } },
+    { $group: { _id: '$_id.v', events: { $sum: '$events' }, issues: { $sum: 1 }, first: { $min: '$first' }, last: { $max: '$last' } } },
+    { $sort: { last: -1 } },
+    { $limit: AI_VERSIONS_MAX },
+  ];
+}
+
+/**
+ * One version's issues, most events first, with totals. `newInVersion`: the issue's
+ * own `firstSeen` (set from its first event's `receivedAt`, kept 90 days) is not before
+ * the first event from this version, so no older version ever had it. No other events are read.
+ * Exported for the query-plan test.
+ */
+export function versionIssuesPipeline(filters: VersionFilters & { version: string; onlyNew: boolean; limit: number }) {
+  return [
+    { $match: versionMatch(filters, filters.version) },
+    { $group: { _id: '$issueId', events: { $sum: 1 }, first: { $min: '$receivedAt' }, last: { $max: '$receivedAt' } } },
+    { $lookup: { from: 'issues', localField: '_id', foreignField: '_id', as: 'issue', pipeline: [{ $project: { _id: 0, firstSeen: 1 } }] } },
+    { $match: { 'issue.0': { $exists: true } } },
+    { $set: { newInVersion: { $gte: [{ $arrayElemAt: ['$issue.firstSeen', 0] }, '$first'] } } },
+    ...(filters.onlyNew ? [{ $match: { newInVersion: true } }] : []),
+    { $project: { issue: 0 } },
+    {
+      $facet: {
+        top: [{ $sort: { events: -1, last: -1 } }, { $limit: filters.limit }],
+        totals: [{ $group: { _id: null, issues: { $sum: 1 }, events: { $sum: '$events' } } }],
+      },
+    },
+  ];
 }
 
 /** The tools of the workspace assistant, bound to this user's scope. */
@@ -219,6 +283,57 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
       },
     }),
 
+    get_version_issues: tool({
+      description: 'Errors by app version (the `appVersion` the app passes to the SDK). Without `version`: lists the versions seen in the stored events (last 30 days) with event/issue counts and first/last seen. With `version`: the issues that had events from that version, with how many events came from it, when, and `newInVersion` (true when no older event of the issue came from another version, i.e. the issue first appeared in this version).',
+      inputSchema: z.object({
+        projectId: projectIdInput,
+        version: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Exact app version, e.g. "2.1.0". Omit to list the versions.'),
+        type: z.enum(ISSUE_EVENT_TYPES).optional(),
+        environment: z.string().max(100).optional(),
+        days: z.number().int().min(1).max(EVENT_RETENTION_DAYS).optional().describe(`Only events from the last N days. Default ${EVENT_RETENTION_DAYS} (all stored events).`),
+        onlyNew: z.boolean().optional().describe('Only issues that first appeared in this version.'),
+        limit: z.number().int().min(1).max(AI_WORKSPACE_ISSUES_MAX).optional().describe('Default 20.'),
+      }),
+      execute: async (input) => {
+        const { projectId, version, type, environment, days, onlyNew = false, limit = 20 } = input;
+        const ids = projectsFor(projectId);
+        if (!Array.isArray(ids)) return fail(ids.error);
+        const filters = { ids, since: new Date(Date.now() - (days ?? EVENT_RETENTION_DAYS) * 86_400_000), type, environment };
+        const v = (version ?? '').trim();
+        try {
+          if (!v) {
+            const rows = await c.events.aggregate<VersionRow>(versionListPipeline(filters), VERSION_QUERY_OPTIONS).toArray();
+            return {
+              versions: rows.map((r) => ({ version: r._id ?? '(not set)', events: r.events, issues: r.issues, firstSeen: iso(r.first), lastSeen: iso(r.last) })),
+              note: `Most recently seen first, at most ${AI_VERSIONS_MAX}. "(not set)" = the app did not pass appVersion.`,
+            };
+          }
+          const [result] = await c.events.aggregate<VersionIssuesResult>(versionIssuesPipeline({ ...filters, version: v, onlyNew, limit }), VERSION_QUERY_OPTIONS).toArray();
+          const top = result?.top ?? [];
+          const totals = result?.totals[0] ?? { issues: 0, events: 0 };
+          if (totals.issues === 0) {
+            return { version: v, totalIssues: 0, totalEvents: 0, issues: [], note: 'No stored issues for this exact version in the range (events are kept 30 days). Call without version to see the versions that exist; matching is exact and case-sensitive.' };
+          }
+          const issues = await c.issues.find({ _id: { $in: top.map((r) => r._id) } }).toArray();
+          const byId = new Map(issues.map((i) => [String(i._id), i]));
+          return {
+            version: v,
+            totalIssues: totals.issues,
+            totalEvents: totals.events,
+            issues: top.flatMap((r) => {
+              const issue = byId.get(String(r._id));
+              if (!issue) return [];
+              return [{ ...issueRow(issue, scope), link: `/issues/${String(issue._id)}`, eventsInVersion: r.events, firstInVersion: iso(r.first), lastInVersion: iso(r.last), newInVersion: r.newInVersion }];
+            }),
+          };
+        } catch (err) {
+          // A query over a very large project can hit the time limit; the model can narrow it and retry.
+          if ((err as { code?: unknown }).code === MONGO_MAX_TIME_EXPIRED) return fail('This query took too long. Narrow it: pick one projectId, fewer days, or a type/environment.');
+          throw err;
+        }
+      },
+    }),
+
     get_issue: tool({
       description: "One issue in depth: its facts, how its stored events spread over screens/pages/browsers/versions/days/users, and the dashboard's analysis of the newest event (where to look, last moments, hints, stack). Call get_event for an event's full JSON.",
       inputSchema: z.object({ issueId: z.string() }),
@@ -240,18 +355,22 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
     }),
 
     list_issue_events: tool({
-      description: "Lists an issue's stored events, newest first (id, time, screen, page, environment, version, browser, OS, user id).",
+      description: "Lists an issue's stored events, newest first (id, time, screen, page, environment, version, browser, OS, user id). Optional `version` keeps only one app version's events.",
       inputSchema: z.object({
         issueId: z.string(),
+        version: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Only events from this exact app version.'),
         offset: z.number().int().min(0).optional(),
         limit: z.number().int().min(1).max(AI_LIST_EVENTS_MAX).optional().describe('Default 20.'),
       }),
-      execute: async ({ issueId, offset = 0, limit = 20 }) => {
+      execute: async (input) => {
+        const { issueId, version, offset = 0, limit = 20 } = input;
         const issue = await scopedIssue(issueId);
         if (!issue) return fail(`No issue ${issueId} in the developer's projects.`);
+        const filter: Filter<EventDoc> = { issueId: issue._id };
+        if (version && version.trim()) filter.appVersion = version.trim();
         const [total, rows] = await Promise.all([
-          c.events.countDocuments({ issueId: issue._id }),
-          c.events.find({ issueId: issue._id }, { projection: EVENT_SUMMARY_PROJECTION }).sort({ receivedAt: -1 }).skip(offset).limit(limit).toArray(),
+          c.events.countDocuments(filter),
+          c.events.find(filter, { projection: EVENT_SUMMARY_PROJECTION }).sort({ receivedAt: -1 }).skip(offset).limit(limit).toArray(),
         ]);
         return { total, offset, events: rows.map(eventSummaryLine) };
       },

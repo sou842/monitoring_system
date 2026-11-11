@@ -49,6 +49,9 @@ export async function closeDb(): Promise<void> {
 }
 
 /** Typed collections, so every query knows its document shape. */
+/** Name of the events index behind the AI's app-version queries (they pass it as a hint). */
+export const EVENTS_VERSION_INDEX = 'projectId_appVersion_receivedAt_issueId';
+
 export const collections = (db: Db) => ({
   users: db.collection<UserDoc>('users'),
   projects: db.collection<ProjectDoc>('projects'),
@@ -102,6 +105,9 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.collection('events').createIndex({ projectId: 1, deviceId: 1, receivedAt: -1 }, { partialFilterExpression: { deviceId: { $exists: true } } }),
     db.collection('events').createIndex({ projectId: 1, sessionId: 1, receivedAt: -1 }, { partialFilterExpression: { sessionId: { $exists: true } } }),
     db.collection('events').createIndex({ projectId: 1, networkId: 1, receivedAt: -1 }, { partialFilterExpression: { networkId: { $exists: true } } }),
+    // "Errors of app version X" (AI `get_version_issues`). issueId + receivedAt in the key make those queries
+    // covered (no event documents read). appVersion is stored as null when unknown. tests/api.test.ts checks the plan.
+    db.collection('events').createIndex({ projectId: 1, appVersion: 1, receivedAt: -1, issueId: 1 }, { name: EVENTS_VERSION_INDEX }),
     // Events older than 30 days are removed automatically.
     db.collection('events').createIndex({ receivedAt: 1 }, { expireAfterSeconds: EVENT_RETENTION_DAYS * SECONDS_PER_DAY }),
 

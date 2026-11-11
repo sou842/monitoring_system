@@ -226,6 +226,12 @@ export const AI_WORKSPACE_MAX_STEPS = 10;
 export const AI_WORKSPACE_PROMPT_PROJECTS = 30;
 /** Issues returned per `search_issues` call. */
 export const AI_WORKSPACE_ISSUES_MAX = 50;
+/** App versions listed by `get_version_issues` when no version is given (most events first). */
+export const AI_VERSIONS_MAX = 30;
+/** Max length of an app version the assistant may filter by (the SDK sends free text). */
+export const AI_VERSION_MAX_LENGTH = 100;
+/** Time cap of each `get_version_issues` database query; past it the model is told to narrow the question. */
+export const AI_VERSION_QUERY_MAX_MS = 8_000;
 /** Rows of the pages / endpoints tables in `get_performance`. */
 export const AI_WORKSPACE_PERF_ROWS = 15;
 /** Slowest samples in `get_performance_detail`. */

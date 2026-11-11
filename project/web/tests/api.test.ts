@@ -11,8 +11,8 @@ import { promisify } from 'node:util';
 import { ObjectId, type Db } from 'mongodb';
 import type { UserView } from '../lib/types.ts';
 import { issueTools } from '../server/ai/tools.ts';
-import { workspaceContext, workspaceScope, workspaceTools } from '../server/ai/workspace.ts';
-import { closeDb, getDb } from '../server/db.ts';
+import { versionIssuesPipeline, versionListPipeline, workspaceContext, workspaceScope, workspaceTools } from '../server/ai/workspace.ts';
+import { closeDb, EVENTS_VERSION_INDEX, getDb } from '../server/db.ts';
 import * as account from '../server/routes/account.ts';
 import * as ai from '../server/routes/ai.ts';
 import * as assistant from '../server/routes/assistant.ts';
@@ -970,6 +970,55 @@ describe('backend API (integration)', { skip: enabled ? false : 'MONGODB_URI not
         assert.match(String((await erinTools.list_members.execute!({ projectId }, options) as { error?: string }).error), /Unknown project/);
         const none = await erinTools.search_issues.execute!({}, options) as { total: number };
         assert.equal(none.total, 0);
+      });
+
+      it('finds issues by app version (get_version_issues, list_issue_events version)', async () => {
+        const pid = new ObjectId(projectId);
+        const now = Date.now();
+        // As in ingest: an issue's firstSeen is its first event's receivedAt.
+        const issueDoc = (msg: string, firstMinutesAgo: number) => ({ _id: new ObjectId(), projectId: pid, fingerprint: `version-test:${msg}`, eventType: 'error', errorType: 'VersionTest', message: msg, culprit: null, status: 'open', level: 'error', count: 1, firstSeen: new Date(now - firstMinutesAgo * 60_000), lastSeen: new Date(now), environments: ['production'] });
+        const old = issueDoc('VersionTest old bug', 60);
+        const fresh = issueDoc('VersionTest new bug', 3);
+        await db.collection('issues').insertMany([old, fresh]);
+        const ev = (issue: { _id: ObjectId }, appVersion: string, minutesAgo: number) => ({ projectId: pid, issueId: issue._id, eventType: 'error', environment: 'production', appVersion, receivedAt: new Date(now - minutesAgo * 60_000), timestamp: new Date(now - minutesAgo * 60_000), payload: {} });
+        await db.collection('events').insertMany([ev(old, '9.0.0', 60), ev(old, '9.1.0', 5), ev(old, '9.1.0', 4), ev(fresh, '9.1.0', 3)]);
+
+        const tools = workspaceTools(db, await scopeOf('alice@example.com'));
+        const versions = await tools.get_version_issues.execute!({}, options) as { versions: Array<{ version: string; events: number; issues: number }> };
+        assert.deepEqual(versions.versions.find((v) => v.version === '9.1.0'), { ...versions.versions.find((v) => v.version === '9.1.0'), events: 3, issues: 2 });
+        assert.ok(versions.versions.some((v) => v.version === '9.0.0'));
+
+        type Res = { totalIssues: number; issues: Array<{ id: string; eventsInVersion: number; newInVersion: boolean }> };
+        const all = await tools.get_version_issues.execute!({ version: '9.1.0' }, options) as Res;
+        assert.equal(all.totalIssues, 2);
+        assert.deepEqual(all.issues.map((i) => [i.id, i.eventsInVersion, i.newInVersion]), [[String(old._id), 2, false], [String(fresh._id), 1, true]]);
+        const onlyNew = await tools.get_version_issues.execute!({ version: '9.1.0', onlyNew: true }, options) as Res;
+        assert.deepEqual(onlyNew.issues.map((i) => i.id), [String(fresh._id)]);
+        assert.equal((await tools.get_version_issues.execute!({ version: '0.0.404' }, options) as Res).totalIssues, 0);
+
+        const listed = await tools.list_issue_events.execute!({ issueId: String(old._id), version: '9.0.0' }, options) as { total: number };
+        assert.equal(listed.total, 1);
+
+        // A version issue whose first event is older than every stored event (events expire after 30 days,
+        // issues after 90) must not count as new: newInVersion comes from the issue's firstSeen.
+        await db.collection('issues').updateOne({ _id: fresh._id }, { $set: { firstSeen: new Date(now - 60 * 86_400_000) } });
+        const afterExpiry = await tools.get_version_issues.execute!({ version: '9.1.0', onlyNew: true }, options) as Res;
+        assert.equal(afterExpiry.totalIssues, 0);
+        const lastDay = await tools.get_version_issues.execute!({ version: '9.0.0', days: 1 }, options) as Res;
+        assert.equal(lastDay.totalIssues, 1);
+
+        // Both queries read only the index: no collection scan, no event documents fetched.
+        const filters = { ids: [pid], since: new Date(now - 30 * 86_400_000) };
+        for (const pipeline of [versionListPipeline(filters), versionIssuesPipeline({ ...filters, version: '9.1.0', onlyNew: false, limit: 20 })]) {
+          const plan = JSON.stringify(await db.collection('events').aggregate(pipeline, { hint: EVENTS_VERSION_INDEX }).explain());
+          assert.ok(plan.includes(EVENTS_VERSION_INDEX), 'uses the version index');
+          assert.ok(!plan.includes('COLLSCAN'), 'no collection scan');
+          assert.ok(!plan.includes('"FETCH"'), 'covered: no event documents read');
+        }
+
+        const erin = workspaceTools(db, await scopeOf('erin@example.com'));
+        assert.equal((await erin.get_version_issues.execute!({ version: '9.1.0' }, options) as Res).totalIssues, 0);
+        assert.match(String((await erin.get_version_issues.execute!({ projectId, version: '9.1.0' }, options) as { error?: string }).error), /Unknown project/);
       });
 
       it('puts only the project list in the prompt', async () => {
