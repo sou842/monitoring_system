@@ -21,12 +21,13 @@ export function issueTools(db: Db, issue: IssueDoc, project: Pick<ProjectDoc, 'i
       inputSchema: z.object({
         offset: z.number().int().min(0).optional().describe('How many of the newest events to skip (paging). Default 0.'),
         limit: z.number().int().min(1).max(AI_LIST_EVENTS_MAX).optional().describe(`How many events to return, at most ${AI_LIST_EVENTS_MAX}. Default 20.`),
-        version: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Only events from this exact app version (see the App versions breakdown).'),
+        sdkVersion: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Only events sent by this exact error-tracker SDK version, e.g. "0.12.0" (see the SDK versions breakdown).'),
       }),
       execute: async (input) => {
-        const { offset = 0, limit = 20, version } = input;
-        const filter: Filter<EventDoc> = { issueId: issue._id };
-        if (version && version.trim()) filter.appVersion = version.trim();
+        const { offset = 0, limit = 20, sdkVersion } = input;
+        const filter: Record<string, unknown> = { issueId: issue._id };
+        const sv = (sdkVersion ?? '').trim().replace(/^v(?=\d)/i, '');
+        if (sv) filter['payload.sdk.version'] = sv;
         const [total, rows] = await Promise.all([
           events.countDocuments(filter),
           events.find(filter, { projection: EVENT_SUMMARY_PROJECTION }).sort({ receivedAt: -1 }).skip(offset).limit(limit).toArray(),

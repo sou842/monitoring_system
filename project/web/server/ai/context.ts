@@ -51,6 +51,7 @@ export function eventSummaryLine(event: EventDoc): string {
     event.url ? `url ${event.url}` : null,
     `env ${event.environment}`,
     event.appVersion ? `version ${event.appVersion}` : null,
+    event.payload && event.payload.sdk && event.payload.sdk.version ? `sdk ${event.payload.sdk.version}` : null,
     device && device.browser ? `${device.browser} ${device.browser_version ?? ''}`.trim() : null,
     device && device.os ? `${device.os} ${device.os_version ?? ''}`.trim() : null,
     event.userId ? `user ${event.userId}` : null,
@@ -80,7 +81,7 @@ function topRows(counter: Counter, total: number): string {
 export function breakdown(events: readonly EventDoc[]): string {
   if (events.length === 0) return 'No stored events.';
   const fields: Record<string, Counter> = {
-    Screens: new Map(), Pages: new Map(), Environments: new Map(), 'App versions': new Map(), Browsers: new Map(),
+    Screens: new Map(), Pages: new Map(), Environments: new Map(), 'App versions': new Map(), 'SDK versions': new Map(), Browsers: new Map(),
     'Operating systems': new Map(), Handled: new Map(), Messages: new Map(), Days: new Map(),
   };
   const users = new Set<string>();
@@ -93,6 +94,7 @@ export function breakdown(events: readonly EventDoc[]): string {
     count(fields.Pages, e.url);
     count(fields.Environments, e.environment);
     count(fields['App versions'], e.appVersion);
+    count(fields['SDK versions'], e.payload && e.payload.sdk ? e.payload.sdk.version : null);
     count(fields.Browsers, device && device.browser ? `${device.browser} ${String(device.browser_version ?? '').split('.')[0]}`.trim() : null);
     count(fields['Operating systems'], device && device.os);
     count(fields.Handled, e.handled);
@@ -159,7 +161,7 @@ export function issueContext({ issue, project, event, events }: IssueContextInpu
 /** Event fields the breakdown and event lists read; skips the heavy parts (breadcrumbs, stack, API calls). */
 export const EVENT_SUMMARY_PROJECTION = {
   receivedAt: 1, timestamp: 1, environment: 1, appVersion: 1, handled: 1, userId: 1, url: 1, screen: 1, message: 1, deviceId: 1, sessionId: 1, networkId: 1,
-  'payload.device': 1, 'payload.error': 1,
+  'payload.device': 1, 'payload.error': 1, 'payload.sdk': 1,
 } as const;
 
 /** Loads what `issueContext` needs. `eventId` is ignored unless it belongs to the issue. */

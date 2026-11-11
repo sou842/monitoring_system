@@ -18,7 +18,7 @@ import {
   MAX_REQUEST_ID_LENGTH,
   type StatsRange,
 } from '../constants.ts';
-import { collections, EVENTS_VERSION_INDEX } from '../db.ts';
+import { collections, EVENTS_SDK_VERSION_INDEX } from '../db.ts';
 import { escapeRegex, parseObjectId } from '../http.ts';
 import { projectPeople } from '../members.ts';
 import type { EventDoc, IssueDoc, UserDoc } from '../models.ts';
@@ -113,6 +113,9 @@ function pageRow(row: PageRow) {
   return { page: row.name, views: row.views, loads: row.loads, loadP75: row.load, lcpP75: row.lcp, fcpP75: row.fcp, inpP75: row.inp, clsP75: row.cls, ttfbP75: row.ttfb, avgBlockingMs: Math.round(row.avgBlockingMs) };
 }
 
+/** The version these queries look at: the error-tracker SDK that sent the event (`sdk.version`), not the app's own version. */
+const SDK_VERSION_FIELD = 'payload.sdk.version';
+
 interface VersionFilters {
   ids: ObjectId[];
   since: Date;
@@ -125,24 +128,24 @@ interface VersionIssuesResult { top: VersionIssueRow[]; totals: Array<{ issues: 
 
 /** MongoDB's error code for a query stopped by `maxTimeMS`. */
 const MONGO_MAX_TIME_EXPIRED = 50;
-/** Both version queries: a time cap, and the index that makes them covered (no event documents read) unless type/environment are given. */
-const VERSION_QUERY_OPTIONS = { maxTimeMS: AI_VERSION_QUERY_MAX_MS, hint: EVENTS_VERSION_INDEX } as const;
+/** Options of every version query: a time cap, and the index that makes it covered (no event documents read) unless type/environment are given. */
+export const VERSION_QUERY_OPTIONS = { maxTimeMS: AI_VERSION_QUERY_MAX_MS, hint: EVENTS_SDK_VERSION_INDEX } as const;
 
 function versionMatch({ ids, since, type, environment }: VersionFilters, version?: string): Filter<EventDoc> {
-  const match: Filter<EventDoc> = { projectId: { $in: ids } };
-  if (version !== undefined) match.appVersion = version;
+  const match: Record<string, unknown> = { projectId: { $in: ids } };
+  if (version !== undefined) match[SDK_VERSION_FIELD] = version;
   match.receivedAt = { $gte: since };
   if (type) match.eventType = type;
   if (environment) match.environment = environment;
-  return match;
+  return match as Filter<EventDoc>;
 }
 
-/** App versions seen in the range: events, distinct issues, first/last seen; most recently seen first. Exported for the query-plan test. */
+/** SDK versions seen in the range: events, distinct issues, first/last seen; most recently seen first. Exported for the query-plan test. */
 export function versionListPipeline(filters: VersionFilters) {
   return [
     { $match: versionMatch(filters) },
     // Two steps (version+issue, then version) keep memory to one row per pair instead of a growing set per version.
-    { $group: { _id: { v: '$appVersion', i: '$issueId' }, events: { $sum: 1 }, first: { $min: '$receivedAt' }, last: { $max: '$receivedAt' } } },
+    { $group: { _id: { v: `$${SDK_VERSION_FIELD}`, i: '$issueId' }, events: { $sum: 1 }, first: { $min: '$receivedAt' }, last: { $max: '$receivedAt' } } },
     { $group: { _id: '$_id.v', events: { $sum: '$events' }, issues: { $sum: 1 }, first: { $min: '$first' }, last: { $max: '$last' } } },
     { $sort: { last: -1 } },
     { $limit: AI_VERSIONS_MAX },
@@ -150,9 +153,9 @@ export function versionListPipeline(filters: VersionFilters) {
 }
 
 /**
- * One version's issues, most events first, with totals. `newInVersion`: the issue's
+ * One SDK version's issues, most events first, with totals. `newInVersion`: the issue's
  * own `firstSeen` (set from its first event's `receivedAt`, kept 90 days) is not before
- * the first event from this version, so no older version ever had it. No other events are read.
+ * the first event sent by this SDK version, so no older SDK version ever reported it. No other events are read.
  * Exported for the query-plan test.
  */
 export function versionIssuesPipeline(filters: VersionFilters & { version: string; onlyNew: boolean; limit: number }) {
@@ -283,11 +286,11 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
       },
     }),
 
-    get_version_issues: tool({
-      description: 'Errors by app version (the `appVersion` the app passes to the SDK). Without `version`: lists the versions seen in the stored events (last 30 days) with event/issue counts and first/last seen. With `version`: the issues that had events from that version, with how many events came from it, when, and `newInVersion` (true when no older event of the issue came from another version, i.e. the issue first appeared in this version).',
+    get_sdk_version_issues: tool({
+      description: 'Errors by error-tracker SDK version (`sdk.version` of each event, e.g. 0.12.0: the version of our SDK that sent it). Without `version`: lists the SDK versions seen in the stored events, with event/issue counts and first/last seen. With `version`: the issues that had events sent by that SDK version, how many events, when, and `newInVersion` (the issue was first reported by this SDK version).',
       inputSchema: z.object({
         projectId: projectIdInput,
-        version: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Exact app version, e.g. "2.1.0". Omit to list the versions.'),
+        version: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Exact SDK version, e.g. "0.12.0" (no "v"). Omit to list the versions.'),
         type: z.enum(ISSUE_EVENT_TYPES).optional(),
         environment: z.string().max(100).optional(),
         days: z.number().int().min(1).max(EVENT_RETENTION_DAYS).optional().describe(`Only events from the last N days. Default ${EVENT_RETENTION_DAYS} (all stored events).`),
@@ -298,26 +301,27 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
         const { projectId, version, type, environment, days, onlyNew = false, limit = 20 } = input;
         const ids = projectsFor(projectId);
         if (!Array.isArray(ids)) return fail(ids.error);
-        const filters = { ids, since: new Date(Date.now() - (days ?? EVENT_RETENTION_DAYS) * 86_400_000), type, environment };
-        const v = (version ?? '').trim();
+        const base = { ids, since: new Date(Date.now() - (days ?? EVENT_RETENTION_DAYS) * 86_400_000), type, environment };
+        // "v0.12.0" and "0.12.0" mean the same; the SDK sends the bare number.
+        const v = (version ?? '').trim().replace(/^v(?=\d)/i, '');
         try {
           if (!v) {
-            const rows = await c.events.aggregate<VersionRow>(versionListPipeline(filters), VERSION_QUERY_OPTIONS).toArray();
+            const rows = await c.events.aggregate<VersionRow>(versionListPipeline(base), VERSION_QUERY_OPTIONS).toArray();
             return {
-              versions: rows.map((r) => ({ version: r._id ?? '(not set)', events: r.events, issues: r.issues, firstSeen: iso(r.first), lastSeen: iso(r.last) })),
-              note: `Most recently seen first, at most ${AI_VERSIONS_MAX}. "(not set)" = the app did not pass appVersion.`,
+              versions: rows.map((r) => ({ version: r._id ?? '(unknown)', events: r.events, issues: r.issues, firstSeen: iso(r.first), lastSeen: iso(r.last) })),
+              note: `SDK versions, most recently seen first, at most ${AI_VERSIONS_MAX}.`,
             };
           }
-          const [result] = await c.events.aggregate<VersionIssuesResult>(versionIssuesPipeline({ ...filters, version: v, onlyNew, limit }), VERSION_QUERY_OPTIONS).toArray();
+          const [result] = await c.events.aggregate<VersionIssuesResult>(versionIssuesPipeline({ ...base, version: v, onlyNew, limit }), VERSION_QUERY_OPTIONS).toArray();
           const top = result?.top ?? [];
           const totals = result?.totals[0] ?? { issues: 0, events: 0 };
           if (totals.issues === 0) {
-            return { version: v, totalIssues: 0, totalEvents: 0, issues: [], note: 'No stored issues for this exact version in the range (events are kept 30 days). Call without version to see the versions that exist; matching is exact and case-sensitive.' };
+            return { sdkVersion: v, totalIssues: 0, totalEvents: 0, issues: [], note: `No stored issues from SDK version "${v}" in the range (events are kept 30 days). Call without version to see the SDK versions that exist.` };
           }
           const issues = await c.issues.find({ _id: { $in: top.map((r) => r._id) } }).toArray();
           const byId = new Map(issues.map((i) => [String(i._id), i]));
           return {
-            version: v,
+            sdkVersion: v,
             totalIssues: totals.issues,
             totalEvents: totals.events,
             issues: top.flatMap((r) => {
@@ -355,19 +359,20 @@ export function workspaceTools(db: Db, scope: WorkspaceScope) {
     }),
 
     list_issue_events: tool({
-      description: "Lists an issue's stored events, newest first (id, time, screen, page, environment, version, browser, OS, user id). Optional `version` keeps only one app version's events.",
+      description: "Lists an issue's stored events, newest first (id, time, screen, page, environment, version, browser, OS, user id). Optional `sdkVersion` keeps only events sent by one SDK version.",
       inputSchema: z.object({
         issueId: z.string(),
-        version: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Only events from this exact app version.'),
+        sdkVersion: z.string().max(AI_VERSION_MAX_LENGTH).optional().describe('Only events sent by this exact error-tracker SDK version, e.g. "0.12.0".'),
         offset: z.number().int().min(0).optional(),
         limit: z.number().int().min(1).max(AI_LIST_EVENTS_MAX).optional().describe('Default 20.'),
       }),
       execute: async (input) => {
-        const { issueId, version, offset = 0, limit = 20 } = input;
+        const { issueId, sdkVersion, offset = 0, limit = 20 } = input;
         const issue = await scopedIssue(issueId);
         if (!issue) return fail(`No issue ${issueId} in the developer's projects.`);
-        const filter: Filter<EventDoc> = { issueId: issue._id };
-        if (version && version.trim()) filter.appVersion = version.trim();
+        const filter: Record<string, unknown> = { issueId: issue._id };
+        const sv = (sdkVersion ?? '').trim().replace(/^v(?=\d)/i, '');
+        if (sv) filter[SDK_VERSION_FIELD] = sv;
         const [total, rows] = await Promise.all([
           c.events.countDocuments(filter),
           c.events.find(filter, { projection: EVENT_SUMMARY_PROJECTION }).sort({ receivedAt: -1 }).skip(offset).limit(limit).toArray(),
