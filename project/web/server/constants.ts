@@ -80,7 +80,7 @@ export const EVENT_RETENTION_DAYS = 30;
 /** Issues not seen for this long are deleted (their events are long gone). */
 export const ISSUE_RETENTION_DAYS = 90;
 /** Project chat messages are deleted this long after being sent. */
-export const CHAT_RETENTION_DAYS = 30;
+export const CHAT_RETENTION_DAYS = 90;
 export const SECONDS_PER_DAY = 24 * 60 * 60;
 
 // ---------------------------------------------------------------------------

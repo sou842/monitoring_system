@@ -66,6 +66,28 @@ export const collections = (db: Db) => ({
 });
 
 /**
+ * A TTL index on `field` that deletes documents `seconds` after that date. `createIndex` refuses to change
+ * the expiry of an existing index (IndexOptionsConflict), which would fail every request after a retention
+ * change, so a different live expiry is updated in place with `collMod` (no rebuild).
+ */
+export async function ensureTtlIndex(db: Db, collection: string, field: string, seconds: number): Promise<void> {
+  try {
+    await db.collection(collection).createIndex({ [field]: 1 }, { expireAfterSeconds: seconds });
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== MONGO_INDEX_OPTIONS_CONFLICT) throw error;
+    try {
+      await db.command({ collMod: collection, index: { keyPattern: { [field]: 1 }, expireAfterSeconds: seconds } });
+    } catch (modError) {
+      // collMod needs the dbAdmin `collMod` privilege. Without it the old expiry stays; the app must still start.
+      console.error(`TTL index ${collection}.${field} could not be changed to ${seconds}s:`, (modError as Error).message);
+    }
+  }
+}
+
+/** MongoDB's error code when an index exists with the same key but other options. */
+const MONGO_INDEX_OPTIONS_CONFLICT = 85;
+
+/**
  * Creates the indexes the app relies on. Idempotent: MongoDB ignores
  * indexes that already exist with the same definition.
  */
@@ -84,8 +106,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.collection('chat_messages').createIndex({ projectId: 1, updatedAt: 1 }, { partialFilterExpression: { updatedAt: { $exists: true } } }),
     // A message re-sent after a lost response is saved once.
     db.collection('chat_messages').createIndex({ userId: 1, clientId: 1 }, { unique: true, partialFilterExpression: { clientId: { $exists: true } } }),
-    // Chat messages older than 30 days are removed automatically.
-    db.collection('chat_messages').createIndex({ createdAt: 1 }, { expireAfterSeconds: CHAT_RETENTION_DAYS * SECONDS_PER_DAY }),
+    // Chat messages older than 90 days are removed automatically.
+    ensureTtlIndex(db, 'chat_messages', 'createdAt', CHAT_RETENTION_DAYS * SECONDS_PER_DAY),
     db.collection('chat_reads').createIndex({ projectId: 1, userId: 1 }, { unique: true }),
 
     // One issue per (project, fingerprint): this is what groups repeated errors.
@@ -93,7 +115,7 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.collection('issues').createIndex({ projectId: 1, status: 1, lastSeen: -1 }),
     db.collection('issues').createIndex({ projectId: 1, count: -1 }),
     // Issues nobody has seen for 90 days are removed automatically.
-    db.collection('issues').createIndex({ lastSeen: 1 }, { expireAfterSeconds: ISSUE_RETENTION_DAYS * SECONDS_PER_DAY }),
+    ensureTtlIndex(db, 'issues', 'lastSeen', ISSUE_RETENTION_DAYS * SECONDS_PER_DAY),
 
     db.collection('events').createIndex({ issueId: 1, receivedAt: -1 }),
     db.collection('events').createIndex({ projectId: 1, receivedAt: -1 }),
@@ -109,18 +131,18 @@ export async function ensureIndexes(db: Db): Promise<void> {
     // covered (no event documents read). tests/api.test.ts checks the plan.
     db.collection('events').createIndex({ projectId: 1, 'payload.sdk.version': 1, receivedAt: -1, issueId: 1 }, { name: EVENTS_SDK_VERSION_INDEX }),
     // Events older than 30 days are removed automatically.
-    db.collection('events').createIndex({ receivedAt: 1 }, { expireAfterSeconds: EVENT_RETENTION_DAYS * SECONDS_PER_DAY }),
+    ensureTtlIndex(db, 'events', 'receivedAt', EVENT_RETENTION_DAYS * SECONDS_PER_DAY),
 
     // Page views: newest first per project, and "slowest calls to this endpoint".
     db.collection('transactions').createIndex({ projectId: 1, receivedAt: -1 }),
     db.collection('transactions').createIndex({ projectId: 1, route: 1, receivedAt: -1 }),
     db.collection('transactions').createIndex({ projectId: 1, 'spans.key': 1, receivedAt: -1 }),
     db.collection('transactions').createIndex({ 'spans._id': 1 }),
-    db.collection('transactions').createIndex({ receivedAt: 1 }, { expireAfterSeconds: TRANSACTION_RETENTION_DAYS * SECONDS_PER_DAY }),
+    ensureTtlIndex(db, 'transactions', 'receivedAt', TRANSACTION_RETENTION_DAYS * SECONDS_PER_DAY),
     // One rollup row per (project, hour, environment, page or endpoint).
     db.collection('perf_rollups').createIndex({ projectId: 1, kind: 1, key: 1, environment: 1, hour: 1 }, { unique: true }),
     db.collection('perf_rollups').createIndex({ projectId: 1, hour: 1 }),
-    db.collection('perf_rollups').createIndex({ hour: 1 }, { expireAfterSeconds: ROLLUP_RETENTION_DAYS * SECONDS_PER_DAY }),
+    ensureTtlIndex(db, 'perf_rollups', 'hour', ROLLUP_RETENTION_DAYS * SECONDS_PER_DAY),
 
     // Rate-limit counters expire right after their minute is over.
     db.collection('rate_limits').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
